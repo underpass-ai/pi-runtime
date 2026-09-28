@@ -18,8 +18,16 @@ rm -rf "$staging"
 npm install -g --ignore-scripts --no-audit --no-fund --prefix "$staging" "${pkg}@${ver}"
 shrink="${staging}/lib/node_modules/${pkg}/npm-shrinkwrap.json"
 [[ -f "$shrink" ]] || { echo "install-pi: published shrinkwrap missing" >&2; exit 1; }
-node "${here}/bin/osv-audit.ts" "$shrink" > "${staging}/osv-audit.json" || {
-  echo "install-pi: OSV audit not clean; see ${staging}/osv-audit.json" >&2; exit 1; }
+if node "${here}/bin/osv-audit.ts" "$shrink" > "${staging}/osv-audit.json" 2> "${staging}/osv-audit.err"; then
+  audit_rc=0
+else
+  audit_rc=$?
+fi
+if [[ "$audit_rc" -eq 1 ]]; then
+  echo "install-pi: OSV audit found vulnerabilities; see ${staging}/osv-audit.json" >&2; exit 1
+elif [[ "$audit_rc" -ne 0 ]]; then
+  echo "install-pi: OSV audit could not run (exit ${audit_rc}); nothing was installed; see ${staging}/osv-audit.err" >&2; exit 1
+fi
 
 rm -rf "$prefix" && mv "$staging" "$prefix"
 mkdir -p "$HOME/.local/bin" && ln -sfn "${prefix}/bin/pi" "$HOME/.local/bin/pi"
