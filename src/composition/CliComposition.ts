@@ -21,6 +21,7 @@ import { DiagnoseInstallation } from "../application/use-cases/DiagnoseInstallat
 import { DiscoverMadeCapabilities } from "../application/use-cases/DiscoverMadeCapabilities.ts";
 import { EnsureMadeConfiguration } from "../application/use-cases/EnsureMadeConfiguration.ts";
 import { InstallPinnedBinaries } from "../application/use-cases/InstallPinnedBinaries.ts";
+import { VerifyPinnedBinaries } from "../application/use-cases/VerifyPinnedBinaries.ts";
 import { SetupInstallation } from "../application/use-cases/SetupInstallation.ts";
 import { VerifyServerProfiles } from "../application/use-cases/VerifyServerProfiles.ts";
 import { ToolProfiles } from "../domain/contracts/ToolProfiles.ts";
@@ -46,7 +47,9 @@ export class CliComposition {
     const paths = new StatePaths(env);
     const pins = new JsonPinSetSource(join(repoRoot, "pins.json")).load();
     const installation = new FsBinaryInstallation(paths.binDir());
-    const install = new InstallPinnedBinaries(pins, Target.detect(process.platform, process.arch), new GithubReleaseDownloader(), new NodeFileDigester(), installation);
+    const target = Target.detect(process.platform, process.arch);
+    const install = new InstallPinnedBinaries(pins, target, new GithubReleaseDownloader(), new NodeFileDigester(), installation);
+    const verify = new VerifyPinnedBinaries(pins, target, new NodeFileDigester(), installation);
     const kmpBin = installation.pathOf(pins.pinFor(BinaryName.KMP));
     const madeBin = installation.pathOf(pins.pinFor(BinaryName.MADE));
     const store = StorePath.of(env.MADE_MCP_STORE_PATH ?? join(env.XDG_STATE_HOME ?? join(env.HOME ?? "", ".local/state"), "underpass-made", "ceremonies.sqlite3"));
@@ -62,7 +65,7 @@ export class CliComposition {
     };
 
     const setup = new SetupInstallation(install, ensure, new BootstrapMadeAuthorization(new MadeCliAuthorizationBootstrapper(madeBin)), kmp, piPackages, store, repoRoot);
-    const doctor = new DiagnoseInstallation(install, new PiCliRuntimeInspector(), piPackages, kmp, new FsFingerprintRepository(paths.fingerprintsFile()),
+    const doctor = new DiagnoseInstallation(verify, new PiCliRuntimeInspector(), piPackages, kmp, new FsFingerprintRepository(paths.fingerprintsFile()),
       connect, new VerifyServerProfiles(ToolProfiles.standard()), new DiscoverMadeCapabilities(), pins.pi.version);
     return new UnderpassCli(setup, doctor, print);
   }

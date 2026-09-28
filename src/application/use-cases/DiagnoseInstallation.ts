@@ -14,26 +14,33 @@ import type { McpConnection } from "../ports/McpConnection.ts";
 import type { PiPackageManager } from "../ports/PiPackageManager.ts";
 import type { PiRuntimeInspector } from "../ports/PiRuntimeInspector.ts";
 import type { DiscoverMadeCapabilities } from "./DiscoverMadeCapabilities.ts";
-import type { InstallPinnedBinaries } from "./InstallPinnedBinaries.ts";
+import type { VerifyPinnedBinaries } from "./VerifyPinnedBinaries.ts";
 import type { VerifyServerProfiles } from "./VerifyServerProfiles.ts";
 
 const c = (s: CheckSection, n: string, d: string) => ({ s, n: CheckName.of(n), d: CheckDetail.of(d) });
 
 export class DiagnoseInstallation {
-  readonly #install: InstallPinnedBinaries; readonly #runtime: PiRuntimeInspector; readonly #pi: PiPackageManager; readonly #kmp: KmpLifecycle;
+  readonly #verify: VerifyPinnedBinaries; readonly #runtime: PiRuntimeInspector; readonly #pi: PiPackageManager; readonly #kmp: KmpLifecycle;
   readonly #fingerprints: FingerprintRepository; readonly #connect: (s: ServerName) => Promise<McpConnection>;
   readonly #profiles: VerifyServerProfiles; readonly #capabilities: DiscoverMadeCapabilities; readonly #piVersion: SemVer;
 
-  constructor(install: InstallPinnedBinaries, runtime: PiRuntimeInspector, pi: PiPackageManager, kmp: KmpLifecycle, fingerprints: FingerprintRepository,
+  constructor(verify: VerifyPinnedBinaries, runtime: PiRuntimeInspector, pi: PiPackageManager, kmp: KmpLifecycle, fingerprints: FingerprintRepository,
     connect: (s: ServerName) => Promise<McpConnection>, profiles: VerifyServerProfiles, capabilities: DiscoverMadeCapabilities, piVersion: SemVer) {
-    this.#install = install; this.#runtime = runtime; this.#pi = pi; this.#kmp = kmp; this.#fingerprints = fingerprints;
+    this.#verify = verify; this.#runtime = runtime; this.#pi = pi; this.#kmp = kmp; this.#fingerprints = fingerprints;
     this.#connect = connect; this.#profiles = profiles; this.#capabilities = capabilities; this.#piVersion = piVersion;
   }
 
   async execute(record: boolean): Promise<DiagnosisReport> {
     let report = DiagnosisReport.of(await this.#piChecks());
-    try { await this.#install.execute(); report = report.add(Check.ok(CheckSection.HOST, CheckName.of("pinned binaries"), CheckDetail.of("verified"))); }
+    let binaries: Awaited<ReturnType<VerifyPinnedBinaries["execute"]>>;
+    try { binaries = await this.#verify.execute(); }
     catch (e) { return report.add(Check.fail(CheckSection.HOST, CheckName.of("pinned binaries"), CheckDetail.of((e as Error).message))); }
+    const broken = binaries.filter((b) => b.status !== "verified");
+    if (broken.length > 0) {
+      const detail = `${broken.map((b) => `${b.name} ${b.status}`).join(", ")}; run \`underpass update\``;
+      return report.add(Check.fail(CheckSection.HOST, CheckName.of("pinned binaries"), CheckDetail.of(detail)));
+    }
+    report = report.add(Check.ok(CheckSection.HOST, CheckName.of("pinned binaries"), CheckDetail.of("verified")));
 
     const current = new Map<string, CatalogFingerprint>();
     for (const server of [ServerName.KMP, ServerName.MADE]) {

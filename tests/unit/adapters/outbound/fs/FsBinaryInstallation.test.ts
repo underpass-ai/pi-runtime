@@ -38,3 +38,12 @@ test("GithubReleaseDownloader escribe el cuerpo y falla con estados de error", a
     await assert.rejects(new GithubReleaseDownloader().download(new URL(`http://127.0.0.1:${port}/missing`), to), /404/);
   } finally { server.close(); }
 });
+
+test("construirla y consultarla no crea nada en disco; sólo instalar crea el directorio", () => {
+  const dir = join(mkdtempSync(join(tmpdir(), "bin-")), "nested", "bin");
+  const inst = new FsBinaryInstallation(dir);
+  assert.equal(inst.exists(pin), false);
+  assert.equal(existsSync(dir), false);
+  inst.stagingPathOf(pin);
+  assert.equal(existsSync(dir), true);
+});
