@@ -38,3 +38,23 @@ test("sin factoría para un servidor falla con un mensaje claro", async () => {
   const p = new ServerPool(project, new StdioMcpConnector(), new Map());
   await assert.rejects(p.connection(ServerName.MADE), /no command for made/);
 });
+
+test("connection() tras close() rechaza", async () => {
+  const p = pool();
+  await p.close();
+  await assert.rejects(p.connection(ServerName.KMP), /server pool closed/);
+});
+
+test("close() durante una apertura en curso: el llamante rechaza y la conexión abierta se cierra", async () => {
+  let closed = false;
+  const fakeConn = { server: ServerName.KMP, onExit: () => {}, close: async () => { closed = true; } };
+  let resolveOpen!: (c: typeof fakeConn) => void;
+  const opening = new Promise<typeof fakeConn>((r) => { resolveOpen = r; });
+  const p = new ServerPool(project, { open: () => opening }, new Map([["kmp", factory("kmp")]]));
+  const pending = p.connection(ServerName.KMP);
+  const closing = p.close();
+  resolveOpen(fakeConn);
+  await assert.rejects(pending, /server pool closed/);
+  await closing;
+  assert.equal(closed, true);
+});

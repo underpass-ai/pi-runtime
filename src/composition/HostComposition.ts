@@ -15,32 +15,28 @@ import { StorePath } from "../domain/made/StorePath.ts";
 import { StatePaths } from "./StatePaths.ts";
 
 export class HostComposition {
-  static async run(projectCwd: string, env: Record<string, string | undefined>): Promise<void> {
+  static async run(projectCwd: string, env: Record<string, string | undefined>, commands?: Map<string, ServerCommandFactory>): Promise<void> {
     const project = new GitProjectLocator().locate(projectCwd);
     const paths = new StatePaths(env);
     const lock = new FsOwnerLock(paths.projectDir(project)).acquire();
     if (!lock.owned) return;
 
-    const pool = new ServerPool(project, new StdioMcpConnector(60_000), HostComposition.#commands(env, paths));
+    const pool = new ServerPool(project, new StdioMcpConnector(60_000), commands ?? HostComposition.#commands(env, paths));
     const serve = new ServeHostRequest(project, pool);
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
 
     const idleMs = Number(env.UNDERPASS_HOST_IDLE_MS ?? 60_000);
     let idleSince = Date.now();
     const shutdown = async () => { clearInterval(timer); await server.close(); await pool.close(); lock.release(); };
+    const finish = () => void shutdown().then(() => process.exit(0)).catch(() => process.exit(1));
     const timer = setInterval(() => {
       if (server.clients() > 0) idleSince = Date.now();
-      else if (Date.now() - idleSince >= idleMs) void shutdown().then(() => process.exit(0));
+      else if (Date.now() - idleSince >= idleMs) finish();
     }, Math.max(100, Math.min(1000, idleMs / 2)));
-    process.once("SIGTERM", () => void shutdown().then(() => process.exit(0)));
+    process.once("SIGTERM", finish);
   }
 
   static #commands(env: Record<string, string | undefined>, paths: StatePaths): Map<string, ServerCommandFactory> {
-    const test = env.UNDERPASS_TEST_SERVER?.split(" ");
-    if (test) {
-      const fake = (flavor: string): ServerCommandFactory => ({ commandFor: (p) => ({ command: test[0], args: test.slice(1), cwd: p.root.value, env: { ...env, FAKE_FLAVOR: flavor } }) });
-      return new Map([["kmp", fake("kmp")], ["made", fake("made")]]);
-    }
     const pins = new JsonPinSetSource(new URL("../../pins.json", import.meta.url).pathname).load();
     const bin = (n: BinaryName) => join(paths.binDir(), pins.pinFor(n).installedFileName());
     const store = StorePath.of(env.MADE_MCP_STORE_PATH ?? join(env.XDG_STATE_HOME ?? join(env.HOME ?? "", ".local/state"), "underpass-made", "ceremonies.sqlite3"));

@@ -11,13 +11,13 @@ import { StatePaths } from "../../../src/composition/StatePaths.ts";
 import { ServerName } from "../../../src/domain/mcp/ServerName.ts";
 import { ToolName } from "../../../src/domain/mcp/ToolName.ts";
 
-const hostEntry = new URL("../../../bin/underpass-host.ts", import.meta.url).pathname;
+const hostEntry = new URL("../../fixtures/test-host.ts", import.meta.url).pathname;
 const fake = new URL("../../fixtures/fake-mcp-server.ts", import.meta.url).pathname;
 
 test("dos conexiones desde el mismo proyecto comparten un único host", async () => {
   const home = mkdtempSync(join(tmpdir(), "home-"));
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), "proj-")));
-  const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", UNDERPASS_TEST_SERVER: `${process.execPath} ${fake}` };
+  const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", FAKE_SERVER_CMD: `${process.execPath} ${fake}` };
   const paths = new StatePaths(env);
   let launches = 0;
   const inner = new DetachedHostLauncher(hostEntry, env);
