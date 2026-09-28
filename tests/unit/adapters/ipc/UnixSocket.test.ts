@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { UnixSocketHostServer } from "../../../../src/adapters/inbound/ipc/UnixSocketHostServer.ts";
 import { UnixSocketHostGateway } from "../../../../src/adapters/outbound/ipc/UnixSocketHostGateway.ts";
 import { HostCallError } from "../../../../src/application/ports/HostCallError.ts";
@@ -143,4 +143,27 @@ test("close() sí borra su propio socket", async () => {
   const server = await UnixSocketHostServer.start(path, async (req) => ({ id: req.id, ok: true, result: null }));
   await server.close();
   assert.equal(existsSync(path), false);
+});
+
+test("el host ignora líneas JSON que no son objetos y sigue atendiendo", async () => {
+  const path = sock();
+  let calls = 0;
+  const server = await UnixSocketHostServer.start(path, async (req) => { calls++; return { id: req.id, ok: true, result: { project: "/p", started: [] } }; });
+  try {
+    const client = await new Promise<import("node:net").Socket>((resolve, reject) => { const s = connect(path, () => resolve(s)); s.once("error", reject); });
+    const lines: string[] = [];
+    client.on("data", (d) => lines.push(...d.toString().split("\n").filter(Boolean)));
+    client.write("null\n5\n\"x\"\n" + JSON.stringify({ id: 7, method: "health" }) + "\n");
+    await within(new Promise<void>((resolve) => { const t = setInterval(() => { if (lines.length) { clearInterval(t); resolve(); } }, 5); }));
+    assert.deepEqual(lines.map((l) => JSON.parse(l)), [{ id: 7, ok: true, result: { project: "/p", started: [] } }]);
+    assert.equal(calls, 1);
+    client.destroy();
+  } finally { await server.close(); }
+});
+
+test("una ruta de socket demasiado larga falla con un error claro que nombra XDG_STATE_HOME", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ipc-"));
+  const long = join(dir, "x".repeat(120 - dir.length), "host.sock");
+  mkdirSync(dirname(long), { mode: 0o700 });
+  await assert.rejects(UnixSocketHostServer.start(long, async (req) => ({ id: req.id, ok: true, result: null })), /too long.*XDG_STATE_HOME/);
 });

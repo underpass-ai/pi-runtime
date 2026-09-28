@@ -117,3 +117,13 @@ test("escribir a un hijo que cerró su stdin (EPIPE real) rechaza en vez de tumb
   await assert.rejects(conn.call(ToolName.of("kmp_echo"), big), McpTransportError);
   child.kill("SIGKILL");
 });
+
+test("close() escala a SIGKILL si el hijo ignora el cierre de stdin y SIGTERM", async () => {
+  const child = spawnNode("process.on('SIGTERM', () => {}); process.stdin.resume(); process.stdin.on('end', () => {}); setInterval(() => {}, 1000)");
+  await new Promise((r) => setTimeout(r, 150)); // deja que instale el manejador de SIGTERM
+  const conn = new StdioMcpConnection(ServerName.KMP, child, 5000, 50);
+  const started = Date.now();
+  await conn.close();
+  assert.equal(child.signalCode, "SIGKILL");
+  assert.ok(Date.now() - started < 2000, "no espera los plazos por defecto");
+});

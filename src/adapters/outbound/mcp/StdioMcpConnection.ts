@@ -23,14 +23,16 @@ export class StdioMcpConnection implements McpConnection {
   protocol = ProtocolVersion.MCP_2024_11_05;
   readonly #child: ChildProcessWithoutNullStreams;
   readonly #timeoutMs: number;
+  readonly #graceMs: number;
   readonly #pending = new Map<number, Pending>();
   readonly #exitListeners: (() => void)[] = [];
   #nextId = 1;
   #exited = false;
   #stderrTail = "";
 
-  constructor(server: ServerName, child: ChildProcessWithoutNullStreams, timeoutMs: number) {
-    this.server = server; this.#child = child; this.#timeoutMs = timeoutMs;
+  // graceMs: espera tras cerrar stdin antes de SIGTERM, y tras SIGTERM antes de SIGKILL.
+  constructor(server: ServerName, child: ChildProcessWithoutNullStreams, timeoutMs: number, graceMs = 2000) {
+    this.server = server; this.#child = child; this.#timeoutMs = timeoutMs; this.#graceMs = graceMs;
     createInterface({ input: child.stdout }).on("line", (l) => this.#onLine(l));
     child.stderr.on("data", (chunk: Buffer) => { this.#stderrTail = (this.#stderrTail + chunk.toString()).slice(-4096); });
     child.on("exit", (code) => this.#down(`${server} exited (${code}); outcome unknown${this.#stderrSuffix()}`));
@@ -77,9 +79,14 @@ export class StdioMcpConnection implements McpConnection {
     if (this.#exited) return;
     const done = new Promise<void>((r) => this.#child.once("exit", () => r()));
     this.#child.stdin.end();
-    const kill = setTimeout(() => this.#child.kill("SIGTERM"), 2000);
+    let hard: NodeJS.Timeout | undefined;
+    const term = setTimeout(() => {
+      this.#child.kill("SIGTERM");
+      hard = setTimeout(() => this.#child.kill("SIGKILL"), this.#graceMs);
+    }, this.#graceMs);
     await done;
-    clearTimeout(kill);
+    clearTimeout(term);
+    clearTimeout(hard);
   }
 
   #request(method: string, params: unknown): Promise<unknown> {

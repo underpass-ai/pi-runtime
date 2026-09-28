@@ -7,6 +7,8 @@ import type { HostResponseDto } from "../../../application/dto/HostResponseDto.t
 import { LineFramer } from "../../ipc/LineFramer.ts";
 
 const ALLOWED = new Set(["call", "catalog", "health"]);
+// sun_path admite 104–108 bytes según el sistema; 100 deja margen en todos.
+const MAX_SOCKET_PATH_BYTES = 100;
 type Handler = (req: HostRequestDto) => Promise<HostResponseDto>;
 
 function requirePrivateDir(path: string): void {
@@ -32,6 +34,9 @@ export class UnixSocketHostServer {
   // ese borrado cae sobre el temporal (ya inexistente) y el de `path` lo
   // decide #unlinkIfOurs comparando inodos.
   static async start(path: string, handle: Handler): Promise<UnixSocketHostServer> {
+    if (Buffer.byteLength(path) > MAX_SOCKET_PATH_BYTES) {
+      throw new Error(`socket path too long (${Buffer.byteLength(path)} bytes > ${MAX_SOCKET_PATH_BYTES}): ${path}; set XDG_STATE_HOME to a shorter absolute directory`);
+    }
     requirePrivateDir(path);
     const listenPath = join(dirname(path), `.${randomBytes(3).toString("hex")}`);
     let self: UnixSocketHostServer;
@@ -65,8 +70,10 @@ export class UnixSocketHostServer {
     sock.on("error", () => sock.destroy());
     const framer = new LineFramer(
       async (line) => {
-        let req: { id?: number; method?: string };
-        try { req = JSON.parse(line); } catch { return; }
+        let parsed: unknown;
+        try { parsed = JSON.parse(line); } catch { return; }
+        if (typeof parsed !== "object" || parsed === null) return; // null, números o strings: se ignoran
+        const req = parsed as { id?: number; method?: string };
         const id = typeof req.id === "number" ? req.id : -1;
         const res: HostResponseDto = !ALLOWED.has(req.method ?? "")
           ? { id, ok: false, error: { kind: "denied", message: `method ${req.method} not allowed` } }
