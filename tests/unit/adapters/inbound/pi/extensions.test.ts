@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HostExtension } from "../../../../../src/adapters/inbound/pi/HostExtension.ts";
+import { HOST_READY, HostExtension } from "../../../../../src/adapters/inbound/pi/HostExtension.ts";
 import { ServerToolsExtension } from "../../../../../src/adapters/inbound/pi/ServerToolsExtension.ts";
 import { PiToolFactory } from "../../../../../src/adapters/inbound/pi/PiToolFactory.ts";
 import { HostCallError } from "../../../../../src/adapters/outbound/ipc/HostCallError.ts";
@@ -123,6 +123,27 @@ test("un catálogo que falla no registra tools, avisa por evento y consola, y se
   } finally {
     console.error = original;
   }
+});
+
+test("dos HOST_READY concurrentes registran cada tool una sola vez", async () => {
+  const pi = new FakePi();
+  let catalogCalls = 0;
+  const gateway = {
+    catalog: async (s: ServerName) => { catalogCalls++; await new Promise((r) => setTimeout(r, 10)); return catalog(s, ["kmp_ask"]); },
+    call: async () => ({ structured: null, text: "" }),
+    health: async () => ({ project: "/repo", started: [] }),
+    close: () => {},
+  };
+  const fakeHost = { gateway: async () => gateway, applyPhase: () => {} } as unknown as HostExtension;
+  const factory = new PiToolFactory((j) => j);
+  new ServerToolsExtension(ServerName.KMP, fakeHost, factory).register(pi as never);
+
+  pi.events.emit(HOST_READY, null);
+  pi.events.emit(HOST_READY, null); // segundo HOST_READY antes de que el primer catalog() resuelva
+
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(catalogCalls, 1);
+  assert.deepEqual(pi.tools.map((t) => t.name), ["kmp_ask"]);
 });
 
 test("dos session_start sin shutdown cierran el gateway anterior una sola vez", async () => {
