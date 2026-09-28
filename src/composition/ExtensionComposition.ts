@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
 import { UnixSocketHostGateway } from "../adapters/outbound/ipc/UnixSocketHostGateway.ts";
 import { DetachedHostLauncher } from "../adapters/outbound/process/DetachedHostLauncher.ts";
@@ -12,7 +13,19 @@ import { PhaseToolSelection } from "../domain/session/PhaseToolSelection.ts";
 import { SharedInstance } from "./SharedInstance.ts";
 import { StatePaths } from "./StatePaths.ts";
 
-const HOST_EXTENSION_KEY = "underpass-pi.host-extension";
+// El registro vive en globalThis (ver SharedInstance.ts) y sobrevive a una
+// recarga de extensiones dentro del mismo proceso de pi. Si `underpass
+// update` cambia de versión mientras ese proceso sigue vivo, una recarga
+// posterior no debe reutilizar el HostExtension de la versión anterior:
+// se versiona la clave con el `version` de package.json en el momento de
+// componer, así que versiones distintas nunca comparten instancia.
+function packageVersion(): string {
+  const url = new URL("../../package.json", import.meta.url);
+  const pkg = JSON.parse(readFileSync(url, "utf8")) as { version: string };
+  return pkg.version;
+}
+
+const HOST_EXTENSION_KEY = `underpass-pi.host-extension@${packageVersion()}`;
 
 export class ExtensionComposition {
   static #select = new SelectPhaseTools(PhaseToolSelection.standard());
