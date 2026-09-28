@@ -26,6 +26,14 @@ test("VOs MCP validan", () => {
   assert.throws(() => CatalogFingerprint.of("x"), DomainError);
   assert.throws(() => RefusalCode.of(""), DomainError);
   assert.ok(ToolName.of("kmp_ask").hasPrefix("kmp_"));
+  // Una entrada no string (p. ej. ["kmp_ask"], que un regex convertiría a "kmp_ask") se rechaza.
+  for (const raw of [["kmp_ask"], 5, null, undefined, { toString: () => "kmp_ask" }]) {
+    assert.throws(() => ToolName.of(raw as never), DomainError);
+    assert.throws(() => RefusalCode.of(raw as never), DomainError);
+    assert.throws(() => ProtocolVersion.of(raw as never), DomainError);
+    assert.throws(() => CatalogFingerprint.of(raw as never), DomainError);
+    assert.throws(() => ToolDescription.of(raw as never), DomainError);
+  }
   assert.ok(ServerName.of("made").equals(ServerName.MADE));
   assert.equal(ProtocolVersion.MCP_2024_11_05.value, "2024-11-05");
 });

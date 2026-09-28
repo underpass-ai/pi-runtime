@@ -55,3 +55,14 @@ test("PinSet: busca por nombre y rechaza duplicados o ausencias", () => {
   assert.throws(() => PinSet.of(pi, [kmpPin(), kmpPin()]), /duplicate/);
   assert.equal(set.pi.version.value, "0.87.1");
 });
+
+test("los VOs de distribución rechazan entradas que no son string", async () => {
+  const { AdvisoryId } = await import("../../../../src/domain/distribution/AdvisoryId.ts");
+  const factories: [string, (raw: never) => unknown][] = [
+    ["SemVer", (r) => SemVer.of(r)], ["Sha256Digest", (r) => Sha256Digest.of(r)], ["Sha512Integrity", (r) => Sha512Integrity.of(r)],
+    ["RepositorySlug", (r) => RepositorySlug.of(r)], ["NpmPackageName", (r) => NpmPackageName.of(r)], ["AdvisoryId", (r) => AdvisoryId.of(r)], ["Target", (r) => Target.of(r)],
+  ];
+  for (const raw of [["1.0.0"], ["a/b"], ["GHSA-x"], 5, null, undefined]) {
+    for (const [name, factory] of factories) assert.throws(() => factory(raw as never), DomainError, `${name}(${JSON.stringify(raw)})`);
+  }
+});
