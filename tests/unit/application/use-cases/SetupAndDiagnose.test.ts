@@ -35,7 +35,7 @@ function deps(overrides: Record<string, unknown> = {}) {
     verify: { execute: async () => [{ name: BinaryName.KMP, path: "/b/k", status: "verified" }, { name: BinaryName.MADE, path: "/b/m", status: "verified" }] } as unknown as VerifyPinnedBinaries,
     ensure: new EnsureMadeConfiguration(repo, { bytes: (k) => new Uint8Array(k) }),
     bootstrap: new BootstrapMadeAuthorization({ bootstrap: async () => "authorization policy opened" }),
-    kmp: { setup: async () => {}, doctor: async () => true },
+    kmp: { doctor: async () => true },
     pi: { install: async () => {}, isRegistered: async () => true },
     runtime: { version: async () => SemVer.of("0.87.1") },
     fingerprints: { load: () => new Map(), save: (m: Map<string, unknown>) => { saved = m; } },
@@ -47,14 +47,14 @@ function deps(overrides: Record<string, unknown> = {}) {
 
 test("setup encadena todo y no falla con dobles sanos", async () => {
   const d = deps();
-  const r = await new SetupInstallation(d.install, d.ensure, d.bootstrap, d.kmp, d.pi, store, "/pkg").execute();
+  const r = await new SetupInstallation(d.install, d.ensure, d.bootstrap, d.pi, store, "/pkg").execute();
   assert.equal(r.hasFailures(), false);
-  assert.deepEqual(r.checks().map((c) => c.name.value), ["pinned binaries", "private configuration", "authorization bootstrap", "kmp-mcp setup", "underpass-pi package"]);
+  assert.deepEqual(r.checks().map((c) => c.name.value), ["pinned binaries", "private configuration", "authorization bootstrap", "underpass-pi package"]);
 });
 
 test("setup se detiene si la descarga falla", async () => {
   const d = deps({ install: { execute: async () => { throw new Error("sha256 mismatch for kmp-mcp"); } } });
-  const r = await new SetupInstallation(d.install as never, d.ensure, d.bootstrap, d.kmp, d.pi, store, "/pkg").execute();
+  const r = await new SetupInstallation(d.install as never, d.ensure, d.bootstrap, d.pi, store, "/pkg").execute();
   assert.equal(r.hasFailures(), true);
   assert.equal(r.checks().length, 1);
 });
@@ -68,7 +68,7 @@ test("doctor verifica perfiles, capacidades y registra huellas", async () => {
 });
 
 test("doctor marca FAIL con Pi ausente o de otra versión, y WARN si kmp doctor avisa", async () => {
-  const d = deps({ runtime: { version: async () => null }, kmp: { setup: async () => {}, doctor: async () => false } });
+  const d = deps({ runtime: { version: async () => null }, kmp: { doctor: async () => false } });
   const r = await new DiagnoseInstallation(d.verify, d.runtime as never, d.pi, d.kmp as never, d.fingerprints, d.connections, new VerifyServerProfiles(profiles), new DiscoverMadeCapabilities(), SemVer.of("0.87.1")).execute(false);
   assert.equal(r.hasFailures(), true);
   assert.ok(r.checks().some((c) => c.name.value === "kmp-mcp doctor" && c.status.value === "WARN"));
@@ -78,7 +78,7 @@ test("doctor marca FAIL con Pi ausente o de otra versión, y WARN si kmp doctor 
 test("setup convierte un fallo al leer la configuración privada de MADE en un check FAIL, sin excepción", async () => {
   const brokenRepo = { load() { throw new Error("made config /cfg contains an unknown key MADE_BOGUS"); }, create() {}, locationOf: () => "/cfg" };
   const d = deps({ ensure: new EnsureMadeConfiguration(brokenRepo as never, { bytes: (k: number) => new Uint8Array(k) }) });
-  const r = await new SetupInstallation(d.install, d.ensure, d.bootstrap, d.kmp, d.pi, store, "/pkg").execute();
+  const r = await new SetupInstallation(d.install, d.ensure, d.bootstrap, d.pi, store, "/pkg").execute();
   assert.equal(r.hasFailures(), true);
   assert.deepEqual(r.checks().map((c) => c.name.value), ["pinned binaries", "private configuration"]);
   const failed = r.checks().find((c) => c.name.value === "private configuration")!;

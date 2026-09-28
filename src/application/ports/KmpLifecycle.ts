@@ -1,1 +1,1 @@
-export interface KmpLifecycle { setup(): Promise<void>; doctor(): Promise<boolean>; }
+export interface KmpLifecycle { doctor(): Promise<boolean>; }

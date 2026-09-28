@@ -30,8 +30,9 @@ test("bootstrap de MADE pasa store y ids, nunca la clave", async () => {
 test("kmp lifecycle, pi package manager, pi runtime y huellas", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bin-"));
   const kmp = script(dir, "kmp-mcp", `[ "$1" = doctor ] && exit 1; exit 0`);
-  await new KmpCliLifecycle(kmp, dir, {}).setup();
-  assert.equal(await new KmpCliLifecycle(kmp, dir, {}).doctor(), false);
+  assert.equal(await new KmpCliLifecycle(kmp, {}).doctor(), false);
+  assert.equal(await new KmpCliLifecycle(script(dir, "kmp-ok", "exit 0"), {}).doctor(), true);
+  assert.equal("setup" in new KmpCliLifecycle(kmp, {}), false, "setup no reconcilia hosts de KMP ajenos (llegará como kmp-mcp setup --pi)");
   const pi = script(dir, "pi", `case "$1" in --version) echo 0.87.1;; list) echo "  /x/underpass-pi";; install) exit 0;; esac`);
   await new PiCliPackageManager(pi).install("/x/underpass-pi");
   assert.equal(await new PiCliPackageManager(pi).isRegistered("underpass-pi"), true);

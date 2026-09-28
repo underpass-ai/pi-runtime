@@ -55,7 +55,7 @@ export class CliComposition {
     const store = StorePath.of(env.MADE_MCP_STORE_PATH ?? join(env.XDG_STATE_HOME ?? join(env.HOME ?? "", ".local/state"), "underpass-made", "ceremonies.sqlite3"));
     const configs = new FsMadeConfigurationRepository(env);
     const ensure = new EnsureMadeConfiguration(configs, new NodeEntropySource());
-    const kmp = new KmpCliLifecycle(kmpBin, paths.binDir(), env);
+    const kmp = new KmpCliLifecycle(kmpBin, env);
     const piPackages = new PiCliPackageManager();
     const project = new GitProjectLocator().locate(process.cwd());
     const connector = new StdioMcpConnector(60_000);
@@ -64,7 +64,7 @@ export class CliComposition {
       return connector.open(s, new MadeServerCommandFactory(madeBin, store, loadMadeConfigurationOrThrow(configs, store), env).commandFor(project));
     };
 
-    const setup = new SetupInstallation(install, ensure, new BootstrapMadeAuthorization(new MadeCliAuthorizationBootstrapper(madeBin)), kmp, piPackages, store, repoRoot);
+    const setup = new SetupInstallation(install, ensure, new BootstrapMadeAuthorization(new MadeCliAuthorizationBootstrapper(madeBin)), piPackages, store, repoRoot);
     const doctor = new DiagnoseInstallation(verify, new PiCliRuntimeInspector(), piPackages, kmp, new FsFingerprintRepository(paths.fingerprintsFile()),
       connect, new VerifyServerProfiles(ToolProfiles.standard()), new DiscoverMadeCapabilities(), pins.pi.version);
     return new UnderpassCli(setup, doctor, print);
