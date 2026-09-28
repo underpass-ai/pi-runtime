@@ -1,0 +1,13 @@
+{
+  "pi": { "package": "@earendil-works/pi-coding-agent", "version": "0.87.1", "integrity": "sha512-m8ArJUtVcQMSe1lLE/Ei7vX/JV7O39sWmWBsXV2NOU70F0qCp8GubA24pT3LnwTmM6LL2xV80/h6sQg85n69ew==" },
+  "binaries": [
+    { "name": "kmp-mcp", "version": "0.24.0", "repo": "underpass-ai/kmp", "sha256": {
+      "aarch64-unknown-linux-gnu": "1eb1e9ee366c8fb1d20172c67786a70ea53108c415f8db8c9437243329f971af",
+      "x86_64-unknown-linux-gnu": "3ae44e6b37b5c247a055dad416e1ccbc3cdbdf3ea2e5a0cc0caeaec809e69e1d",
+      "aarch64-apple-darwin": "77ef7ee76761f41c1566b26c0ec192b23226f800f9472002adcb44421103079e" } },
+    { "name": "made-mcp", "version": "0.8.0", "repo": "underpass-ai/made", "sha256": {
+      "aarch64-unknown-linux-gnu": "a3f1cf2223fedafb5584ad56e4ca0870179c6abce3b315ac988b13d5d91dbafa",
+      "x86_64-unknown-linux-gnu": "c2bba7b3e75543b1cbea5a5bdde27acde5eb9182ed1aeabcfdccaf048bed8db2",
+      "aarch64-apple-darwin": "f497abd8bf2ea303cc5aabdf857131d172d40035010cbca09f982df40f293a44" } }
+  ]
+}
