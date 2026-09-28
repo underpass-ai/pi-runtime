@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { MadeConfigurationRepository } from "../../../application/ports/MadeConfigurationRepository.ts";
 import { CeremonyStoreId } from "../../../domain/made/CeremonyStoreId.ts";
@@ -21,24 +21,52 @@ export class FsMadeConfigurationRepository implements MadeConfigurationRepositor
 
   load(store: StorePath): MadeConfiguration | null {
     const path = this.locationOf(store);
-    if (!existsSync(path) && !this.#isDanglingLink(path)) return null;
-    const st = lstatSync(path);
-    if (st.isSymbolicLink()) throw new Error(`made config ${path} must not be a symlink`);
-    if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new Error(`made config ${path} must be owned by the current user`);
-    const mode = st.mode & 0o777;
-    if (mode !== 0o600 && mode !== 0o400) throw new Error(`made config ${path} has mode ${mode.toString(8)}; expected 600 or 400`);
-    const entries = readFileSync(path, "utf8").split("\n").filter((l) => l.trim()).map((l) => { const i = l.indexOf("="); return [l.slice(0, i), l.slice(i + 1)] as [string, string]; });
-    const keys = entries.map(([k]) => k);
-    if (keys.length !== 4 || KEYS.some((k) => !keys.includes(k))) throw new Error(`made config ${path} must contain exactly four keys`);
-    const v = Object.fromEntries(entries);
-    return MadeConfiguration.of({ policy: PolicyId.of(v.MADE_AUTH_POLICY_ID), trustedHost: TrustedHostId.of(v.MADE_AUTH_TRUSTED_HOST_ID), store: CeremonyStoreId.of(v.MADE_CEREMONY_STORE_ID), cursorKey: CursorHmacKey.of(v.MADE_CEREMONY_SEARCH_CURSOR_HMAC_KEY) });
+    const dir = dirname(path);
+    if (!this.#dirExists(dir)) return null;
+    this.#assertDirSecure(dir);
+
+    let fd: number;
+    try {
+      fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === "ENOENT") return null;
+      if (code === "ELOOP") throw new Error(`made config ${path} must not be a symlink`);
+      throw e;
+    }
+    try {
+      const st = fstatSync(fd);
+      if (!st.isFile()) throw new Error(`made config ${path} must be a regular file`);
+      if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new Error(`made config ${path} must be owned by the current user`);
+      const mode = st.mode & 0o777;
+      if (mode !== 0o600 && mode !== 0o400) throw new Error(`made config ${path} has mode ${mode.toString(8)}; expected 600 or 400`);
+      const entries = readFileSync(fd, "utf8").split("\n").filter((l) => l.trim()).map((l) => {
+        const i = l.indexOf("=");
+        if (i === -1) throw new Error(`malformed line in made config ${path}`);
+        return [l.slice(0, i), l.slice(i + 1)] as [string, string];
+      });
+      const keys = entries.map(([k]) => k);
+      if (keys.length !== 4 || KEYS.some((k) => !keys.includes(k))) throw new Error(`made config ${path} must contain exactly four keys`);
+      const v = Object.fromEntries(entries);
+      return MadeConfiguration.of({ policy: PolicyId.of(v.MADE_AUTH_POLICY_ID), trustedHost: TrustedHostId.of(v.MADE_AUTH_TRUSTED_HOST_ID), store: CeremonyStoreId.of(v.MADE_CEREMONY_STORE_ID), cursorKey: CursorHmacKey.of(v.MADE_CEREMONY_SEARCH_CURSOR_HMAC_KEY) });
+    } finally {
+      closeSync(fd);
+    }
   }
 
   create(store: StorePath, configuration: MadeConfiguration): void {
     const path = this.locationOf(store);
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const dir = dirname(path);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    this.#assertDirSecure(dir);
     writeFileSync(path, configuration.entries().map(([k, v]) => `${k}=${v}`).join("\n") + "\n", { mode: 0o600, flag: "wx" });
   }
 
-  #isDanglingLink(path: string): boolean { try { return lstatSync(path).isSymbolicLink(); } catch { return false; } }
+  #dirExists(dir: string): boolean { try { return statSync(dir).isDirectory(); } catch { return false; } }
+
+  #assertDirSecure(dir: string): void {
+    const st = statSync(dir);
+    if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new Error(`made config directory ${dir} must be owned by the current user`);
+    if ((st.mode & 0o022) !== 0) throw new Error(`made config directory ${dir} must not be writable by group or others`);
+  }
 }

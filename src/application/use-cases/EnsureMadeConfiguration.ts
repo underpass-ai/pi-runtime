@@ -11,7 +11,15 @@ export class EnsureMadeConfiguration {
     const existing = this.#repo.load(store);
     if (existing) return { configuration: existing, created: false, location };
     const configuration = MadeConfiguration.generateFor(store, this.#entropy.bytes(32));
-    this.#repo.create(store, configuration);
+    try {
+      this.#repo.create(store, configuration);
+    } catch (e) {
+      if ((e as { code?: string }).code === "EEXIST") {
+        const reloaded = this.#repo.load(store);
+        if (reloaded) return { configuration: reloaded, created: false, location };
+      }
+      throw e;
+    }
     return { configuration, created: true, location };
   }
 }

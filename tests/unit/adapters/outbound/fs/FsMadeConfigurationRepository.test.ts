@@ -38,6 +38,25 @@ test("rechaza permisos abiertos, symlink y claves de más", () => {
   assert.throws(() => repo.load(store), /symlink/);
 });
 
+test("directorio padre escribible por grupo/otros: load y create rechazan", () => {
+  const { home, repo, store } = setup();
+  repo.create(store, MadeConfiguration.generateFor(store, new Uint8Array(32).fill(3)));
+  const embeddedDir = join(repo.locationOf(store), "..");
+  chmodSync(embeddedDir, 0o775);
+  assert.throws(() => repo.load(store), /must not be writable by group or others/);
+  const other = StorePath.of(join(home, ".local/state/underpass-made/otro.sqlite3"));
+  assert.throws(() => repo.create(other, MadeConfiguration.generateFor(other, new Uint8Array(32).fill(4))), /must not be writable by group or others/);
+  chmodSync(embeddedDir, 0o700);
+});
+
+test("línea sin '=' en el fichero de configuración: error claro", () => {
+  const { repo, store } = setup();
+  repo.create(store, MadeConfiguration.generateFor(store, new Uint8Array(32).fill(3)));
+  const loc = repo.locationOf(store);
+  writeFileSync(loc, readFileSync(loc, "utf8").replace(/\n$/, "") + "\nMALFORMED_LINE_NO_EQUALS\n");
+  assert.throws(() => repo.load(store), /malformed line in made config/);
+});
+
 test("MADE_SETUP_CONFIG_ROOT y XDG_CONFIG_HOME se respetan", () => {
   const store = StorePath.of("/s/c.sqlite3");
   assert.equal(new FsMadeConfigurationRepository({ HOME: "/h", MADE_SETUP_CONFIG_ROOT: "/r" }).locationOf(store), `/r/${store.configDigest()}.env`);
