@@ -4062,7 +4062,7 @@ git commit -m "feat(host): pool perezoso de servidores y host por proyecto compa
     - `register(pi: PiExtensionApi): void`
     - `gateway(): Promise<HostGateway>`
   - `ServerToolsExtension`:
-    - `constructor(server: ServerName, host: HostExtension, tools: PiToolFactory, select: SelectPhaseTools)`
+    - `constructor(server: ServerName, host: HostExtension, tools: PiToolFactory)`
     - `register(pi): void`
   - Entry points: `export default (pi) => ExtensionComposition.host(pi)`, y el equivalente con `kmp(pi)` y `made(pi)`. La composición comparte un único `HostExtension` por proceso Pi.
 
@@ -4128,7 +4128,7 @@ class FakePi {
   setActiveTools(n: string[]) { this.active = n; }
   events = { on: (ev: string, h: (d: unknown) => unknown) => { (this.bus.get(ev) ?? this.bus.set(ev, []).get(ev)!).push(h); }, emit: (ev: string, d: unknown) => { for (const h of this.bus.get(ev) ?? []) h(d); } };
   ctx = { cwd: "/repo", hasUI: true, ui: { notify: (m: string) => { this.notes.push(m); } } };
-  async fire(ev: string) { for (const h of this.handlers.get(ev) ?? []) await h({}, this.ctx); await new Promise((r) => setTimeout(r, 0)); }
+  async fire(ev: string) { for (const h of this.handlers.get(ev) ?? []) await h({}, this.ctx); await new Promise((r) => setTimeout(r, 20)); } // deja terminar los handlers asíncronos del bus
 }
 
 const catalog = (server: ServerName, names: string[]) => ToolCatalog.of(server, ServerIdentity.of("s", SemVer.of("1.0.0")), names.map((n) => new McpToolMapper().toDomain({ name: n, inputSchema: { type: "object" } })));
@@ -4148,8 +4148,8 @@ test("session_start conecta, registra tools de ambos servidores y activa sólo l
   const host = new HostExtension(async () => { connects++; return gatewayFake(closed); }, select);
   const factory = new PiToolFactory((j) => ({ wrapped: j }), 10);
   host.register(pi as never);
-  new ServerToolsExtension(ServerName.KMP, host, factory, select).register(pi as never);
-  new ServerToolsExtension(ServerName.MADE, host, factory, select).register(pi as never);
+  new ServerToolsExtension(ServerName.KMP, host, factory).register(pi as never);
+  new ServerToolsExtension(ServerName.MADE, host, factory).register(pi as never);
   assert.equal(connects, 0); // la factoría no abre nada
   await pi.fire("session_start");
   assert.equal(connects, 1);
@@ -4363,7 +4363,6 @@ export class HostExtension {
 `src/adapters/inbound/pi/ServerToolsExtension.ts`:
 
 ```ts
-import type { SelectPhaseTools } from "../../../application/use-cases/SelectPhaseTools.ts";
 import type { ServerName } from "../../../domain/mcp/ServerName.ts";
 import { Phase } from "../../../domain/session/Phase.ts";
 import { HOST_READY, type HostExtension } from "./HostExtension.ts";
@@ -4372,7 +4371,7 @@ import type { PiToolFactory } from "./PiToolFactory.ts";
 
 export class ServerToolsExtension {
   readonly #server: ServerName; readonly #host: HostExtension; readonly #tools: PiToolFactory; #registered = false;
-  constructor(server: ServerName, host: HostExtension, tools: PiToolFactory, _select: SelectPhaseTools) { this.#server = server; this.#host = host; this.#tools = tools; }
+  constructor(server: ServerName, host: HostExtension, tools: PiToolFactory) { this.#server = server; this.#host = host; this.#tools = tools; }
 
   register(pi: PiExtensionApi): void {
     pi.events.on(HOST_READY, async () => {
@@ -4419,7 +4418,7 @@ export class ExtensionComposition {
   static host(pi: PiExtensionApi): void { this.#shared().register(pi); }
 
   static server(pi: PiExtensionApi, server: ServerName, toSchema: (json: Record<string, unknown>) => unknown): void {
-    new ServerToolsExtension(server, this.#shared(), new PiToolFactory(toSchema), this.#select).register(pi);
+    new ServerToolsExtension(server, this.#shared(), new PiToolFactory(toSchema)).register(pi);
   }
 }
 ```
@@ -4585,7 +4584,7 @@ test("report acumula, detecta FAIL y conserva orden de secciones", () => {
 
 test("deriva de huellas: nueva, igual y cambiada", () => {
   const a = CatalogFingerprint.of("a".repeat(64)); const b = CatalogFingerprint.of("b".repeat(64));
-  const checks = FingerprintDrift.compare(new Map([["made", a], ["kmp", a]]), new Map([["kmp", a], ["made", b], ["pi", a]].filter(([k]) => k !== "pi") as [string, CatalogFingerprint][]));
+  const checks = FingerprintDrift.compare(new Map([["made", a], ["kmp", a]]), new Map([["made", b], ["kmp", a]]));
   assert.deepEqual(checks.map((c) => [c.section.value, c.status.value]), [["kmp", "OK"], ["made", "WARN"]]);
   assert.match(FingerprintDrift.compare(new Map(), new Map([["kmp", a]]))[0].detail.value, /recorded/);
 });
