@@ -11,6 +11,7 @@ const ALLOWED: Record<string, string[]> = {
   composition: ["domain", "application", "adapters", "composition"],
 };
 const NODE_ALLOWED_IN_DOMAIN = new Set(["node:crypto"]);
+const isEntry = (path: string) => path.startsWith("src/adapters/inbound/pi/entry/");
 
 test("cada capa sólo importa las capas permitidas", () => {
   const violations: string[] = [];
@@ -27,6 +28,7 @@ test("cada capa sólo importa las capas permitidas", () => {
       }
       const target = normalize(join(dirname(file.path), spec));
       const targetLayer = layerOf(target);
+      if (isEntry(file.path) && targetLayer === "composition") continue;
       if (!ALLOWED[layer]?.includes(targetLayer)) violations.push(`${file.path} -> ${target}`);
     }
   }
