@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -126,4 +126,21 @@ test("una línea JSON que no es un objeto (null, número) se trata como respuest
       gw.close();
     } finally { await new Promise<void>((resolve) => raw.close(() => resolve())); }
   }
+});
+
+test("close() no borra un socket que otro host puso en la misma ruta", async () => {
+  const path = sock();
+  const server = await UnixSocketHostServer.start(path, async (req) => ({ id: req.id, ok: true, result: null }));
+  rmSync(path);
+  writeFileSync(path, "otro host"); // otro inodo en la misma ruta
+  await server.close();
+  assert.equal(existsSync(path), true);
+  assert.equal(readFileSync(path, "utf8"), "otro host");
+});
+
+test("close() sí borra su propio socket", async () => {
+  const path = sock();
+  const server = await UnixSocketHostServer.start(path, async (req) => ({ id: req.id, ok: true, result: null }));
+  await server.close();
+  assert.equal(existsSync(path), false);
 });

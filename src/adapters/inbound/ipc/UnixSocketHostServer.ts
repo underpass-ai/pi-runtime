@@ -1,6 +1,7 @@
-import { chmodSync, rmSync, statSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { chmodSync, renameSync, rmSync, statSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { HostRequestDto } from "../../../application/dto/HostRequestDto.ts";
 import type { HostResponseDto } from "../../../application/dto/HostResponseDto.ts";
 import { LineFramer } from "../../ipc/LineFramer.ts";
@@ -22,24 +23,40 @@ function requirePrivateDir(path: string): void {
 
 export class UnixSocketHostServer {
   readonly #server: Server; readonly #path: string; readonly #sockets = new Set<Socket>();
+  #identity: { ino: number; dev: number } | null = null;
 
   private constructor(server: Server, path: string) { this.#server = server; this.#path = path; }
 
+  // Se escucha en un nombre temporal y se renombra a `path`: libuv borra al
+  // cerrar la ruta con la que se escuchó, sea quien sea quien esté ahí; así
+  // ese borrado cae sobre el temporal (ya inexistente) y el de `path` lo
+  // decide #unlinkIfOurs comparando inodos.
   static async start(path: string, handle: Handler): Promise<UnixSocketHostServer> {
-    rmSync(path, { force: true });
     requirePrivateDir(path);
+    const listenPath = join(dirname(path), `.${randomBytes(3).toString("hex")}`);
     let self: UnixSocketHostServer;
     const server = createServer((sock) => self.#accept(sock, handle));
     self = new UnixSocketHostServer(server, path);
-    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, () => resolve()); });
-    chmodSync(path, 0o600);
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(listenPath, () => resolve()); });
+    chmodSync(listenPath, 0o600);
+    renameSync(listenPath, path);
+    const st = statSync(path);
+    self.#identity = { ino: st.ino, dev: st.dev };
     return self;
   }
 
   clients(): number { return this.#sockets.size; }
 
   close(): Promise<void> {
-    return new Promise((resolve) => { for (const s of this.#sockets) s.destroy(); this.#server.close(() => { rmSync(this.#path, { force: true }); resolve(); }); });
+    return new Promise((resolve) => { for (const s of this.#sockets) s.destroy(); this.#server.close(() => { this.#unlinkIfOurs(); resolve(); }); });
+  }
+
+  // Sólo borra el socket si sigue siendo el nuestro (mismo inodo y
+  // dispositivo que al escuchar): otro host puede haberlo sustituido.
+  #unlinkIfOurs(): void {
+    let st: ReturnType<typeof statSync>;
+    try { st = statSync(this.#path); } catch { return; }
+    if (this.#identity && st.ino === this.#identity.ino && st.dev === this.#identity.dev) rmSync(this.#path, { force: true });
   }
 
   #accept(sock: Socket, handle: Handler): void {
