@@ -8,7 +8,7 @@ import type { ServerName } from "../../../domain/mcp/ServerName.ts";
 import type { ToolCatalog } from "../../../domain/mcp/ToolCatalog.ts";
 import type { ToolName } from "../../../domain/mcp/ToolName.ts";
 import { LineFramer } from "../../ipc/LineFramer.ts";
-import { HostCallError } from "./HostCallError.ts";
+import { HostCallError } from "../../../application/ports/HostCallError.ts";
 
 export class UnixSocketHostGateway implements HostGateway {
   readonly #sock: Socket; readonly #pending = new Map<number, (r: HostResponseDto) => void>(); #nextId = 1;

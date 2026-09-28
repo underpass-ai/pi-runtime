@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { HOST_READY, HostExtension } from "../../../../../src/adapters/inbound/pi/HostExtension.ts";
 import { ServerToolsExtension } from "../../../../../src/adapters/inbound/pi/ServerToolsExtension.ts";
 import { PiToolFactory } from "../../../../../src/adapters/inbound/pi/PiToolFactory.ts";
-import { HostCallError } from "../../../../../src/adapters/outbound/ipc/HostCallError.ts";
+import { HostCallError } from "../../../../../src/application/ports/HostCallError.ts";
 import { SelectPhaseTools } from "../../../../../src/application/use-cases/SelectPhaseTools.ts";
 import { McpToolMapper } from "../../../../../src/application/mappers/McpToolMapper.ts";
 import { PhaseToolSelection } from "../../../../../src/domain/session/PhaseToolSelection.ts";

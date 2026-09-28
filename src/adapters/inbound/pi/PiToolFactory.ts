@@ -2,7 +2,7 @@ import type { HostGateway } from "../../../application/ports/HostGateway.ts";
 import type { ToolCallResultDto } from "../../../application/dto/ToolCallResultDto.ts";
 import type { ServerName } from "../../../domain/mcp/ServerName.ts";
 import type { ToolDescriptor } from "../../../domain/mcp/ToolDescriptor.ts";
-import { HostCallError } from "../../outbound/ipc/HostCallError.ts";
+import { HostCallError } from "../../../application/ports/HostCallError.ts";
 
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -38,7 +38,7 @@ export class PiToolFactory {
           const text = truncate(r.text, max);
           return { content: [{ type: "text" as const, text }], details: r.structured };
         } catch (e) {
-          if (e instanceof HostCallError) throw new Error(`${tool.name} ${e.kind} (${e.code ?? "-"}): ${e.message}`);
+          if (HostCallError.is(e)) throw new Error(`${tool.name} ${e.kind} (${e.code ?? "-"}): ${e.message}`);
           throw e;
         } finally {
           if (signal && onAbort) signal.removeEventListener("abort", onAbort);

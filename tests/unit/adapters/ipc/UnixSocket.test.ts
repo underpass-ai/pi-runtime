@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UnixSocketHostServer } from "../../../../src/adapters/inbound/ipc/UnixSocketHostServer.ts";
 import { UnixSocketHostGateway } from "../../../../src/adapters/outbound/ipc/UnixSocketHostGateway.ts";
-import { HostCallError } from "../../../../src/adapters/outbound/ipc/HostCallError.ts";
+import { HostCallError } from "../../../../src/application/ports/HostCallError.ts";
 import { ServerName } from "../../../../src/domain/mcp/ServerName.ts";
 import { ToolName } from "../../../../src/domain/mcp/ToolName.ts";
 
