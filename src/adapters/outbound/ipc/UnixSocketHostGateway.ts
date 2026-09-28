@@ -12,6 +12,7 @@ import { HostCallError } from "../../../application/ports/HostCallError.ts";
 
 export class UnixSocketHostGateway implements HostGateway {
   readonly #sock: Socket; readonly #pending = new Map<number, (r: HostResponseDto) => void>(); #nextId = 1;
+  readonly #closeListeners: (() => void)[] = []; #closed = false;
 
   private constructor(sock: Socket) {
     this.#sock = sock;
@@ -19,19 +20,26 @@ export class UnixSocketHostGateway implements HostGateway {
       for (const cb of this.#pending.values()) cb({ id: -1, ok: false, error: { kind: "transport", message } });
       this.#pending.clear();
     };
+    const closed = () => {
+      fail("host connection closed");
+      if (this.#closed) return;
+      this.#closed = true;
+      for (const l of this.#closeListeners.splice(0)) l();
+    };
     const framer = new LineFramer(
       (line) => {
-        let res: HostResponseDto;
-        try { res = JSON.parse(line) as HostResponseDto; }
-        catch { fail("malformed response from host"); sock.destroy(); return; }
-        this.#pending.get(res.id)?.(res);
-        this.#pending.delete(res.id);
+        let res: unknown;
+        try { res = JSON.parse(line); } catch { res = null; }
+        if (typeof res !== "object" || res === null) { fail("malformed response from host"); sock.destroy(); return; }
+        const r = res as HostResponseDto;
+        this.#pending.get(r.id)?.(r);
+        this.#pending.delete(r.id);
       },
       () => sock.destroy(),
     );
     sock.on("data", (chunk) => framer.push(chunk));
-    sock.on("close", () => fail("host connection closed"));
-    sock.on("error", () => fail("host connection closed"));
+    sock.on("close", closed);
+    sock.on("error", closed);
   }
 
   static async connect(path: string, retries = 0, delayMs = 100): Promise<UnixSocketHostGateway> {
@@ -50,7 +58,17 @@ export class UnixSocketHostGateway implements HostGateway {
   health(): Promise<{ project: string; started: string[] }> { return this.raw({ method: "health" }); }
   close(): void { this.#sock.end(); }
 
+  // Avisa cuando la conexión con el host se cierra (host muerto, error o
+  // close() propio). Un oyente tardío se avisa en la siguiente vuelta.
+  onClose(listener: () => void): void {
+    if (this.#closed) setImmediate(listener);
+    else this.#closeListeners.push(listener);
+  }
+
   raw<T>(req: Record<string, unknown>): Promise<T> {
+    if (this.#closed || this.#sock.destroyed || !this.#sock.writable) {
+      return Promise.reject(new HostCallError("transport", "host connection closed"));
+    }
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
       this.#pending.set(id, (res) => (res.ok ? resolve(res.result as T) : reject(new HostCallError(res.error.kind, res.error.message, res.error.code))));

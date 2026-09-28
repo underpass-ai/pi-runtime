@@ -10,13 +10,27 @@ const isOurs = (n: string) => n.startsWith("kmp_") || n.startsWith("made_");
 
 export class HostExtension {
   readonly #connect: (cwd: string) => Promise<HostGateway>; readonly #select: SelectPhaseTools;
-  #gateway: Promise<HostGateway> | null = null;
+  #gateway: Promise<HostGateway> | null = null; #cwd: string | null = null;
 
   constructor(connect: (cwd: string) => Promise<HostGateway>, select: SelectPhaseTools) { this.#connect = connect; this.#select = select; }
 
+  // Si el host muere, el gateway se descarta al cerrarse y la siguiente
+  // llamada reconecta perezosamente con la misma función de conexión (que
+  // relanza el host si no hay nadie escuchando).
   gateway(): Promise<HostGateway> {
-    if (!this.#gateway) return Promise.reject(new Error("Underpass host not connected yet"));
-    return this.#gateway;
+    if (this.#gateway) return this.#gateway;
+    if (this.#cwd === null) return Promise.reject(new Error("Underpass host not connected yet"));
+    return this.#open(this.#cwd);
+  }
+
+  #open(cwd: string): Promise<HostGateway> {
+    const opening: Promise<HostGateway> = this.#connect(cwd).then((g) => {
+      g.onClose(() => { if (this.#gateway === opening) this.#gateway = null; });
+      return g;
+    });
+    opening.catch(() => { if (this.#gateway === opening) this.#gateway = null; });
+    this.#gateway = opening;
+    return opening;
   }
 
   applyPhase(pi: PiExtensionApi, phase: Phase): void {
@@ -28,17 +42,17 @@ export class HostExtension {
   register(pi: PiExtensionApi): void {
     pi.on("session_start", async (_e, ctx) => {
       const previous = this.#gateway;
+      this.#gateway = null;
       if (previous) (await previous.catch(() => null))?.close();
-      this.#gateway = this.#connect(ctx.cwd);
-      try { await this.#gateway; pi.events.emit(HOST_READY, null); }
+      this.#cwd = ctx.cwd;
+      try { await this.#open(ctx.cwd); pi.events.emit(HOST_READY, null); }
       catch (e) {
-        this.#gateway = null;
         const message = `Underpass host unavailable: ${(e as Error).message}`;
         if (ctx.hasUI) ctx.ui.notify(message, "error"); else console.error(message);
       }
     });
     pi.on("session_shutdown", async () => {
-      const g = this.#gateway; this.#gateway = null;
+      const g = this.#gateway; this.#gateway = null; this.#cwd = null;
       if (g) (await g.catch(() => null))?.close();
     });
     pi.registerCommand("underpass-status", {

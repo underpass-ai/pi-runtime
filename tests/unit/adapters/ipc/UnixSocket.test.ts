@@ -85,3 +85,45 @@ test("el host rechaza escuchar si el directorio del socket no es privado", async
   const path = join(dir, "host.sock");
   await assert.rejects(UnixSocketHostServer.start(path, async (req) => ({ id: req.id, ok: true, result: null })));
 });
+
+const within = <T>(p: Promise<T>, ms = 1000) => Promise.race([p, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`did not settle within ${ms}ms`)), ms).unref())]);
+
+test("con el host muerto, lo pendiente y lo siguiente se rechazan al momento y onClose avisa", async () => {
+  const path = sock();
+  const server = await UnixSocketHostServer.start(path, () => new Promise(() => {}));
+  const gw = await UnixSocketHostGateway.connect(path);
+  let closes = 0;
+  gw.onClose(() => { closes++; });
+  const pending = gw.health();
+  await server.close();
+  await within(assert.rejects(pending, (e) => e instanceof HostCallError && e.kind === "transport"));
+  await within(assert.rejects(gw.health(), (e) => e instanceof HostCallError && e.kind === "transport" && e.message === "host connection closed"));
+  assert.equal(closes, 1);
+  let late = 0;
+  gw.onClose(() => { late++; });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(late, 1, "un oyente registrado tras el cierre se avisa igual");
+});
+
+test("close() propio también deja el gateway cerrado", async () => {
+  const path = sock();
+  const server = await UnixSocketHostServer.start(path, async (req) => ({ id: req.id, ok: true, result: { project: "/p", started: [] } }));
+  try {
+    const gw = await UnixSocketHostGateway.connect(path);
+    gw.close();
+    await within(assert.rejects(gw.health(), (e) => e instanceof HostCallError && e.kind === "transport"));
+  } finally { await server.close(); }
+});
+
+test("una línea JSON que no es un objeto (null, número) se trata como respuesta malformada", async () => {
+  for (const bad of ["null", "5", "\"x\""]) {
+    const path = sock();
+    const raw = createServer((s) => s.once("data", () => s.write(`${bad}\n`)));
+    await new Promise<void>((resolve) => raw.listen(path, resolve));
+    try {
+      const gw = await UnixSocketHostGateway.connect(path);
+      await within(assert.rejects(gw.health(), (e) => e instanceof HostCallError && e.message === "malformed response from host"));
+      gw.close();
+    } finally { await new Promise<void>((resolve) => raw.close(() => resolve())); }
+  }
+});

@@ -8,4 +8,5 @@ export interface HostGateway {
   call(server: ServerName, tool: ToolName, args: Record<string, unknown>): Promise<ToolCallResultDto>;
   health(): Promise<{ project: string; started: string[] }>;
   close(): void;
+  onClose(listener: () => void): void;
 }

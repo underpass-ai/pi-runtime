@@ -4,6 +4,12 @@ import { HOST_READY, HostExtension } from "../../../../../src/adapters/inbound/p
 import { ServerToolsExtension } from "../../../../../src/adapters/inbound/pi/ServerToolsExtension.ts";
 import { PiToolFactory } from "../../../../../src/adapters/inbound/pi/PiToolFactory.ts";
 import { HostCallError } from "../../../../../src/application/ports/HostCallError.ts";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { UnixSocketHostServer } from "../../../../../src/adapters/inbound/ipc/UnixSocketHostServer.ts";
+import { UnixSocketHostGateway } from "../../../../../src/adapters/outbound/ipc/UnixSocketHostGateway.ts";
+import { ToolName } from "../../../../../src/domain/mcp/ToolName.ts";
 import { SelectPhaseTools } from "../../../../../src/application/use-cases/SelectPhaseTools.ts";
 import { McpToolMapper } from "../../../../../src/application/mappers/McpToolMapper.ts";
 import { PhaseToolSelection } from "../../../../../src/domain/session/PhaseToolSelection.ts";
@@ -38,6 +44,7 @@ function gatewayFake(closed: { v: boolean }) {
     call: async (_s: ServerName, t: { value: string }) => { if (t.value === "kmp_ingest") throw new HostCallError("refused", "nope", "invalid_argument"); return { structured: { ok: 1 }, text: "x".repeat(20) }; },
     health: async () => ({ project: "/repo", started: ["kmp"] }),
     close: () => { closed.v = true; },
+    onClose: () => {},
   };
 }
 
@@ -102,6 +109,7 @@ test("un catálogo que falla no registra tools, avisa por evento y consola, y se
     call: async () => ({ structured: null, text: "" }),
     health: async () => ({ project: "/repo", started: [] }),
     close: () => {},
+    onClose: () => {},
   };
   const host = new HostExtension(async () => gateway, new SelectPhaseTools(PhaseToolSelection.standard()));
   const factory = new PiToolFactory((j) => j);
@@ -133,6 +141,7 @@ test("dos HOST_READY concurrentes registran cada tool una sola vez", async () =>
     call: async () => ({ structured: null, text: "" }),
     health: async () => ({ project: "/repo", started: [] }),
     close: () => {},
+    onClose: () => {},
   };
   const fakeHost = { gateway: async () => gateway, applyPhase: () => {} } as unknown as HostExtension;
   const factory = new PiToolFactory((j) => j);
@@ -149,8 +158,8 @@ test("dos HOST_READY concurrentes registran cada tool una sola vez", async () =>
 test("dos session_start sin shutdown cierran el gateway anterior una sola vez", async () => {
   const pi = new FakePi();
   let closes1 = 0; let closes2 = 0; let calls = 0;
-  const gw1 = { catalog: async () => catalog(ServerName.KMP, []), call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), close: () => { closes1++; } };
-  const gw2 = { catalog: async () => catalog(ServerName.KMP, []), call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), close: () => { closes2++; } };
+  const gw1 = { catalog: async () => catalog(ServerName.KMP, []), call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), close: () => { closes1++; }, onClose: () => {} };
+  const gw2 = { catalog: async () => catalog(ServerName.KMP, []), call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), close: () => { closes2++; }, onClose: () => {} };
   const host = new HostExtension(async () => { calls++; return calls === 1 ? gw1 : gw2; }, new SelectPhaseTools(PhaseToolSelection.standard()));
   host.register(pi as never);
   await pi.fire("session_start");
@@ -176,6 +185,7 @@ test("execute rechaza si la señal se aborta mientras la llamada no resuelve", a
     call: () => new Promise<never>(() => {}),
     health: async () => ({ project: "", started: [] }),
     close: () => {},
+    onClose: () => {},
   });
   const tool = factory.create(ServerName.KMP, descriptor, neverResolving);
   const controller = new AbortController();
@@ -191,10 +201,57 @@ test("el truncado no parte un par subrogado por la mitad", async () => {
     call: async () => ({ structured: null, text }),
     health: async () => ({ project: "", started: [] }),
     close: () => {},
+    onClose: () => {},
   });
   const factory = new PiToolFactory((j) => j, 5);
   const descriptor = new McpToolMapper().toDomain({ name: "kmp_ask", inputSchema: { type: "object" } });
   const tool = factory.create(ServerName.KMP, descriptor, gateway);
   const res = await tool.execute("c", {});
   assert.equal(res.content[0].text, "abcd\n[truncated 6 chars; full result in details]");
+});
+
+test("si el host muere, la llamada en vuelo falla al momento y la siguiente reconecta (relanzando el host)", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "ipc-")), "host.sock");
+  const handler = async (req: { id: number; method: string; args?: unknown }) => req.method === "call"
+    ? { id: req.id, ok: true as const, result: { structured: req.args, text: "ok" } }
+    : { id: req.id, ok: true as const, result: { project: "/repo", started: [] } };
+  let server = await UnixSocketHostServer.start(path, () => new Promise(() => {})); // el primer host nunca responde
+  let launches = 0;
+  const connect = async () => {
+    try { return await UnixSocketHostGateway.connect(path); }
+    catch { launches++; server = await UnixSocketHostServer.start(path, handler as never); return UnixSocketHostGateway.connect(path); }
+  };
+  const pi = new FakePi();
+  const host = new HostExtension(connect, new SelectPhaseTools(PhaseToolSelection.standard()));
+  host.register(pi as never);
+  try {
+    await pi.fire("session_start");
+    const inFlight = (await host.gateway()).call(ServerName.KMP, ToolName.of("kmp_ask"), { q: 1 });
+    await server.close(); // muere el host
+    await assert.rejects(inFlight, (e) => HostCallError.is(e) && e.kind === "transport");
+    await new Promise((r) => setImmediate(r));
+    const again = await host.gateway();
+    assert.deepEqual(await again.call(ServerName.KMP, ToolName.of("kmp_ask"), { q: 2 }), { structured: { q: 2 }, text: "ok" });
+    assert.equal(launches, 1);
+  } finally {
+    await pi.fire("session_shutdown");
+    await server.close();
+  }
+});
+
+test("una reconexión fallida no se queda cacheada: la siguiente llamada vuelve a intentarlo", async () => {
+  let attempts = 0;
+  let listener: (() => void) | null = null;
+  const gw = { ...{ catalog: async () => catalog(ServerName.KMP, []), call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), close: () => {} }, onClose: (l: () => void) => { listener = l; } };
+  const host = new HostExtension(async () => { attempts++; if (attempts === 2) throw new Error("still down"); return gw; }, new SelectPhaseTools(PhaseToolSelection.standard()));
+  const pi = new FakePi();
+  host.register(pi as never);
+  await assert.rejects(host.gateway(), /not connected yet/);
+  await pi.fire("session_start");
+  listener!(); // el host se cae
+  await assert.rejects(host.gateway(), /still down/);
+  assert.equal(await host.gateway(), gw);
+  assert.equal(attempts, 3);
+  await pi.fire("session_shutdown");
+  await assert.rejects(host.gateway(), /not connected yet/);
 });
