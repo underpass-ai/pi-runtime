@@ -8,4 +8,8 @@ export class RefusalCode extends ValueObject<string> {
     if (!/^[a-z][a-z0-9_]*$/.test(raw)) throw DomainError.because(`invalid refusal code "${raw}"`);
     return new RefusalCode(raw);
   }
+  static orUnknown(raw: string | undefined): RefusalCode {
+    if (raw === undefined || !/^[a-z][a-z0-9_]*$/.test(raw)) return RefusalCode.UNKNOWN;
+    return new RefusalCode(raw);
+  }
 }

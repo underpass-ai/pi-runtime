@@ -28,6 +28,11 @@ test("negativa KMP, negativa MADE e isError sin estructura", () => {
   assert.deepEqual([bare.code.value, bare.message], ["unknown", "boom"]);
 });
 
+test("negativa MADE con código inesperado degrada a unknown sin lanzar", () => {
+  const bad = outcomes.toDomain({ content: [], structuredContent: { code: "Bad-Code!", message: "boom", retryable: true }, isError: true }) as ToolRefusal;
+  assert.deepEqual([bad.code.value, bad.message], ["unknown", "boom"]);
+});
+
 test("catálogo ida y vuelta conserva la huella", () => {
   const tools = [{ name: "kmp_ask", description: "Ask", inputSchema: { type: "object" } }, { name: "kmp_wake", inputSchema: { type: "object" } }].map((d) => new McpToolMapper().toDomain(d));
   const cat = ToolCatalog.of(ServerName.KMP, ServerIdentity.of("underpass-kmp-mcp", SemVer.of("0.24.0")), tools);

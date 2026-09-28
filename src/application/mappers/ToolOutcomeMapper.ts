@@ -12,7 +12,7 @@ export class ToolOutcomeMapper {
     if (dto.isError !== true) return ToolSuccess.of(s, text);
     const kmp = s?.error as { code?: string; message?: string } | undefined; // KMP
     const rawCode = kmp?.code ?? (s?.code as string | undefined);          // MADE
-    const code = rawCode ? RefusalCode.of(rawCode) : RefusalCode.UNKNOWN;
+    const code = RefusalCode.orUnknown(rawCode);
     return ToolRefusal.of(code, kmp?.message ?? (s?.message as string | undefined) ?? text, s?.retryable === true);
   }
   toDto(success: ToolSuccess): ToolCallResultDto { return { structured: success.structured, text: success.text }; }

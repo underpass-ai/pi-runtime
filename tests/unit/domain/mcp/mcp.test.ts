@@ -52,3 +52,9 @@ test("resultados", () => {
   assert.equal(ToolSuccess.of(null, "t").isSuccess(), true);
   assert.equal(r.isSuccess(), false);
 });
+
+test("RefusalCode.orUnknown degrada sin lanzar", () => {
+  assert.equal(RefusalCode.orUnknown("conflict").value, "conflict");
+  assert.equal(RefusalCode.orUnknown("Bad-Code!").value, "unknown");
+  assert.equal(RefusalCode.orUnknown(undefined).value, "unknown");
+});
