@@ -9,20 +9,26 @@ import { ConnectToProjectHost } from "../application/use-cases/ConnectToProjectH
 import { SelectPhaseTools } from "../application/use-cases/SelectPhaseTools.ts";
 import { ServerName } from "../domain/mcp/ServerName.ts";
 import { PhaseToolSelection } from "../domain/session/PhaseToolSelection.ts";
+import { SharedInstance } from "./SharedInstance.ts";
 import { StatePaths } from "./StatePaths.ts";
 
+const HOST_EXTENSION_KEY = "underpass-pi.host-extension";
+
 export class ExtensionComposition {
-  static #host: HostExtension | null = null;
   static #select = new SelectPhaseTools(PhaseToolSelection.standard());
 
+  // Pi carga host.ts, kmp.ts y made.ts como extensiones separadas, cada una
+  // con jiti en su propio realm de módulos (moduleCache: false): un campo
+  // estático de clase no basta para compartir el HostExtension entre ellas.
+  // sharedInstance() usa globalThis, que sí es el mismo objeto de proceso
+  // en los tres realms.
   static #shared(): HostExtension {
-    if (!this.#host) {
+    return SharedInstance.get(HOST_EXTENSION_KEY, () => {
       const paths = new StatePaths(process.env);
       const connect = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p),
         new DetachedHostLauncher(new URL("../../bin/underpass-host.ts", import.meta.url).pathname, process.env));
-      this.#host = new HostExtension((cwd) => connect.execute(cwd), this.#select);
-    }
-    return this.#host;
+      return new HostExtension((cwd) => connect.execute(cwd), this.#select);
+    });
   }
 
   static host(pi: PiExtensionApi): void { this.#shared().register(pi); }
