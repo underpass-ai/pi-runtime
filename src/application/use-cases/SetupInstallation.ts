@@ -27,7 +27,12 @@ export class SetupInstallation {
     const binaries = await step(CheckSection.HOST, "pinned binaries", async () => (await this.#install.execute()).map((r) => `${r.name} ${r.action}`).join(", ") || "none");
     let report = DiagnosisReport.of([binaries]);
     if (report.hasFailures()) return report;
-    const ensured = this.#ensure.execute(this.#store);
+    let ensured: ReturnType<EnsureMadeConfiguration["execute"]>;
+    try {
+      ensured = this.#ensure.execute(this.#store);
+    } catch (e) {
+      return report.add(Check.fail(CheckSection.MADE, CheckName.of("private configuration"), CheckDetail.of((e as Error).message)));
+    }
     report = report.add(Check.ok(CheckSection.MADE, CheckName.of("private configuration"), CheckDetail.of(`${ensured.created ? "created" : "reused"} ${ensured.location} (key redacted)`)));
     report = report.add(await this.#bootstrap.execute(this.#store, ensured.configuration));
     report = report.add(await step(CheckSection.KMP, "kmp-mcp setup", async () => { await this.#kmp.setup(); return "receipt ok"; }));

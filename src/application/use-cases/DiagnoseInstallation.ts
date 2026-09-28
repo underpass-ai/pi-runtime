@@ -37,7 +37,13 @@ export class DiagnoseInstallation {
 
     const current = new Map<string, CatalogFingerprint>();
     for (const server of [ServerName.KMP, ServerName.MADE]) {
-      const conn = await this.#connect(server);
+      let conn: McpConnection;
+      try {
+        conn = await this.#connect(server);
+      } catch (e) {
+        report = report.add(Check.fail(CheckSection.of(server.value), CheckName.of("private configuration"), CheckDetail.of((e as Error).message)));
+        continue;
+      }
       try {
         const catalog = await conn.catalog();
         current.set(server.value, catalog.fingerprint());

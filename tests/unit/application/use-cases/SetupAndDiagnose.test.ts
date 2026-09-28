@@ -71,3 +71,25 @@ test("doctor marca FAIL con Pi ausente o de otra versión, y WARN si kmp doctor 
   assert.ok(r.checks().some((c) => c.name.value === "kmp-mcp doctor" && c.status.value === "WARN"));
   assert.equal(d.saved(), null);
 });
+
+test("setup convierte un fallo al leer la configuración privada de MADE en un check FAIL, sin excepción", async () => {
+  const brokenRepo = { load() { throw new Error("made config /cfg contains an unknown key MADE_BOGUS"); }, create() {}, locationOf: () => "/cfg" };
+  const d = deps({ ensure: new EnsureMadeConfiguration(brokenRepo as never, { bytes: (k: number) => new Uint8Array(k) }) });
+  const r = await new SetupInstallation(d.install, d.ensure, d.bootstrap, d.kmp, d.pi, store, "/pkg").execute();
+  assert.equal(r.hasFailures(), true);
+  assert.deepEqual(r.checks().map((c) => c.name.value), ["pinned binaries", "private configuration"]);
+  const failed = r.checks().find((c) => c.name.value === "private configuration")!;
+  assert.equal(failed.section.value, "made");
+  assert.match(failed.detail.value, /unknown key MADE_BOGUS/);
+});
+
+test("doctor convierte un fallo de conexión a MADE por configuración rota en un check FAIL, sin excepción", async () => {
+  const d = deps({ connections: async (s: ServerName) => { if (s.equals(ServerName.MADE)) throw new Error("made config /cfg must contain exactly four keys"); return connection(s); } });
+  const doctor = new DiagnoseInstallation(d.install, d.runtime, d.pi, d.kmp, d.fingerprints, d.connections, new VerifyServerProfiles(profiles), new DiscoverMadeCapabilities(), SemVer.of("0.87.1"));
+  const r = await doctor.execute(true);
+  assert.equal(r.hasFailures(), true);
+  const failed = r.checks().find((c) => c.name.value === "private configuration" && c.section.value === "made")!;
+  assert.ok(failed, JSON.stringify(r.checks().map((c) => [c.section.value, c.name.value, c.status.value])));
+  assert.equal(failed.status.value, "FAIL");
+  assert.match(failed.detail.value, /exactly four keys/);
+});

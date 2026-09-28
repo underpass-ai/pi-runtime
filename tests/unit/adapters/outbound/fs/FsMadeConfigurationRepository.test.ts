@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { FsMadeConfigurationRepository } from "../../../../../src/adapters/outbound/fs/FsMadeConfigurationRepository.ts";
 import { MadeConfiguration } from "../../../../../src/domain/made/MadeConfiguration.ts";
 import { StorePath } from "../../../../../src/domain/made/StorePath.ts";
@@ -25,17 +25,47 @@ test("ubicación compatible con el plugin de MADE; crea 0600; relee igual", () =
   assert.throws(() => repo.create(store, cfg), /EEXIST/);
 });
 
-test("rechaza permisos abiertos, symlink y claves de más", () => {
+test("rechaza permisos abiertos, symlink y clave duplicada", () => {
   const { home, repo, store } = setup();
   repo.create(store, MadeConfiguration.generateFor(store, new Uint8Array(32).fill(3)));
   const loc = repo.locationOf(store);
   chmodSync(loc, 0o644);
   assert.throws(() => repo.load(store), /mode 644/);
   chmodSync(loc, 0o600);
-  writeFileSync(loc, readFileSync(loc, "utf8") + "EXTRA=1\n");
+  writeFileSync(loc, readFileSync(loc, "utf8") + "MADE_AUTH_POLICY_ID=duplicate\n");
   assert.throws(() => repo.load(store), /exactly four keys/);
   const target = join(home, "real.env"); writeFileSync(target, ""); rmSync(loc); symlinkSync(target, loc);
   assert.throws(() => repo.load(store), /symlink/);
+});
+
+test("rechaza claves ausentes y claves MADE_* desconocidas", () => {
+  const { repo, store } = setup();
+  repo.create(store, MadeConfiguration.generateFor(store, new Uint8Array(32).fill(3)));
+  const loc = repo.locationOf(store);
+  const withoutOne = readFileSync(loc, "utf8").split("\n").filter((l) => !l.startsWith("MADE_CEREMONY_STORE_ID=")).join("\n");
+  writeFileSync(loc, withoutOne);
+  assert.throws(() => repo.load(store), /exactly four keys/);
+  writeFileSync(loc, readFileSync(loc, "utf8").replace(/\n$/, "") + "\nMADE_BOGUS_KEY=1\n");
+  assert.throws(() => repo.load(store), /unknown key/);
+});
+
+test("tolera el comentario de cabecera del plugin de MADE y líneas en blanco", () => {
+  const { repo, store } = setup();
+  const cfg = MadeConfiguration.generateFor(store, new Uint8Array(32).fill(7));
+  const loc = repo.locationOf(store);
+  mkdirSync(dirname(loc), { recursive: true, mode: 0o700 });
+  const body = ["# MADE embedded host configuration; managed by made-setup.", "", ...cfg.entries().map(([k, v]) => `${k}=${v}`), ""].join("\n");
+  writeFileSync(loc, body, { mode: 0o600 });
+  assert.deepEqual(repo.load(store)!.entries(), cfg.entries());
+});
+
+test("create() escribe el mismo comentario de cabecera que escribe el plugin de MADE", () => {
+  const { repo, store } = setup();
+  const cfg = MadeConfiguration.generateFor(store, new Uint8Array(32).fill(9));
+  repo.create(store, cfg);
+  const raw = readFileSync(repo.locationOf(store), "utf8");
+  assert.match(raw, /^# MADE embedded host configuration; managed by made-setup\.\n/);
+  assert.deepEqual(repo.load(store)!.entries(), cfg.entries());
 });
 
 test("directorio padre escribible por grupo/otros: load y create rechazan", () => {

@@ -9,6 +9,7 @@ import type { StorePath } from "../../../domain/made/StorePath.ts";
 import { TrustedHostId } from "../../../domain/made/TrustedHostId.ts";
 
 const KEYS = ["MADE_AUTH_POLICY_ID", "MADE_AUTH_TRUSTED_HOST_ID", "MADE_CEREMONY_STORE_ID", "MADE_CEREMONY_SEARCH_CURSOR_HMAC_KEY"];
+const HEADER = "# MADE embedded host configuration; managed by made-setup.";
 
 export class FsMadeConfigurationRepository implements MadeConfigurationRepository {
   readonly #env: Record<string, string | undefined>;
@@ -40,15 +41,19 @@ export class FsMadeConfigurationRepository implements MadeConfigurationRepositor
       if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new Error(`made config ${path} must be owned by the current user`);
       const mode = st.mode & 0o777;
       if (mode !== 0o600 && mode !== 0o400) throw new Error(`made config ${path} has mode ${mode.toString(8)}; expected 600 or 400`);
-      const entries = readFileSync(fd, "utf8").split("\n").filter((l) => l.trim()).map((l) => {
-        const i = l.indexOf("=");
-        if (i === -1) throw new Error(`malformed line in made config ${path}`);
-        return [l.slice(0, i), l.slice(i + 1)] as [string, string];
-      });
-      const keys = entries.map(([k]) => k);
-      if (keys.length !== 4 || KEYS.some((k) => !keys.includes(k))) throw new Error(`made config ${path} must contain exactly four keys`);
-      const v = Object.fromEntries(entries);
-      return MadeConfiguration.of({ policy: PolicyId.of(v.MADE_AUTH_POLICY_ID), trustedHost: TrustedHostId.of(v.MADE_AUTH_TRUSTED_HOST_ID), store: CeremonyStoreId.of(v.MADE_CEREMONY_STORE_ID), cursorKey: CursorHmacKey.of(v.MADE_CEREMONY_SEARCH_CURSOR_HMAC_KEY) });
+      const seen = new Map<string, string>();
+      for (const line of readFileSync(fd, "utf8").split("\n")) {
+        if (line === "" || line.startsWith("#")) continue;
+        const i = line.indexOf("=");
+        if (i === -1 || !line.startsWith("MADE_")) throw new Error(`malformed line in made config ${path}`);
+        const key = line.slice(0, i);
+        const value = line.slice(i + 1);
+        if (!KEYS.includes(key)) throw new Error(`made config ${path} contains an unknown key ${key}`);
+        if (seen.has(key)) throw new Error(`made config ${path} must contain exactly four keys`);
+        seen.set(key, value);
+      }
+      if (seen.size !== 4) throw new Error(`made config ${path} must contain exactly four keys`);
+      return MadeConfiguration.of({ policy: PolicyId.of(seen.get("MADE_AUTH_POLICY_ID")!), trustedHost: TrustedHostId.of(seen.get("MADE_AUTH_TRUSTED_HOST_ID")!), store: CeremonyStoreId.of(seen.get("MADE_CEREMONY_STORE_ID")!), cursorKey: CursorHmacKey.of(seen.get("MADE_CEREMONY_SEARCH_CURSOR_HMAC_KEY")!) });
     } finally {
       closeSync(fd);
     }
@@ -59,7 +64,7 @@ export class FsMadeConfigurationRepository implements MadeConfigurationRepositor
     const dir = dirname(path);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     this.#assertDirSecure(dir);
-    writeFileSync(path, configuration.entries().map(([k, v]) => `${k}=${v}`).join("\n") + "\n", { mode: 0o600, flag: "wx" });
+    writeFileSync(path, [HEADER, ...configuration.entries().map(([k, v]) => `${k}=${v}`)].join("\n") + "\n", { mode: 0o600, flag: "wx" });
   }
 
   #dirExists(dir: string): boolean { try { return statSync(dir).isDirectory(); } catch { return false; } }
