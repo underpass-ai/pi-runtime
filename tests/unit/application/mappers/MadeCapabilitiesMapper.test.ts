@@ -21,3 +21,15 @@ test("schema_version desconocido y host_activation nulo", () => {
   const caps = new MadeCapabilitiesMapper().toDomain({ schema_version: "1.0", server: { version: "0.8.0" }, host_activation: null });
   assert.equal(caps.activationAdapter, null);
 });
+
+test("una capability sin id rechaza el DTO", () => {
+  assert.throws(() => new MadeCapabilitiesMapper().toDomain({
+    schema_version: "1.0", server: { version: "0.8.0" }, capabilities: [{} as { id: string }],
+  }));
+});
+
+test("un declared_limit sin id rechaza el DTO", () => {
+  assert.throws(() => new MadeCapabilitiesMapper().toDomain({
+    schema_version: "1.0", server: { version: "0.8.0" }, declared_limits: [{} as { id: string }],
+  }));
+});
