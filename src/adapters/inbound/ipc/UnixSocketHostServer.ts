@@ -1,24 +1,23 @@
-import { chmodSync, rmSync } from "node:fs";
+import { chmodSync, rmSync, statSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { dirname } from "node:path";
 import type { HostRequestDto } from "../../../application/dto/HostRequestDto.ts";
 import type { HostResponseDto } from "../../../application/dto/HostResponseDto.ts";
+import { LineFramer } from "../../ipc/LineFramer.ts";
 
 const ALLOWED = new Set(["call", "catalog", "health"]);
 type Handler = (req: HostRequestDto) => Promise<HostResponseDto>;
 
-// readline.createInterface can throw an uncatchable ECONNRESET when the peer
-// destroys the socket mid-read; buffer lines manually on 'data' instead.
-function onLines(sock: Socket, onLine: (line: string) => void): void {
-  let buf = "";
-  sock.on("data", (chunk) => {
-    buf += chunk.toString("utf8");
-    let idx: number;
-    while ((idx = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, idx);
-      buf = buf.slice(idx + 1);
-      if (line.length > 0) onLine(line);
-    }
-  });
+function requirePrivateDir(path: string): void {
+  const dir = dirname(path);
+  let st: ReturnType<typeof statSync>;
+  try { st = statSync(dir); } catch { throw new Error(`refusing to listen: socket directory ${dir} does not exist`); }
+  if (typeof process.getuid === "function" && st.uid !== process.getuid()) {
+    throw new Error(`refusing to listen: socket directory ${dir} is not owned by the current user`);
+  }
+  if ((st.mode & 0o077) !== 0) {
+    throw new Error(`refusing to listen: socket directory ${dir} must not be group/other accessible (mode ${(st.mode & 0o777).toString(8)})`);
+  }
 }
 
 export class UnixSocketHostServer {
@@ -28,6 +27,7 @@ export class UnixSocketHostServer {
 
   static async start(path: string, handle: Handler): Promise<UnixSocketHostServer> {
     rmSync(path, { force: true });
+    requirePrivateDir(path);
     let self: UnixSocketHostServer;
     const server = createServer((sock) => self.#accept(sock, handle));
     self = new UnixSocketHostServer(server, path);
@@ -46,14 +46,18 @@ export class UnixSocketHostServer {
     this.#sockets.add(sock);
     sock.on("close", () => this.#sockets.delete(sock));
     sock.on("error", () => sock.destroy());
-    onLines(sock, async (line) => {
-      let req: { id?: number; method?: string };
-      try { req = JSON.parse(line); } catch { return; }
-      const id = typeof req.id === "number" ? req.id : -1;
-      const res: HostResponseDto = !ALLOWED.has(req.method ?? "")
-        ? { id, ok: false, error: { kind: "denied", message: `method ${req.method} not allowed` } }
-        : await handle(req as HostRequestDto).catch((e): HostResponseDto => ({ id, ok: false, error: { kind: "transport", message: String(e) } }));
-      if (!sock.destroyed) sock.write(JSON.stringify(res) + "\n");
-    });
+    const framer = new LineFramer(
+      async (line) => {
+        let req: { id?: number; method?: string };
+        try { req = JSON.parse(line); } catch { return; }
+        const id = typeof req.id === "number" ? req.id : -1;
+        const res: HostResponseDto = !ALLOWED.has(req.method ?? "")
+          ? { id, ok: false, error: { kind: "denied", message: `method ${req.method} not allowed` } }
+          : await handle(req as HostRequestDto).catch((e): HostResponseDto => ({ id, ok: false, error: { kind: "transport", message: String(e) } }));
+        if (!sock.destroyed) sock.write(JSON.stringify(res) + "\n");
+      },
+      () => sock.destroy(),
+    );
+    sock.on("data", (chunk) => framer.push(chunk));
   }
 }

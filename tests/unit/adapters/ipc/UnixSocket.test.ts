@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, statSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UnixSocketHostServer } from "../../../../src/adapters/inbound/ipc/UnixSocketHostServer.ts";
@@ -51,4 +52,36 @@ test("connect con reintentos falla si nadie escucha; el cierre del host rechaza 
   const pending = gw.health();
   await server.close();
   await assert.rejects(pending, (e) => e instanceof HostCallError && e.kind === "transport");
+});
+
+test("los argumentos con UTF-8 multibyte llegan intactos en el viaje de ida y vuelta", async () => {
+  const path = sock();
+  const server = await UnixSocketHostServer.start(path, async (req) => {
+    if (req.method === "call") return { id: req.id, ok: true, result: { structured: req.args, text: "ok" } };
+    return { id: req.id, ok: false, error: { kind: "invalid", message: "unexpected" } };
+  });
+  try {
+    const gw = await UnixSocketHostGateway.connect(path);
+    const payload = { text: "ñ漢😀" };
+    assert.deepEqual(await gw.call(ServerName.KMP, ToolName.of("kmp_ask"), payload), { structured: payload, text: "ok" });
+    gw.close();
+  } finally { await server.close(); }
+});
+
+test("una línea malformada del host rechaza lo pendiente sin tumbar el cliente", async () => {
+  const path = sock();
+  const raw = createServer((sock) => sock.once("data", () => sock.write("esto no es json\n")));
+  await new Promise<void>((resolve) => raw.listen(path, resolve));
+  try {
+    const gw = await UnixSocketHostGateway.connect(path);
+    await assert.rejects(gw.health(), (e) => e instanceof HostCallError && e.kind === "transport" && e.message === "malformed response from host");
+    gw.close();
+  } finally { await new Promise<void>((resolve) => raw.close(() => resolve())); }
+});
+
+test("el host rechaza escuchar si el directorio del socket no es privado", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ipc-open-"));
+  chmodSync(dir, 0o755);
+  const path = join(dir, "host.sock");
+  await assert.rejects(UnixSocketHostServer.start(path, async (req) => ({ id: req.id, ok: true, result: null })));
 });
