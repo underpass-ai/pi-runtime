@@ -11,7 +11,12 @@ export class StdioMcpConnector implements McpConnector {
   async open(server: ServerName, cmd: ServerCommandDto): Promise<McpConnection> {
     const child = spawn(cmd.command, cmd.args, { cwd: cmd.cwd, env: cmd.env, stdio: ["pipe", "pipe", "pipe"] });
     const conn = new StdioMcpConnection(server, child, this.#timeoutMs);
-    await conn.handshake();
-    return conn;
+    try {
+      await conn.handshake();
+      return conn;
+    } catch (err) {
+      await conn.close();
+      throw err;
+    }
   }
 }

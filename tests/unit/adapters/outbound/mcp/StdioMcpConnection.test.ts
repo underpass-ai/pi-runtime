@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { StdioMcpConnector } from "../../../../../src/adapters/outbound/mcp/StdioMcpConnector.ts";
 import { McpRpcError } from "../../../../../src/adapters/outbound/mcp/McpRpcError.ts";
 import { McpTransportError } from "../../../../../src/adapters/outbound/mcp/McpTransportError.ts";
@@ -46,8 +49,45 @@ test("timeout y muerte del proceso son McpTransportError", async () => {
   const dying = await open();
   let exited = false;
   dying.onExit(() => { exited = true; });
-  await assert.rejects(dying.call(ToolName.of("kmp_die"), {}), McpTransportError);
+  await assert.rejects(dying.call(ToolName.of("kmp_die"), {}), (e) => e instanceof McpTransportError && /stderr: dying now/.test(e.message));
   assert.equal(exited, true);
   await assert.rejects(dying.call(ToolName.of("kmp_echo"), {}), /not running/);
   await dying.close();
+});
+
+test("spawn de un binario inexistente falla con McpTransportError y no tumba el proceso de test", async () => {
+  await assert.rejects(
+    new StdioMcpConnector(2000).open(ServerName.of("kmp"), { command: "/nonexistent/binary", args: [], cwd: process.cwd(), env: process.env as Record<string, string | undefined> }),
+    McpTransportError,
+  );
+});
+
+test("un error RPC en el handshake mata al hijo", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fake-mcp-pid-"));
+  const pidFile = join(dir, "pid");
+  await assert.rejects(
+    new StdioMcpConnector(2000).open(ServerName.of("kmp"), {
+      command: process.execPath,
+      args: [fake],
+      cwd: process.cwd(),
+      env: { ...process.env, FAKE_FLAVOR: "kmp", FAKE_INIT_ERROR: "1", FAKE_PID_FILE: pidFile },
+    }),
+    McpRpcError,
+  );
+  await new Promise((r) => setTimeout(r, 300));
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  assert.throws(() => process.kill(pid, 0), /ESRCH/);
+});
+
+test("una inundación de stderr no bloquea el handshake ni el catálogo", async () => {
+  const c = await new StdioMcpConnector(5000).open(ServerName.of("kmp"), {
+    command: process.execPath,
+    args: [fake],
+    cwd: process.cwd(),
+    env: { ...process.env, FAKE_FLAVOR: "kmp", FAKE_STDERR_FLOOD: "1" },
+  });
+  try {
+    assert.equal(c.protocol.value, "2024-11-05");
+    assert.ok((await c.catalog()).names().length > 0);
+  } finally { await c.close(); }
 });

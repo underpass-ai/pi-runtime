@@ -27,16 +27,27 @@ export class StdioMcpConnection implements McpConnection {
   readonly #exitListeners: (() => void)[] = [];
   #nextId = 1;
   #exited = false;
+  #stderrTail = "";
 
   constructor(server: ServerName, child: ChildProcessWithoutNullStreams, timeoutMs: number) {
     this.server = server; this.#child = child; this.#timeoutMs = timeoutMs;
     createInterface({ input: child.stdout }).on("line", (l) => this.#onLine(l));
-    child.on("exit", (code) => {
-      this.#exited = true;
-      for (const p of this.#pending.values()) { clearTimeout(p.timer); p.reject(new McpTransportError(`${server} exited (${code}); outcome unknown`)); }
-      this.#pending.clear();
-      for (const l of this.#exitListeners) l();
-    });
+    child.stderr.on("data", (chunk: Buffer) => { this.#stderrTail = (this.#stderrTail + chunk.toString()).slice(-4096); });
+    child.on("exit", (code) => this.#down(`${server} exited (${code}); outcome unknown${this.#stderrSuffix()}`));
+    child.on("error", (err) => this.#down(`${server} failed to start: ${err.message}`));
+  }
+
+  #stderrSuffix(): string {
+    const tail = this.#stderrTail.trim();
+    return tail ? `; stderr: ${tail}` : "";
+  }
+
+  #down(message: string): void {
+    if (this.#exited) return;
+    this.#exited = true;
+    for (const p of this.#pending.values()) { clearTimeout(p.timer); p.reject(new McpTransportError(message)); }
+    this.#pending.clear();
+    for (const l of this.#exitListeners) l();
   }
 
   async handshake(): Promise<void> {
