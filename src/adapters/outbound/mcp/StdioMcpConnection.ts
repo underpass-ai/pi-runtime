@@ -35,6 +35,9 @@ export class StdioMcpConnection implements McpConnection {
     child.stderr.on("data", (chunk: Buffer) => { this.#stderrTail = (this.#stderrTail + chunk.toString()).slice(-4096); });
     child.on("exit", (code) => this.#down(`${server} exited (${code}); outcome unknown${this.#stderrSuffix()}`));
     child.on("error", (err) => this.#down(`${server} failed to start: ${err.message}`));
+    // Sin este oyente, un EPIPE al escribir a un hijo que ya murió sería una
+    // excepción no capturada que tumba el host entero.
+    child.stdin.on("error", (err) => this.#down(`${server} stdin failed: ${err.message}; outcome unknown${this.#stderrSuffix()}`));
   }
 
   #stderrSuffix(): string {

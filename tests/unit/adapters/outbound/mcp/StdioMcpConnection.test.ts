@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { StdioMcpConnection } from "../../../../../src/adapters/outbound/mcp/StdioMcpConnection.ts";
 import { StdioMcpConnector } from "../../../../../src/adapters/outbound/mcp/StdioMcpConnector.ts";
 import { McpRpcError } from "../../../../../src/adapters/outbound/mcp/McpRpcError.ts";
 import { McpTransportError } from "../../../../../src/adapters/outbound/mcp/McpTransportError.ts";
@@ -90,4 +92,28 @@ test("una inundación de stderr no bloquea el handshake ni el catálogo", async 
     assert.equal(c.protocol.value, "2024-11-05");
     assert.ok((await c.catalog()).names().length > 0);
   } finally { await c.close(); }
+});
+
+const spawnNode = (code: string) => spawn(process.execPath, ["-e", code], { stdio: ["pipe", "pipe", "pipe"] });
+
+test("un 'error' en stdin del hijo marca la conexión caída sin lanzar", async () => {
+  const child = spawnNode("setTimeout(() => {}, 10_000)");
+  const conn = new StdioMcpConnection(ServerName.KMP, child, 5000);
+  let exited = false;
+  conn.onExit(() => { exited = true; });
+  const pending = conn.catalog();
+  child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+  await assert.rejects(pending, (e) => e instanceof McpTransportError && /EPIPE/.test(e.message));
+  assert.equal(exited, true);
+  await assert.rejects(conn.catalog(), /not running/);
+  child.kill("SIGKILL");
+});
+
+test("escribir a un hijo que cerró su stdin (EPIPE real) rechaza en vez de tumbar el proceso", async () => {
+  const child = spawnNode("require('node:fs').closeSync(0); setTimeout(() => {}, 2000)");
+  const conn = new StdioMcpConnection(ServerName.KMP, child, 5000);
+  await new Promise((r) => setTimeout(r, 200));
+  const big = { blob: "x".repeat(1 << 20) };
+  await assert.rejects(conn.call(ToolName.of("kmp_echo"), big), McpTransportError);
+  child.kill("SIGKILL");
 });
