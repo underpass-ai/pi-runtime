@@ -27,9 +27,15 @@ export class HostExtension {
 
   register(pi: PiExtensionApi): void {
     pi.on("session_start", async (_e, ctx) => {
+      const previous = this.#gateway;
+      if (previous) (await previous.catch(() => null))?.close();
       this.#gateway = this.#connect(ctx.cwd);
       try { await this.#gateway; pi.events.emit(HOST_READY, null); }
-      catch (e) { this.#gateway = null; if (ctx.hasUI) ctx.ui.notify(`Underpass host unavailable: ${(e as Error).message}`, "error"); }
+      catch (e) {
+        this.#gateway = null;
+        const message = `Underpass host unavailable: ${(e as Error).message}`;
+        if (ctx.hasUI) ctx.ui.notify(message, "error"); else console.error(message);
+      }
     });
     pi.on("session_shutdown", async () => {
       const g = this.#gateway; this.#gateway = null;

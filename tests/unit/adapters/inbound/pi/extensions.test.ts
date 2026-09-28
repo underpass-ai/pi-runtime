@@ -77,3 +77,103 @@ test("fallo de conexión se notifica y no rompe la sesión", async () => {
   await pi.fire("session_start");
   assert.match(pi.notes[0], /Underpass host unavailable: no host/);
 });
+
+test("fallo de conexión sin UI se registra en consola", async () => {
+  const original = console.error;
+  const logs: string[] = [];
+  console.error = ((...args: unknown[]) => { logs.push(args.join(" ")); }) as typeof console.error;
+  try {
+    const pi = new FakePi();
+    (pi as unknown as { ctx: unknown }).ctx = { cwd: "/repo", hasUI: false, ui: { notify: () => { throw new Error("no debería notificar sin UI"); } } };
+    const host = new HostExtension(async () => { throw new Error("no host"); }, new SelectPhaseTools(PhaseToolSelection.standard()));
+    host.register(pi as never);
+    await pi.fire("session_start");
+    assert.match(logs.join("\n"), /Underpass host unavailable: no host/);
+  } finally {
+    console.error = original;
+  }
+});
+
+test("un catálogo que falla no registra tools, avisa por evento y consola, y se reintenta en el siguiente HOST_READY", async () => {
+  const pi = new FakePi();
+  let catalogCalls = 0;
+  const gateway = {
+    catalog: async (s: ServerName) => { catalogCalls++; if (catalogCalls === 1) throw new Error("catalog down"); return catalog(s, ["kmp_ask"]); },
+    call: async () => ({ structured: null, text: "" }),
+    health: async () => ({ project: "/repo", started: [] }),
+    close: () => {},
+  };
+  const host = new HostExtension(async () => gateway, new SelectPhaseTools(PhaseToolSelection.standard()));
+  const factory = new PiToolFactory((j) => j);
+  host.register(pi as never);
+  new ServerToolsExtension(ServerName.KMP, host, factory).register(pi as never);
+
+  const failures: unknown[] = [];
+  pi.events.on("underpass:catalog-failed", (d) => failures.push(d));
+  const original = console.error;
+  console.error = (() => {}) as typeof console.error;
+
+  try {
+    await pi.fire("session_start");
+    assert.deepEqual(pi.tools, []);
+    assert.deepEqual(failures, [{ server: "kmp", message: "catalog down" }]);
+
+    await pi.fire("session_start");
+    assert.deepEqual(pi.tools.map((t) => t.name), ["kmp_ask"]);
+  } finally {
+    console.error = original;
+  }
+});
+
+test("dos session_start sin shutdown cierran el gateway anterior una sola vez", async () => {
+  const pi = new FakePi();
+  let closes1 = 0; let closes2 = 0; let calls = 0;
+  const gw1 = { catalog: async () => catalog(ServerName.KMP, []), call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), close: () => { closes1++; } };
+  const gw2 = { catalog: async () => catalog(ServerName.KMP, []), call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), close: () => { closes2++; } };
+  const host = new HostExtension(async () => { calls++; return calls === 1 ? gw1 : gw2; }, new SelectPhaseTools(PhaseToolSelection.standard()));
+  host.register(pi as never);
+  await pi.fire("session_start");
+  await pi.fire("session_start");
+  assert.equal(closes1, 1);
+  assert.equal(closes2, 0);
+});
+
+test("execute rechaza inmediatamente si la señal ya está abortada", async () => {
+  const factory = new PiToolFactory((j) => j);
+  const descriptor = new McpToolMapper().toDomain({ name: "kmp_ask", inputSchema: { type: "object" } });
+  const tool = factory.create(ServerName.KMP, descriptor, async () => { throw new Error("no debería llamar a la gateway"); });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(tool.execute("c", {}, controller.signal), /kmp_ask aborted; outcome unknown/);
+});
+
+test("execute rechaza si la señal se aborta mientras la llamada no resuelve", async () => {
+  const factory = new PiToolFactory((j) => j);
+  const descriptor = new McpToolMapper().toDomain({ name: "kmp_ask", inputSchema: { type: "object" } });
+  const neverResolving = async () => ({
+    catalog: async () => { throw new Error("n/a"); },
+    call: () => new Promise<never>(() => {}),
+    health: async () => ({ project: "", started: [] }),
+    close: () => {},
+  });
+  const tool = factory.create(ServerName.KMP, descriptor, neverResolving);
+  const controller = new AbortController();
+  const pending = tool.execute("c", {}, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, /kmp_ask aborted; outcome unknown/);
+});
+
+test("el truncado no parte un par subrogado por la mitad", async () => {
+  const text = "abcd😀efgh"; // "abcd" + 😀 (par subrogado) + "efgh"
+  const gateway = async () => ({
+    catalog: async () => { throw new Error("n/a"); },
+    call: async () => ({ structured: null, text }),
+    health: async () => ({ project: "", started: [] }),
+    close: () => {},
+  });
+  const factory = new PiToolFactory((j) => j, 5);
+  const descriptor = new McpToolMapper().toDomain({ name: "kmp_ask", inputSchema: { type: "object" } });
+  const tool = factory.create(ServerName.KMP, descriptor, gateway);
+  const res = await tool.execute("c", {});
+  assert.equal(res.content[0].text, "abcd\n[truncated 6 chars; full result in details]");
+});

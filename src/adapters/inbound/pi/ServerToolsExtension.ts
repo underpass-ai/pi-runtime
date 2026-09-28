@@ -11,10 +11,16 @@ export class ServerToolsExtension {
   register(pi: PiExtensionApi): void {
     pi.events.on(HOST_READY, async () => {
       if (this.#registered) return;
-      this.#registered = true;
-      const catalog = await (await this.#host.gateway()).catalog(this.#server);
-      for (const t of catalog.tools()) pi.registerTool(this.#tools.create(this.#server, t, () => this.#host.gateway()));
-      this.#host.applyPhase(pi, Phase.INTERACTIVE);
+      try {
+        const catalog = await (await this.#host.gateway()).catalog(this.#server);
+        for (const t of catalog.tools()) pi.registerTool(this.#tools.create(this.#server, t, () => this.#host.gateway()));
+        this.#host.applyPhase(pi, Phase.INTERACTIVE);
+        this.#registered = true;
+      } catch (e) {
+        const message = (e as Error).message;
+        pi.events.emit("underpass:catalog-failed", { server: this.#server.value, message });
+        console.error(`Underpass catalog failed for ${this.#server.value}: ${message}`);
+      }
     });
   }
 }
