@@ -1,5 +1,5 @@
 import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import type { MadeConfigurationRepository } from "../../../application/ports/MadeConfigurationRepository.ts";
 import { CeremonyStoreId } from "../../../domain/made/CeremonyStoreId.ts";
 import { CursorHmacKey } from "../../../domain/made/CursorHmacKey.ts";
@@ -12,13 +12,14 @@ const KEYS = ["MADE_AUTH_POLICY_ID", "MADE_AUTH_TRUSTED_HOST_ID", "MADE_CEREMONY
 const HEADER = "# MADE embedded host configuration; managed by made-setup.";
 
 export class FsMadeConfigurationRepository implements MadeConfigurationRepository {
-  readonly #env: Record<string, string | undefined>;
-  constructor(env: Record<string, string | undefined>) { this.#env = env; }
-
-  locationOf(store: StorePath): string {
-    const root = this.#env.MADE_SETUP_CONFIG_ROOT ?? join(this.#env.XDG_CONFIG_HOME ?? join(this.#env.HOME ?? "", ".config"), "underpass-made", "embedded");
-    return join(root, `${store.configDigest()}.env`);
+  readonly #root: string;
+  // `root` llega ya resuelto (StatePaths.madeConfigRoot): este adaptador no lee el entorno.
+  constructor(root: string) {
+    if (!isAbsolute(root)) throw new Error(`made config root must be absolute, got "${root}"`);
+    this.#root = root;
   }
+
+  locationOf(store: StorePath): string { return join(this.#root, `${store.configDigest()}.env`); }
 
   load(store: StorePath): MadeConfiguration | null {
     const path = this.locationOf(store);

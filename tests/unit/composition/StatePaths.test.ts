@@ -13,3 +13,33 @@ test("rutas de estado bajo XDG y fuera del proyecto", () => {
   assert.equal(new StatePaths({ HOME: "/h", XDG_STATE_HOME: "/s", XDG_DATA_HOME: "/d" }).fingerprintsFile(), "/s/underpass-pi/fingerprints.json");
   assert.equal(new StatePaths({ HOME: "/h", XDG_DATA_HOME: "/d" }).binDir(), "/d/underpass-pi/bin");
 });
+
+test("rutas de MADE compatibles con el plugin: store y raíz de configuración", () => {
+  const s = new StatePaths({ HOME: "/h" });
+  assert.equal(s.madeStore().value, "/h/.local/state/underpass-made/ceremonies.sqlite3");
+  assert.equal(s.madeConfigRoot(), "/h/.config/underpass-made/embedded");
+  const x = new StatePaths({ HOME: "/h", XDG_STATE_HOME: "/s", XDG_CONFIG_HOME: "/c" });
+  assert.equal(x.madeStore().value, "/s/underpass-made/ceremonies.sqlite3");
+  assert.equal(x.madeConfigRoot(), "/c/underpass-made/embedded");
+  const o = new StatePaths({ HOME: "/h", MADE_MCP_STORE_PATH: "/m/store.sqlite3", MADE_SETUP_CONFIG_ROOT: "/r" });
+  assert.equal(o.madeStore().value, "/m/store.sqlite3");
+  assert.equal(o.madeConfigRoot(), "/r");
+});
+
+test("semántica ${VAR:-default}: una variable vacía cuenta como no definida", () => {
+  const s = new StatePaths({ HOME: "/h", XDG_STATE_HOME: "", XDG_DATA_HOME: "", XDG_CONFIG_HOME: "", MADE_MCP_STORE_PATH: "", MADE_SETUP_CONFIG_ROOT: "" });
+  assert.equal(s.root(), "/h/.local/state/underpass-pi");
+  assert.equal(s.binDir(), "/h/.local/share/underpass-pi/bin");
+  assert.equal(s.madeStore().value, "/h/.local/state/underpass-made/ceremonies.sqlite3");
+  assert.equal(s.madeConfigRoot(), "/h/.config/underpass-made/embedded");
+});
+
+test("una ruta resultante relativa es un error, nunca un directorio dentro del repo", () => {
+  assert.throws(() => new StatePaths({}).root(), /HOME.*absolute/);
+  assert.throws(() => new StatePaths({ HOME: "" }).madeConfigRoot(), /absolute/);
+  assert.throws(() => new StatePaths({ HOME: "/h", XDG_STATE_HOME: "rel" }).root(), /XDG_STATE_HOME/);
+  assert.throws(() => new StatePaths({ HOME: "/h", XDG_DATA_HOME: "rel" }).binDir(), /XDG_DATA_HOME/);
+  assert.throws(() => new StatePaths({ HOME: "/h", XDG_CONFIG_HOME: "rel" }).madeConfigRoot(), /XDG_CONFIG_HOME/);
+  assert.throws(() => new StatePaths({ HOME: "/h", MADE_SETUP_CONFIG_ROOT: "rel" }).madeConfigRoot(), /MADE_SETUP_CONFIG_ROOT/);
+  assert.throws(() => new StatePaths({ HOME: "/h", MADE_MCP_STORE_PATH: "rel.sqlite3" }).madeStore(), /MADE_MCP_STORE_PATH/);
+});

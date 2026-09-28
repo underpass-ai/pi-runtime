@@ -54,7 +54,7 @@ export async function openMade(): Promise<McpConnection> {
   const env = { ...process.env, HOME: home };
   const store = StorePath.of(join(home, ".local/state/underpass-made/ceremonies.sqlite3"));
   mkdirSync(dirname(store.value), { recursive: true });
-  const { configuration } = new EnsureMadeConfiguration(new FsMadeConfigurationRepository(env), new NodeEntropySource()).execute(store);
+  const { configuration } = new EnsureMadeConfiguration(new FsMadeConfigurationRepository(join(home, ".config/underpass-made/embedded")), new NodeEntropySource()).execute(store);
   execFileSync(MADE_BIN!, ["bootstrap-authorization", store.value, "--policy-id", configuration.policy.value, "--trusted-host-id", configuration.trustedHost.value]);
   const conn = await new StdioMcpConnector(60_000).open(ServerName.MADE, new MadeServerCommandFactory(MADE_BIN!, store, configuration, env).commandFor(Project.of(ProjectRoot.of(projectDir))));
   return withTempCleanup(conn, [home, projectDir]);

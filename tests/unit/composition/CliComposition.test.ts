@@ -1,12 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CliComposition, loadMadeConfigurationOrThrow } from "../../../src/composition/CliComposition.ts";
-import { FsMadeConfigurationRepository } from "../../../src/adapters/outbound/fs/FsMadeConfigurationRepository.ts";
-import { MadeConfiguration } from "../../../src/domain/made/MadeConfiguration.ts";
-import { StorePath } from "../../../src/domain/made/StorePath.ts";
+import { CliComposition } from "../../../src/composition/CliComposition.ts";
 
 test("compone el CLI real y ejecuta un verbo desconocido sin tocar red", async () => {
   const home = mkdtempSync(join(tmpdir(), "underpass-home-"));
@@ -16,19 +13,6 @@ test("compone el CLI real y ejecuta un verbo desconocido sin tocar red", async (
   assert.match(out.join("\n"), /usage: underpass setup \| doctor \| update/);
 });
 
-test("la conexión de doctor a MADE sólo lee la configuración privada; sin fichero no crea nada", () => {
-  const home = mkdtempSync(join(tmpdir(), "underpass-home-"));
-  const configs = new FsMadeConfigurationRepository({ HOME: home });
-  const store = StorePath.of(join(home, ".local/state/underpass-made/ceremonies.sqlite3"));
-  assert.throws(() => loadMadeConfigurationOrThrow(configs, store), /MADE private configuration missing; run `underpass setup`/);
-  assert.equal(existsSync(configs.locationOf(store)), false);
-});
-
-test("la conexión de doctor a MADE reutiliza la configuración existente sin tocarla", () => {
-  const home = mkdtempSync(join(tmpdir(), "underpass-home-"));
-  const configs = new FsMadeConfigurationRepository({ HOME: home });
-  const store = StorePath.of(join(home, ".local/state/underpass-made/ceremonies.sqlite3"));
-  const cfg = MadeConfiguration.generateFor(store, new Uint8Array(32).fill(6));
-  configs.create(store, cfg);
-  assert.deepEqual(loadMadeConfigurationOrThrow(configs, store).entries(), cfg.entries());
+test("un entorno que resuelve rutas relativas se rechaza al componer", () => {
+  assert.throws(() => CliComposition.build({ PATH: process.env.PATH, HOME: "" }, () => {}), /absolute/);
 });

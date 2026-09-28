@@ -6,12 +6,11 @@ import { JsonPinSetSource } from "../adapters/outbound/fs/JsonPinSetSource.ts";
 import { UnixSocketHostServer } from "../adapters/inbound/ipc/UnixSocketHostServer.ts";
 import { StdioMcpConnector } from "../adapters/outbound/mcp/StdioMcpConnector.ts";
 import { KmpServerCommandFactory } from "../adapters/outbound/process/KmpServerCommandFactory.ts";
-import { MadeServerCommandFactory } from "../adapters/outbound/process/MadeServerCommandFactory.ts";
+import { LazyMadeServerCommandFactory } from "../adapters/outbound/process/LazyMadeServerCommandFactory.ts";
 import type { ServerCommandFactory } from "../application/ports/ServerCommandFactory.ts";
 import { ServerPool } from "../application/services/ServerPool.ts";
 import { ServeHostRequest } from "../application/use-cases/ServeHostRequest.ts";
 import { BinaryName } from "../domain/distribution/BinaryName.ts";
-import { StorePath } from "../domain/made/StorePath.ts";
 import { StatePaths } from "./StatePaths.ts";
 
 export class HostComposition {
@@ -21,7 +20,7 @@ export class HostComposition {
     const lock = new FsOwnerLock(paths.projectDir(project)).acquire();
     if (!lock.owned) return;
 
-    const pool = new ServerPool(project, new StdioMcpConnector(60_000), commands ?? HostComposition.#commands(env, paths));
+    const pool = new ServerPool(project, new StdioMcpConnector(60_000), commands ?? HostComposition.commands(env, paths));
     const serve = new ServeHostRequest(project, pool);
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
 
@@ -36,17 +35,11 @@ export class HostComposition {
     process.once("SIGTERM", finish);
   }
 
-  static #commands(env: Record<string, string | undefined>, paths: StatePaths): Map<string, ServerCommandFactory> {
+  // Cableado de producción de los servidores del host (público para probarlo).
+  static commands(env: Record<string, string | undefined>, paths: StatePaths): Map<string, ServerCommandFactory> {
     const pins = new JsonPinSetSource(new URL("../../pins.json", import.meta.url).pathname).load();
     const bin = (n: BinaryName) => join(paths.binDir(), pins.pinFor(n).installedFileName());
-    const store = StorePath.of(env.MADE_MCP_STORE_PATH ?? join(env.XDG_STATE_HOME ?? join(env.HOME ?? "", ".local/state"), "underpass-made", "ceremonies.sqlite3"));
-    const lazyMade: ServerCommandFactory = {
-      commandFor: (p) => {
-        const config = new FsMadeConfigurationRepository(env).load(store);
-        if (!config) throw new Error("MADE private configuration missing; run `underpass setup`");
-        return new MadeServerCommandFactory(bin(BinaryName.MADE), store, config, env).commandFor(p);
-      },
-    };
-    return new Map([["kmp", new KmpServerCommandFactory(bin(BinaryName.KMP), env)], ["made", lazyMade]]);
+    const made = new LazyMadeServerCommandFactory(bin(BinaryName.MADE), paths.madeStore(), new FsMadeConfigurationRepository(paths.madeConfigRoot()), env);
+    return new Map<string, ServerCommandFactory>([["kmp", new KmpServerCommandFactory(bin(BinaryName.KMP), env)], ["made", made]]);
   }
 }

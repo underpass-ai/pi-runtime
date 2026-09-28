@@ -9,7 +9,7 @@ import { StorePath } from "../../../../../src/domain/made/StorePath.ts";
 
 const setup = () => {
   const home = mkdtempSync(join(tmpdir(), "home-"));
-  const repo = new FsMadeConfigurationRepository({ HOME: home });
+  const repo = new FsMadeConfigurationRepository(join(home, ".config/underpass-made/embedded"));
   const store = StorePath.of(join(home, ".local/state/underpass-made/ceremonies.sqlite3"));
   return { home, repo, store };
 };
@@ -87,8 +87,8 @@ test("línea sin '=' en el fichero de configuración: error claro", () => {
   assert.throws(() => repo.load(store), /malformed line in made config/);
 });
 
-test("MADE_SETUP_CONFIG_ROOT y XDG_CONFIG_HOME se respetan", () => {
+test("recibe la raíz ya resuelta (sin leer el entorno) y exige que sea absoluta", () => {
   const store = StorePath.of("/s/c.sqlite3");
-  assert.equal(new FsMadeConfigurationRepository({ HOME: "/h", MADE_SETUP_CONFIG_ROOT: "/r" }).locationOf(store), `/r/${store.configDigest()}.env`);
-  assert.equal(new FsMadeConfigurationRepository({ HOME: "/h", XDG_CONFIG_HOME: "/x" }).locationOf(store), `/x/underpass-made/embedded/${store.configDigest()}.env`);
+  assert.equal(new FsMadeConfigurationRepository("/r").locationOf(store), `/r/${store.configDigest()}.env`);
+  assert.throws(() => new FsMadeConfigurationRepository("relative/root"), /absolute/);
 });
