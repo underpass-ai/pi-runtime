@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FsOwnerLock } from "../../../../../src/adapters/outbound/fs/FsOwnerLock.ts";
@@ -33,8 +32,15 @@ test("varios procesos que compiten por un lock huérfano: exactamente uno se que
     const dir = mkdtempSync(join(tmpdir(), "lock-race-"));
     writeFileSync(join(dir, "host.lock"), JSON.stringify({ pid: DEAD_PID }));
     const startAt = Date.now() + 400;
-    const outs = await Promise.all(Array.from({ length: 8 }, () => promisify(execFile)(process.execPath, [acquirer, dir, String(startAt), "800"])));
-    const owners = outs.filter(({ stdout }) => JSON.parse(stdout).owned).length;
+    const children = Array.from({ length: 8 }, () => spawn(process.execPath, [acquirer, dir, String(startAt)], { stdio: ["pipe", "pipe", "inherit"] }));
+    const answers = await Promise.all(children.map((c) => new Promise<{ owned: boolean }>((resolve) => {
+      let out = "";
+      c.stdout.on("data", (d) => { out += d; if (out.includes("\n")) resolve(JSON.parse(out)); });
+    })));
+    const exits = children.map((c) => new Promise((r) => c.once("exit", r)));
+    for (const c of children) c.stdin.end();
+    await Promise.all(exits);
+    const owners = answers.filter((a) => a.owned).length;
     assert.equal(owners, 1, `ronda ${round}: ${owners} dueños`);
     assert.deepEqual(readdirSync(dir), [], "no quedan temporales ni el lock tras liberar");
   }
