@@ -65,3 +65,15 @@ test("el lock guarda el pid del dueño y no deja temporales", () => {
   if (a.owned) a.release();
   assert.deepEqual(readdirSync(dir), []);
 });
+
+test("una guarda de desalojo abandonada por un proceso muerto (o corrupta) no bloquea para siempre", () => {
+  for (const guard of [JSON.stringify({ pid: DEAD_PID, token: "x" }), "garbage"]) {
+    const dir = mkdtempSync(join(tmpdir(), "lock-"));
+    writeFileSync(join(dir, "host.lock"), JSON.stringify({ pid: DEAD_PID }));
+    writeFileSync(join(dir, "host.lock.evict"), guard);
+    const a = new FsOwnerLock(dir).acquire();
+    assert.equal(a.owned, true);
+    if (a.owned) a.release();
+    assert.deepEqual(readdirSync(dir), []);
+  }
+});
