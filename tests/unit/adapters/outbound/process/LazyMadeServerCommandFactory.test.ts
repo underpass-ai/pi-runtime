@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MadeConfigurationError } from "../../../../../src/application/ports/MadeConfigurationError.ts";
 import { LazyMadeServerCommandFactory } from "../../../../../src/adapters/outbound/process/LazyMadeServerCommandFactory.ts";
 import { FsMadeConfigurationRepository } from "../../../../../src/adapters/outbound/fs/FsMadeConfigurationRepository.ts";
 import { MadeConfiguration } from "../../../../../src/domain/made/MadeConfiguration.ts";
@@ -20,7 +21,7 @@ const project = Project.of(ProjectRoot.of("/repo"));
 
 test("sin configuración privada falla pidiendo `underpass setup` y no crea nada", () => {
   const { configs, store, factory } = fixture();
-  assert.throws(() => factory.commandFor(project), /MADE private configuration missing; run `underpass setup`/);
+  assert.throws(() => factory.commandFor(project), (e) => e instanceof MadeConfigurationError && /MADE private configuration missing; run `underpass setup`/.test(e.message));
   assert.equal(existsSync(configs.locationOf(store)), false);
 });
 

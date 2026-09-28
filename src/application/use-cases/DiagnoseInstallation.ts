@@ -10,6 +10,7 @@ import type { CatalogFingerprint } from "../../domain/mcp/CatalogFingerprint.ts"
 import { ServerName } from "../../domain/mcp/ServerName.ts";
 import type { FingerprintRepository } from "../ports/FingerprintRepository.ts";
 import type { KmpLifecycle } from "../ports/KmpLifecycle.ts";
+import { MadeConfigurationError } from "../ports/MadeConfigurationError.ts";
 import type { McpConnection } from "../ports/McpConnection.ts";
 import type { PiPackageManager } from "../ports/PiPackageManager.ts";
 import type { PiRuntimeInspector } from "../ports/PiRuntimeInspector.ts";
@@ -48,7 +49,9 @@ export class DiagnoseInstallation {
       try {
         conn = await this.#connect(server);
       } catch (e) {
-        report = report.add(Check.fail(CheckSection.of(server.value), CheckName.of("private configuration"), CheckDetail.of((e as Error).message)));
+        // Sólo la configuración privada de MADE es "private configuration"; cualquier otro fallo al arrancar es de conexión.
+        const name = e instanceof MadeConfigurationError ? "private configuration" : "server connection";
+        report = report.add(Check.fail(CheckSection.of(server.value), CheckName.of(name), CheckDetail.of((e as Error).message)));
         continue;
       }
       try {

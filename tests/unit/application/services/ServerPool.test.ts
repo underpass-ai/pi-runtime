@@ -27,8 +27,10 @@ test("perezoso, una sola apertura con llamadas concurrentes", async () => {
 test("relanza tras la muerte del servidor", async () => {
   const p = pool();
   try {
-    await assert.rejects((await p.connection(ServerName.KMP)).call(ToolName.of("kmp_die"), {}));
-    await new Promise((r) => setTimeout(r, 20));
+    const first = await p.connection(ServerName.KMP);
+    const exited = new Promise<void>((r) => first.onExit(r)); // el pool registró su oyente antes: ya lo habrá olvidado
+    await assert.rejects(first.call(ToolName.of("kmp_die"), {}));
+    await exited;
     const again = await p.connection(ServerName.KMP);
     assert.equal((await again.catalog()).names().length, 4);
   } finally { await p.close(); }

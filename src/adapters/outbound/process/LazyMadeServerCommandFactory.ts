@@ -1,3 +1,4 @@
+import { MadeConfigurationError } from "../../../application/ports/MadeConfigurationError.ts";
 import type { MadeConfigurationRepository } from "../../../application/ports/MadeConfigurationRepository.ts";
 import type { ServerCommandFactory } from "../../../application/ports/ServerCommandFactory.ts";
 import type { ServerCommandDto } from "../../../application/dto/ServerCommandDto.ts";
@@ -15,7 +16,7 @@ export class LazyMadeServerCommandFactory implements ServerCommandFactory {
   }
   commandFor(project: Project): ServerCommandDto {
     const configuration = this.#configs.load(this.#store);
-    if (!configuration) throw new Error("MADE private configuration missing; run `underpass setup`");
+    if (!configuration) throw new MadeConfigurationError("MADE private configuration missing; run `underpass setup`");
     return new MadeServerCommandFactory(this.#binary, this.#store, configuration, this.#env).commandFor(project);
   }
 }

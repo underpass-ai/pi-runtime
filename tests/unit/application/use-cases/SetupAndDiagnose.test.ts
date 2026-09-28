@@ -18,6 +18,7 @@ import { ToolCatalog } from "../../../../src/domain/mcp/ToolCatalog.ts";
 import { ToolSuccess } from "../../../../src/domain/mcp/ToolSuccess.ts";
 import { McpToolMapper } from "../../../../src/application/mappers/McpToolMapper.ts";
 import type { MadeConfiguration } from "../../../../src/domain/made/MadeConfiguration.ts";
+import { MadeConfigurationError } from "../../../../src/application/ports/MadeConfigurationError.ts";
 
 const store = StorePath.of("/s/ceremonies.sqlite3");
 const profiles = ToolProfiles.standard();
@@ -87,7 +88,7 @@ test("setup convierte un fallo al leer la configuración privada de MADE en un c
 });
 
 test("doctor convierte un fallo de conexión a MADE por configuración rota en un check FAIL, sin excepción", async () => {
-  const d = deps({ connections: async (s: ServerName) => { if (s.equals(ServerName.MADE)) throw new Error("made config /cfg must contain exactly four keys"); return connection(s); } });
+  const d = deps({ connections: async (s: ServerName) => { if (s.equals(ServerName.MADE)) throw new MadeConfigurationError("made config /cfg must contain exactly four keys"); return connection(s); } });
   const doctor = new DiagnoseInstallation(d.verify, d.runtime, d.pi, d.kmp, d.fingerprints, d.connections, new VerifyServerProfiles(profiles), new DiscoverMadeCapabilities(), SemVer.of("0.87.1"));
   const r = await doctor.execute(true);
   assert.equal(r.hasFailures(), true);
@@ -134,4 +135,15 @@ test("doctor nunca instala: sólo verifica, y un binario ausente o alterado es F
   assert.match(failed.detail.value, /run `underpass update`/);
   assert.equal(installs, 0);
   assert.equal(connects, 0, "sin binarios verificados no se arranca ningún servidor");
+});
+
+test("doctor etiqueta un fallo de arranque de cualquier servidor como 'server connection', no como configuración privada", async () => {
+  const d = deps({ connections: async (s: ServerName) => { throw new Error(`${s.value} failed to start: spawn ENOENT`); } });
+  const r = await new DiagnoseInstallation(d.verify, d.runtime, d.pi, d.kmp, d.fingerprints, d.connections, new VerifyServerProfiles(profiles), new DiscoverMadeCapabilities(), SemVer.of("0.87.1")).execute(false);
+  for (const server of ["kmp", "made"]) {
+    const failed = r.checks().find((c) => c.section.value === server && c.name.value === "server connection");
+    assert.ok(failed, JSON.stringify(r.checks().map((c) => [c.section.value, c.name.value])));
+    assert.equal(failed.status.value, "FAIL");
+  }
+  assert.equal(r.checks().some((c) => c.name.value === "private configuration"), false);
 });

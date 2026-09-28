@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { MadeConfigurationError } from "../../../../../src/application/ports/MadeConfigurationError.ts";
 import { FsMadeConfigurationRepository } from "../../../../../src/adapters/outbound/fs/FsMadeConfigurationRepository.ts";
 import { MadeConfiguration } from "../../../../../src/domain/made/MadeConfiguration.ts";
 import { StorePath } from "../../../../../src/domain/made/StorePath.ts";
@@ -91,4 +92,19 @@ test("recibe la raíz ya resuelta (sin leer el entorno) y exige que sea absoluta
   const store = StorePath.of("/s/c.sqlite3");
   assert.equal(new FsMadeConfigurationRepository("/r").locationOf(store), `/r/${store.configDigest()}.env`);
   assert.throws(() => new FsMadeConfigurationRepository("relative/root"), /absolute/);
+});
+
+test("los fallos de validación del fichero son MadeConfigurationError", () => {
+  const { repo, store } = setup();
+  repo.create(store, MadeConfiguration.generateFor(store, new Uint8Array(32).fill(3)));
+  chmodSync(repo.locationOf(store), 0o644);
+  assert.throws(() => repo.load(store), MadeConfigurationError);
+});
+
+test("un valor inválido (clave HMAC corta) es MadeConfigurationError y no revela el valor", () => {
+  const { repo, store } = setup();
+  repo.create(store, MadeConfiguration.generateFor(store, new Uint8Array(32).fill(3)));
+  const loc = repo.locationOf(store);
+  writeFileSync(loc, readFileSync(loc, "utf8").replace(/MADE_CEREMONY_SEARCH_CURSOR_HMAC_KEY=\w+/, "MADE_CEREMONY_SEARCH_CURSOR_HMAC_KEY=abc123"));
+  assert.throws(() => repo.load(store), (e) => e instanceof MadeConfigurationError && /invalid value/.test(e.message) && !e.message.includes("abc123"));
 });

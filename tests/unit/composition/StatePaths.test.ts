@@ -10,6 +10,7 @@ test("rutas de estado bajo XDG y fuera del proyecto", () => {
   assert.equal(s.root(), "/h/.local/state/underpass-pi");
   assert.equal(s.socketOf(p), `/h/.local/state/underpass-pi/projects/${p.id}/host.sock`);
   assert.equal(s.binDir(), "/h/.local/share/underpass-pi/bin");
+  assert.equal(s.hostLogOf(p), `/h/.local/state/underpass-pi/projects/${p.id}/host.log`);
   assert.equal(new StatePaths({ HOME: "/h", XDG_STATE_HOME: "/s", XDG_DATA_HOME: "/d" }).fingerprintsFile(), "/s/underpass-pi/fingerprints.json");
   assert.equal(new StatePaths({ HOME: "/h", XDG_DATA_HOME: "/d" }).binDir(), "/d/underpass-pi/bin");
 });

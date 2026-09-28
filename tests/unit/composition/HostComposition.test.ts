@@ -20,7 +20,7 @@ test("dos conexiones desde el mismo proyecto comparten un único host", async ()
   const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", FAKE_SERVER_CMD: `${process.execPath} ${fake}` };
   const paths = new StatePaths(env);
   let launches = 0;
-  const inner = new DetachedHostLauncher(hostEntry, env);
+  const inner = new DetachedHostLauncher(hostEntry, env, (p) => paths.hostLogOf(p));
   const uc = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p), { launch: (p) => { launches++; inner.launch(p); } });
   const a = await uc.execute(cwd);
   const b = await uc.execute(cwd);

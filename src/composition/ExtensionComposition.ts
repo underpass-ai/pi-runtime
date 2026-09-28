@@ -39,7 +39,7 @@ export class ExtensionComposition {
     return SharedInstance.get(HOST_EXTENSION_KEY, () => {
       const paths = new StatePaths(process.env);
       const connect = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p),
-        new DetachedHostLauncher(new URL("../../bin/underpass-host.ts", import.meta.url).pathname, process.env));
+        new DetachedHostLauncher(new URL("../../bin/underpass-host.ts", import.meta.url).pathname, process.env, (p) => paths.hostLogOf(p)));
       return new HostExtension((cwd) => connect.execute(cwd), this.#select);
     });
   }

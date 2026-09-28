@@ -16,6 +16,7 @@ export class StatePaths {
   root(): string { return join(this.#xdg("XDG_STATE_HOME", ".local/state"), "underpass-pi"); }
   projectDir(p: Project): string { return join(this.root(), "projects", p.id.value); }
   socketOf(p: Project): string { return join(this.projectDir(p), "host.sock"); }
+  hostLogOf(p: Project): string { return join(this.projectDir(p), "host.log"); }
   binDir(): string { return join(this.#xdg("XDG_DATA_HOME", ".local/share"), "underpass-pi", "bin"); }
   fingerprintsFile(): string { return join(this.root(), "fingerprints.json"); }
 

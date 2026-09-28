@@ -51,7 +51,14 @@ export async function openKmp(): Promise<McpConnection> {
 export async function openMade(): Promise<McpConnection> {
   const home = mkdtempSync(join(tmpdir(), "made-home-"));
   const projectDir = tmpProjectDir();
-  const env = { ...process.env, HOME: home };
+  // Entorno hermético: nada del HOME real ni de overrides de MADE del usuario
+  // puede colarse (store o configuración privada fuera del temporal).
+  const env: Record<string, string | undefined> = {
+    ...process.env, HOME: home,
+    XDG_CONFIG_HOME: join(home, ".config"), XDG_STATE_HOME: join(home, ".local/state"), XDG_DATA_HOME: join(home, ".local/share"),
+  };
+  delete env.MADE_SETUP_CONFIG_ROOT;
+  delete env.MADE_MCP_STORE_PATH;
   const store = StorePath.of(join(home, ".local/state/underpass-made/ceremonies.sqlite3"));
   mkdirSync(dirname(store.value), { recursive: true });
   const { configuration } = new EnsureMadeConfiguration(new FsMadeConfigurationRepository(join(home, ".config/underpass-made/embedded")), new NodeEntropySource()).execute(store);
