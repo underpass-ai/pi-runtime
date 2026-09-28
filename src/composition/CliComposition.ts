@@ -3,6 +3,7 @@ import { NodeEntropySource } from "../adapters/outbound/crypto/NodeEntropySource
 import { FsBinaryInstallation } from "../adapters/outbound/fs/FsBinaryInstallation.ts";
 import { FsFingerprintRepository } from "../adapters/outbound/fs/FsFingerprintRepository.ts";
 import { FsMadeConfigurationRepository } from "../adapters/outbound/fs/FsMadeConfigurationRepository.ts";
+import type { MadeConfiguration } from "../domain/made/MadeConfiguration.ts";
 import { JsonPinSetSource } from "../adapters/outbound/fs/JsonPinSetSource.ts";
 import { NodeFileDigester } from "../adapters/outbound/fs/NodeFileDigester.ts";
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
@@ -29,6 +30,16 @@ import { StorePath } from "../domain/made/StorePath.ts";
 import { ServerName } from "../domain/mcp/ServerName.ts";
 import { StatePaths } from "./StatePaths.ts";
 
+// El "doctor" nunca debe crear ni rotar la configuración privada de MADE: sólo
+// `SetupInstallation` (vía `EnsureMadeConfiguration`) tiene permiso para generarla.
+// Esta función es la única vía por la que la conexión usada por doctor obtiene
+// la configuración, y se exporta para poder probarla sin levantar procesos reales.
+export function loadMadeConfigurationOrThrow(configs: FsMadeConfigurationRepository, store: StorePath): MadeConfiguration {
+  const configuration = configs.load(store);
+  if (!configuration) throw new Error("MADE private configuration missing; run `underpass setup`");
+  return configuration;
+}
+
 export class CliComposition {
   static build(env: Record<string, string | undefined>, print: (s: string) => void): UnderpassCli {
     const repoRoot = new URL("../../", import.meta.url).pathname;
@@ -45,9 +56,10 @@ export class CliComposition {
     const piPackages = new PiCliPackageManager();
     const project = new GitProjectLocator().locate(process.cwd());
     const connector = new StdioMcpConnector(60_000);
-    const connect = (s: ServerName) => s.equals(ServerName.KMP)
-      ? connector.open(s, new KmpServerCommandFactory(kmpBin, env).commandFor(project))
-      : connector.open(s, new MadeServerCommandFactory(madeBin, store, ensure.execute(store).configuration, env).commandFor(project));
+    const connect = (s: ServerName) => {
+      if (s.equals(ServerName.KMP)) return connector.open(s, new KmpServerCommandFactory(kmpBin, env).commandFor(project));
+      return connector.open(s, new MadeServerCommandFactory(madeBin, store, loadMadeConfigurationOrThrow(configs, store), env).commandFor(project));
+    };
 
     const setup = new SetupInstallation(install, ensure, new BootstrapMadeAuthorization(new MadeCliAuthorizationBootstrapper(madeBin)), kmp, piPackages, store, repoRoot);
     const doctor = new DiagnoseInstallation(install, new PiCliRuntimeInspector(), piPackages, kmp, new FsFingerprintRepository(paths.fingerprintsFile()),

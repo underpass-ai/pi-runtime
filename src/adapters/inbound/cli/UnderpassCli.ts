@@ -10,13 +10,22 @@ export class UnderpassCli {
 
   async run(argv: string[]): Promise<number> {
     const verb = argv[0];
-    let report: DiagnosisReport;
-    if (verb === "setup") report = (await this.#setup.execute()).merge(await this.#doctor.execute(true));
-    else if (verb === "update") report = (await this.#setup.execute()).merge(await this.#doctor.execute(false));
-    else if (verb === "doctor") report = await this.#doctor.execute(false);
-    else { this.#print("usage: underpass setup | doctor | update"); return 2; }
     const mapper = new CheckMapper();
-    this.#print(new CheckRenderer().render(report.checks().map((c) => mapper.toDto(c))));
-    return report.hasFailures() ? 1 : 0;
+    const renderer = new CheckRenderer();
+    const render = (report: DiagnosisReport) => renderer.render(report.checks().map((c) => mapper.toDto(c)));
+
+    if (verb === "setup" || verb === "update") {
+      const setupReport = await this.#setup.execute();
+      const doctorReport = await this.#doctor.execute(verb === "setup");
+      this.#print(`== setup ==\n${render(setupReport)}\n== doctor ==\n${render(doctorReport)}`);
+      return setupReport.hasFailures() || doctorReport.hasFailures() ? 1 : 0;
+    }
+    if (verb === "doctor") {
+      const doctorReport = await this.#doctor.execute(false);
+      this.#print(render(doctorReport));
+      return doctorReport.hasFailures() ? 1 : 0;
+    }
+    this.#print("usage: underpass setup | doctor | update");
+    return 2;
   }
 }

@@ -93,3 +93,25 @@ test("doctor convierte un fallo de conexión a MADE por configuración rota en u
   assert.equal(failed.status.value, "FAIL");
   assert.match(failed.detail.value, /exactly four keys/);
 });
+
+test("doctor aísla un fallo de catálogo de un servidor: FAIL 'server contract' y sigue con el otro servidor y kmp-mcp doctor", async () => {
+  let closed = 0;
+  const d = deps({
+    connections: async (s: ServerName) => {
+      if (s.equals(ServerName.KMP)) {
+        return { ...connection(s), catalog: async () => { throw new Error("kmp exited (2): protocol handshake timed out"); }, close: async () => { closed++; } };
+      }
+      return { ...connection(s), close: async () => { closed++; } };
+    },
+  });
+  const doctor = new DiagnoseInstallation(d.install, d.runtime, d.pi, d.kmp, d.fingerprints, d.connections, new VerifyServerProfiles(profiles), new DiscoverMadeCapabilities(), SemVer.of("0.87.1"));
+  const r = await doctor.execute(false);
+  assert.equal(r.hasFailures(), true);
+  const failed = r.checks().find((c) => c.name.value === "server contract" && c.section.value === "kmp")!;
+  assert.ok(failed, JSON.stringify(r.checks().map((c) => [c.section.value, c.name.value, c.status.value])));
+  assert.equal(failed.status.value, "FAIL");
+  assert.match(failed.detail.value, /protocol handshake timed out/);
+  assert.ok(r.checks().some((c) => c.section.value === "made" && c.name.value === "capabilities"), "el servidor made sigue diagnosticándose");
+  assert.ok(r.checks().some((c) => c.name.value === "kmp-mcp doctor"), "kmp-mcp doctor sigue ejecutándose");
+  assert.equal(closed, 2, "ambas conexiones se cierran igual, incluida la que falló");
+});

@@ -56,6 +56,8 @@ export class DiagnoseInstallation {
           const x = c(CheckSection.MADE, "capabilities", `groups ${caps.groups.length}; limits ${caps.limits.join(", ")}`);
           report = report.add(caps.declares(DeclaredLimitId.ROSTER_PROCESS_LOCAL) ? Check.ok(x.s, x.n, x.d) : Check.warn(x.s, x.n, x.d));
         }
+      } catch (e) {
+        report = report.add(Check.fail(CheckSection.of(server.value), CheckName.of("server contract"), CheckDetail.of((e as Error).message)));
       } finally { await conn.close(); }
     }
     report = report.add(...FingerprintDrift.compare(this.#fingerprints.load(), current));
