@@ -47,6 +47,7 @@ import { ReadTelemetryMetrics } from "../application/use-cases/ReadTelemetryMetr
 import { RebuildProjection } from "../application/use-cases/RebuildProjection.ts";
 import { RecordFact } from "../application/use-cases/RecordFact.ts";
 import { RevokeMadeGrants } from "../application/use-cases/RevokeMadeGrants.ts";
+import { ListMadeCeremonies } from "../application/use-cases/ListMadeCeremonies.ts";
 import { SessionTrace } from "../application/use-cases/SessionTrace.ts";
 import { ShowSession } from "../application/use-cases/ShowSession.ts";
 import { ToolStatsReport } from "../application/use-cases/ToolStatsReport.ts";
@@ -151,7 +152,7 @@ export class EventLogComposition {
         const clock = new SystemClock();
         const revoke = new RevokeMadeGrants(events, new MadeOwner(() => (opened.connection ??= connect())), new RecordFact(events, clock),
           new MadeFactFactory(clock, Actor.of("human", "underpass-cli")), clock);
-        try { return await new MadeCli({ grants: new ListMadeGrants(events, clock), revoke, print: this.#print }).run(args); }
+        try { return await new MadeCli({ grants: new ListMadeGrants(events, clock), ceremonies: new ListMadeCeremonies(events, clock), revoke, print: this.#print }).run(args); }
         finally { if (opened.connection !== null) await (await opened.connection.catch(() => null))?.close(); }
       },
     };

@@ -5,7 +5,7 @@ import { CheckRenderer } from "./CheckRenderer.ts";
 type Runs = { execute(record?: boolean): Promise<DiagnosisReport> };
 type Verb = { run(args: string[]): number };
 type AsyncVerb = { run(args: string[]): Promise<number> };
-const USAGE = "usage: underpass setup | doctor | update | events <sessions|show|tools|kpis|trace|verify|export|import|rebuild|ack-gaps> | learning <report|mode> | made <grants|revoke-orphans> | metrics [--session <id>]";
+const USAGE = "usage: underpass setup | doctor | update | events <sessions|show|tools|kpis|trace|verify|export|import|rebuild|ack-gaps> | learning <report|mode> | made <grants|ceremonies|revoke-orphans> | metrics [--session <id>]";
 
 export class UnderpassCli {
   readonly #setup: Runs; readonly #doctor: Runs; readonly #print: (s: string) => void; readonly #events: Verb | null; readonly #metrics: Verb | null;

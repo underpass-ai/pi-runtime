@@ -145,3 +145,27 @@ test("un grant emitido tarde no mantiene viva una sesión sin hechos de Pi", () 
   assert.equal(ledger.state(g, clock.now()), "active", "el grant de 12 h aún no ha caducado");
   assert.deepEqual(ledger.orphans(clock.now()).map((o) => [o.grant.id.value, o.reason.value]), [[g.id.value, "expired_cleanup"]], "la sesión está abandonada");
 });
+
+test("F3: instancias arrancadas por la sesión; lector tolerante con payloads inesperados y fines de instancias ajenas", () => {
+  const clock = new ManualClock(1_000_000);
+  const events = new InMemoryEventStore(); const record = new RecordFact(events, clock);
+  record.execute(opened("s1", clock.ms));
+  const stream = StreamId.session(sid("s1"));
+  const raw = (type: string, about: string, payload: unknown) => record.execute(fact(type, about, payload, stream, clock.ms));
+  raw("made.ceremony_started", "a", { ceremonyId: "c1", definition: "smoke", version: "1.0" });
+  raw("made.ceremony_started", "b", { ceremonyId: "" });            // payload inesperado: se ignora
+  raw("made.ceremony_started", "c", { ceremonyId: "c1", definition: "other", version: "9" }); // el primero manda
+  raw("made.ceremony_ended", "d", { ceremonyId: "nobody", endReason: "completed" }); // no la arrancó: nada
+  raw("made.ceremony_ended", "e", { endReason: "completed" });
+  const ledger = MadeGrantLedger.forSession(events, sid("s1"));
+  assert.deepEqual(ledger.ceremonies(sid("s1")).map((c) => c.summary()), ["ceremony c1 (smoke v1.0)"]);
+  const c1 = ledger.ceremonies(sid("s1"))[0].ceremony;
+  assert.ok(ledger.running(sid("s1"), c1) !== null);
+  assert.equal(ledger.running(sid("s2"), c1), null);
+  raw("made.ceremony_ended", "f", { ceremonyId: "c1", endReason: 42 });
+  raw("made.ceremony_ended", "g", { ceremonyId: "c1", endReason: "completed" }); // ya terminó: el primero manda
+  const after = MadeGrantLedger.read(events);
+  assert.equal(after.running(sid("s1"), c1), null);
+  assert.equal(after.ceremonies(sid("s1"))[0].end!.value, "unknown");
+  assert.deepEqual(after.sessionsWithCeremonies().map(String), ["s1"]);
+});

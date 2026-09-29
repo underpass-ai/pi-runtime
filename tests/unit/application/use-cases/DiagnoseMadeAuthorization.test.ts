@@ -99,6 +99,6 @@ test("el censo lee el store de MADE en sólo lectura y nunca lo crea: políticas
 
 test("estado de MADE de una sesión: grants vigentes y confirmaciones", () => {
   const { clock, events } = log(false);
-  assert.deepEqual(new ReadMadeStatus(events, clock).execute(S1), { activeGrants: 1, confirmations: 0 });
-  assert.deepEqual(new ReadMadeStatus(events, clock).execute(SessionId.of("s2")), { activeGrants: 0, confirmations: 0 });
+  assert.deepEqual(new ReadMadeStatus(events, clock).execute(S1), { activeGrants: 1, confirmations: 0, ceremonies: [] });
+  assert.deepEqual(new ReadMadeStatus(events, clock).execute(SessionId.of("s2")), { activeGrants: 0, confirmations: 0, ceremonies: [] });
 });
