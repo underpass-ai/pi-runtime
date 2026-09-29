@@ -71,3 +71,12 @@ test("metrics delega en su CLI con el resto de argumentos; sin él, uso", async 
   assert.equal(await new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s)).run(["metrics"]), 2);
   assert.match(out.at(-1)!, /\| metrics \[--session <id>\]$/);
 });
+
+test("learning delega en su verbo y sin él imprime el uso", async () => {
+  const out: string[] = []; const seen: string[][] = [];
+  const cli = new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s), null, null, { run: (a) => { seen.push(a); return 0; } });
+  assert.equal(await cli.run(["learning", "report"]), 0);
+  assert.deepEqual(seen, [["report"]]);
+  assert.equal(await new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s)).run(["learning"]), 2);
+  assert.match(out.at(-1)!, /\| learning <report\|mode> \|/);
+});

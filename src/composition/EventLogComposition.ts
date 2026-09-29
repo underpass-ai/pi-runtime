@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { EventsCli } from "../adapters/inbound/cli/EventsCli.ts";
+import { LearningCli } from "../adapters/inbound/cli/LearningCli.ts";
 import { MetricsCli } from "../adapters/inbound/cli/MetricsCli.ts";
 import { SystemClock } from "../adapters/outbound/clock/SystemClock.ts";
 import { FsSpoolGapMarkers } from "../adapters/outbound/fs/FsSpoolGapMarkers.ts";
@@ -21,23 +22,28 @@ import { TelemetryMetricsProjection } from "../application/projections/Telemetry
 import { LearningEvalProjection } from "../application/projections/LearningEvalProjection.ts";
 import { ToolBanditProjection } from "../application/projections/ToolBanditProjection.ts";
 import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
+import { LearningFactFactory } from "../application/services/LearningFactFactory.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { TelemetryEpochs } from "../application/services/TelemetryEpochs.ts";
 import { AcknowledgeSpoolGaps } from "../application/use-cases/AcknowledgeSpoolGaps.ts";
+import { ChangeLearningMode } from "../application/use-cases/ChangeLearningMode.ts";
 import { DiagnoseEventLog } from "../application/use-cases/DiagnoseEventLog.ts";
 import { DiagnoseTelemetry } from "../application/use-cases/DiagnoseTelemetry.ts";
 import { ExportEventLog } from "../application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../application/use-cases/ImportEventLog.ts";
+import { LearningReport } from "../application/use-cases/LearningReport.ts";
 import { ListSessions } from "../application/use-cases/ListSessions.ts";
 import { ProjectionLag } from "../application/use-cases/ProjectionLag.ts";
 import { QualityKpisReport } from "../application/use-cases/QualityKpisReport.ts";
 import { ReadTelemetryMetrics } from "../application/use-cases/ReadTelemetryMetrics.ts";
 import { RebuildProjection } from "../application/use-cases/RebuildProjection.ts";
+import { RecordFact } from "../application/use-cases/RecordFact.ts";
 import { SessionTrace } from "../application/use-cases/SessionTrace.ts";
 import { ShowSession } from "../application/use-cases/ShowSession.ts";
 import { ToolStatsReport } from "../application/use-cases/ToolStatsReport.ts";
 import { VerifyEventLog } from "../application/use-cases/VerifyEventLog.ts";
 import type { Check } from "../domain/diagnosis/Check.ts";
+import { Actor } from "../domain/events/Actor.ts";
 import type { Project } from "../domain/project/Project.ts";
 import { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts";
 import { LazyEventStore } from "./LazyEventStore.ts";
@@ -95,6 +101,20 @@ export class EventLogComposition {
         const resolve = () => (stores ??= this.#open("read"));
         const events = new LazyEventStore(() => resolve().events); const projections = new LazyProjectionStore(() => resolve().projections);
         return new MetricsCli({ read: new ReadTelemetryMetrics(events, projections), lag: new ProjectionLag(events, projections, this.#projections()), print: this.#print }).run(args);
+      },
+    };
+  }
+
+  // `underpass learning`: report sólo lee; mode registra el hecho (y crea el log si no existe).
+  learning(): { run(args: string[]): number } {
+    return {
+      run: (args: string[]) => {
+        let stores: Stores | null = null;
+        const resolve = () => (stores ??= this.#open(args[0] === "mode" ? "create" : "read"));
+        const events = new LazyEventStore(() => resolve().events); const projections = new LazyProjectionStore(() => resolve().projections);
+        const clock = new SystemClock();
+        const mode = new ChangeLearningMode(events, new RecordFact(events, clock), new LearningFactFactory(clock, "cli", Actor.of("human", "underpass-cli")));
+        return new LearningCli({ report: new LearningReport(projections), mode, lag: new ProjectionLag(events, projections, this.#projections()), print: this.#print }).run(args);
       },
     };
   }
