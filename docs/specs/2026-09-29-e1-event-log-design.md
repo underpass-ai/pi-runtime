@@ -151,7 +151,7 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - **Envío:** método IPC `record`, de solo escritura y con esquema cerrado. Es sin espera: la sesión de Pi nunca se bloquea por el log.
 - **Spool de respaldo:** si el host no responde, los hechos van a `.../projects/<id>/spool/<pid>.jsonl` (0600, tope de 10 MB, un fichero por proceso). Al reconectar se reenvían en orden y se borran tras confirmarse. Hay un único sink (y un único drain) por proceso y fichero de spool, compartido entre sesiones; los envíos directos se encadenan, y en cuanto uno acaba en el spool los siguientes van detrás de él.
 - **Adopción de spools huérfanos (R9):** si el proceso de Pi muere con hechos en su spool, nadie volvería a reenviarlos. El host, al arrancar y en cada tick de 5 s, reclama los `<pid>.jsonl` cuyo pid ya no existe con un rename atómico a `<pid>.jsonl.draining`, registra cada hecho por `RecordFact` (idempotente, así que un drain a medias se puede repetir), cuenta los inválidos y borra el fichero. Los `.draining` que dejó un host muerto se recogen igual; los marcadores `.gap` se conservan para `doctor`.
-- Si se pierde el spool (por ejemplo, un disco lleno), queda un hueco y se avisa en `doctor`. Nunca se inventan eventos.
+- Si se pierde el spool (por ejemplo, un disco lleno), queda un hueco y se avisa en `doctor`. Nunca se inventan eventos **Revisado:** el hueco queda como marcador `<pid>.gap` y `doctor` falla mientras exista, indicando el remedio: revisar los hechos perdidos y ejecutar `underpass events ack-gaps`, que lista los marcadores del spool del proyecto, los borra e imprime cuántos reconoció (sin abrir ni crear el log).
 
 ### 3.2. En el host
 
@@ -190,6 +190,7 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - `underpass events verify [--stream]`
 - `underpass events export [--since] > bundle.jsonl` y `underpass events import bundle.jsonl` (si el `project_id` de la cabecera no es el del proyecto, se importa igual y se avisa)
 - `underpass events rebuild <projection>`
+- `underpass events ack-gaps`: reconoce los huecos del spool (borra los `.gap` tras revisarlos) para que `doctor` deje de fallar por ellos.
 - `/underpass-status` en Pi añade la sesión actual (turnos, tokens, coste, llamadas y fallos) y el estado del log (posición y verificación). **Revisado (R3/R9):** el método IPC `summary` devuelve el resumen de la sesión junto con el estado del log (`logPosition` y si la cadena del stream de la sesión está intacta), en una sola llamada.
 - `underpass doctor` añade: log presente, cadena íntegra, proyecciones al día, spool vacío y cuarentena vacía.
 

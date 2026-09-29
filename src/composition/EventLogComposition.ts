@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { EventsCli } from "../adapters/inbound/cli/EventsCli.ts";
+import { FsSpoolGapMarkers } from "../adapters/outbound/fs/FsSpoolGapMarkers.ts";
 import { FsSpoolInspector } from "../adapters/outbound/fs/FsSpoolInspector.ts";
 import { InMemoryEventStore } from "../adapters/outbound/memory/InMemoryEventStore.ts";
 import { InMemoryProjectionStore } from "../adapters/outbound/memory/InMemoryProjectionStore.ts";
@@ -12,6 +13,7 @@ import type { ProjectionStore } from "../application/ports/ProjectionStore.ts";
 import { SessionSummaryProjection } from "../application/projections/SessionSummaryProjection.ts";
 import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
+import { AcknowledgeSpoolGaps } from "../application/use-cases/AcknowledgeSpoolGaps.ts";
 import { DiagnoseEventLog } from "../application/use-cases/DiagnoseEventLog.ts";
 import { ExportEventLog } from "../application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../application/use-cases/ImportEventLog.ts";
@@ -60,7 +62,7 @@ export class EventLogComposition {
           sessions: new ListSessions(projections), show: new ShowSession(events), tools: new ToolStatsReport(projections), verify: new VerifyEventLog(events),
           exportLog: new ExportEventLog(events, this.#project.id), importLog: new ImportEventLog(events, this.#project.id),
           rebuild: new RebuildProjection(new ProjectionRunner(events, projections, this.#projections())),
-          lag: new ProjectionLag(events, projections, this.#projections()), readFile: (p) => readFileSync(p, "utf8"), print: this.#print,
+          lag: new ProjectionLag(events, projections, this.#projections()), ackGaps: new AcknowledgeSpoolGaps(new FsSpoolGapMarkers(this.#spool)), readFile: (p) => readFileSync(p, "utf8"), print: this.#print,
         }).run(args);
       },
     };

@@ -50,7 +50,7 @@ test("spool pendiente avisa, huecos fallan y la cuarentena avisa", () => {
   store.quarantine(projs[0].name, GlobalPosition.of(1), "x");
   const checks = new DiagnoseEventLog(events, store, projs, spool(2, 1)).execute();
   assert.equal(row(checks, "fact spool").status.value, "FAIL");
-  assert.equal(row(checks, "fact spool").detail.value, "1 spool overflow gap(s): facts were lost");
+  assert.equal(row(checks, "fact spool").detail.value, "1 spool overflow gap(s): facts were lost; run underpass events ack-gaps after reviewing the lost facts");
   assert.equal(row(checks, "projection quarantine").status.value, "WARN");
   assert.equal(row(checks, "projection quarantine").detail.value, "1 quarantined events");
   const pending = row(new DiagnoseEventLog(events, store, projs, spool(2, 0)).execute(), "fact spool");

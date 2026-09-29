@@ -49,7 +49,7 @@ test("verbo desconocido devuelve 2 y muestra el uso", async () => {
   const out: string[] = [];
   const cli = new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s));
   assert.equal(await cli.run(["nope"]), 2);
-  assert.match(out.join("\n"), /usage: underpass setup \| doctor \| update \| events/);
+  assert.match(out.join("\n"), /usage: underpass setup \| doctor \| update \| events <[a-z|]*\|ack-gaps>/);
 });
 
 test("events delega en su CLI y devuelve su código; sin CLI de eventos muestra el uso", async () => {

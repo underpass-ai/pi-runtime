@@ -11,6 +11,7 @@ import { ProjectionRunner } from "../../../../../src/application/services/Projec
 import { ExportEventLog } from "../../../../../src/application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../../../../../src/application/use-cases/ImportEventLog.ts";
 import { ListSessions } from "../../../../../src/application/use-cases/ListSessions.ts";
+import { AcknowledgeSpoolGaps } from "../../../../../src/application/use-cases/AcknowledgeSpoolGaps.ts";
 import { RebuildProjection } from "../../../../../src/application/use-cases/RebuildProjection.ts";
 import { ShowSession } from "../../../../../src/application/use-cases/ShowSession.ts";
 import { ToolStatsReport } from "../../../../../src/application/use-cases/ToolStatsReport.ts";
@@ -24,7 +25,7 @@ import { AT, SESSION, fact } from "../../../../support/recordFixtures.ts";
 
 const PROJECT = ProjectId.of("0123456789abcdef");
 
-function cli(events: EventStore = new InMemoryEventStore(), files: Record<string, string> = {}, verifyFrom: EventStore = events, project = true, target: ProjectId = PROJECT) {
+function cli(events: EventStore = new InMemoryEventStore(), files: Record<string, string> = {}, verifyFrom: EventStore = events, project = true, target: ProjectId = PROJECT, gaps: string[] = []) {
   const store = new InMemoryProjectionStore();
   const list = [new SessionSummaryProjection(), new ToolStatsProjection()];
   const runner = new ProjectionRunner(events, store, list);
@@ -33,6 +34,7 @@ function cli(events: EventStore = new InMemoryEventStore(), files: Record<string
   const c = new EventsCli({
     sessions: new ListSessions(store), show: new ShowSession(events), tools: new ToolStatsReport(store), verify: new VerifyEventLog(verifyFrom),
     exportLog: new ExportEventLog(events, PROJECT), importLog: new ImportEventLog(events, target), rebuild: new RebuildProjection(runner), lag: new ProjectionLag(events, store, list),
+    ackGaps: new AcknowledgeSpoolGaps({ list: () => [...gaps], remove: (m) => { gaps.splice(gaps.indexOf(m), 1); } }),
     readFile: (p) => { if (!(p in files)) throw new Error(`ENOENT: ${p}`); return files[p]; }, print: (s) => out.push(s),
   });
   return { c, out, text: () => out.join("\n"), events };
@@ -133,7 +135,7 @@ test("rebuild reconstruye la proyección; errores salen con 1 y un mensaje limpi
 
 test("uso incorrecto sale con 2 y muestra el uso", () => {
   const { c, out } = cli(seeded());
-  const usage = "usage: underpass events sessions [--since t]|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>";
+  const usage = "usage: underpass events sessions [--since t]|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>|ack-gaps";
   for (const args of [["nope"], [], ["show"], ["import"], ["rebuild"], ["export", "--since", "x"], ["sessions", "--since", "ayer"], ["sessions", "--since"], ["verify", "--stream"]]) {
     out.length = 0;
     assert.equal(c.run(args), 2, JSON.stringify(args));
@@ -175,4 +177,15 @@ test("show de una sesión desconocida lo dice y sale con 0", () => {
   const { c, out } = cli(seeded());
   assert.equal(c.run(["show", "nadie"]), 0);
   assert.deepEqual(out, ["no events for session nadie"]);
+});
+
+test("ack-gaps lista los marcadores de hueco, los borra e imprime cuántos reconoció", () => {
+  const gaps = ["3.gap", "9.gap"];
+  const { c, out } = cli(seeded(), {}, undefined, true, PROJECT, gaps);
+  assert.equal(c.run(["ack-gaps"]), 0);
+  assert.deepEqual(out, ["acknowledged 3.gap", "acknowledged 9.gap", "acknowledged 2 spool gap marker(s)"]);
+  assert.deepEqual(gaps, []);
+  out.length = 0;
+  assert.equal(c.run(["ack-gaps"]), 0);
+  assert.deepEqual(out, ["no spool gap markers to acknowledge"]);
 });

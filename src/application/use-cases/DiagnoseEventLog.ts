@@ -31,7 +31,7 @@ export class DiagnoseEventLog {
     const quarantined = this.#list.reduce((n, p) => n + this.#projections.quarantined(p.name).length, 0);
     checks.push(quarantined === 0 ? ok("projection quarantine", "empty") : warn("projection quarantine", `${quarantined} quarantined events`));
     const sp = this.#spool.inspect();
-    checks.push(sp.gaps > 0 ? fail("fact spool", `${sp.gaps} spool overflow gap(s): facts were lost`)
+    checks.push(sp.gaps > 0 ? fail("fact spool", `${sp.gaps} spool overflow gap(s): facts were lost; run underpass events ack-gaps after reviewing the lost facts`)
       : sp.pendingFiles > 0 ? warn("fact spool", `${sp.pendingFiles} pending spool file(s)`) : ok("fact spool", "empty"));
     return checks;
   }
