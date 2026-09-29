@@ -18,7 +18,7 @@ No duplica autoridad. MADE sigue siendo la fuente de las decisiones (ceremonias,
 3. **Retención:** local, sin límite y verificable. Se puede exportar a un bundle JSONL bajo demanda e importar solo por fast-forward. Nunca se commitea al repo.
 4. **Captura:** la hacen las extensiones de Pi sobre los eventos públicos de Pi y el host sobre sus propios hechos. Si el host no está disponible, los hechos van a un spool de respaldo.
 5. **Almacenamiento:**
-   - un SQLite por proyecto en `${XDG_STATE_HOME:-~/.local/state}/underpass-pi/projects/<id>/events.sqlite3`;
+   - un SQLite por proyecto en `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/projects/<id>/events.sqlite3`;
    - el host es el único escritor, así que `node:sqlite` solo se carga en el host, arrancado con `--disable-warning=ExperimentalWarning`;
    - un stream por sesión de Pi y otro para el host.
 
