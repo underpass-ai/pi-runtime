@@ -55,6 +55,8 @@ Reglas de clasificación:
    3. **Clase `confirm`:** si la petición trae un token de confirmación válido para esta llamada (§3), emite un grant con la misma acción y alcance, válido 5 minutos, y reintenta. Si no lo trae, devuelve un rechazo estructurado `needs_confirmation {action, scopeSummary}`. `scopeSummary` es legible: tipo de alcance y nombre o versión de la definición o id de ceremonia, nunca contenido.
    4. **Clase `never`, o una acción que la fase no permite:** devuelve la denegación original.
 3. **Caché:** si ya existe un grant emitido por el host en esta sesión que cubre esa acción y alcance y no ha caducado, no se emite otro.
+   - **Caché obsoleta con token de confirmación:** si la llamada trae un token de confirmación y el grant cacheado que cubre esa acción y alcance es denegado por MADE (por ejemplo, revocado por fuera), el host lo expulsa de la caché, emite un grant nuevo de 5 minutos para la misma acción y alcance aceptados, y vuelve a llamar. Como mucho dos llamadas a MADE por esta vía, para no gastar dos veces el consentimiento de un solo uso del usuario.
+   - **Caché obsoleta en la vía automática:** si la llamada no trae token (clase `auto`) y el grant cacheado es denegado, el host lo expulsa de la caché y devuelve la denegación tal cual; la siguiente llamada reemite el grant desde cero.
 4. **Ids:** el id de grant es determinista, derivado de la sesión, la acción, el alcance y el instante, para que el reintento sea idempotente (MADE trata como no-op un grant idéntico con el mismo id).
 5. **Fallos:** si la emisión falla, se devuelve la denegación original. Nunca hay bucles: un único reintento por llamada.
 
@@ -67,6 +69,7 @@ Reglas de clasificación:
 - **Token:** lo genera el host y viaja en la respuesta `needs_confirmation`. Es de un solo uso, vale 2 minutos y está ligado a la llamada exacta (sesión, tool y digest de los argumentos). La extensión solo lo reenvía y no lo inventa.
 - **Sin UI** (`hasUI` es false, por ejemplo con `pi -p`): no se pregunta. Se devuelve una negativa con el código `needs_confirmation_no_ui`.
 - Cada confirmación y cada rechazo se registra como hecho (§4).
+- **Abortar el diálogo no es un rechazo.** Si el usuario cierra o cancela el diálogo de confirmación sin elegir «permitir» ni «rechazar» (por ejemplo, `Ctrl-C` o cerrar la TUI), no se registra ningún hecho — ni `accepted` ni `declined` — y el modelo recibe `<tool> aborted; outcome unknown`, distinto del rechazo explícito.
 
 ## 4. Ciclo de vida y auditoría
 
@@ -74,13 +77,13 @@ Hechos nuevos, todos con `type_version` 1:
 
 - **`made.grant_issued`** (stream de la sesión): `{grantId, action, scope, validUntil, class: auto|confirm}`.
   - `scope` es la forma de MADE: tipo y nombre, versión o id; nunca contenido.
-- **`made.grant_revoked`** (stream de la sesión o del host): `{grantId, reason: session_closed|expired_cleanup}`.
+- **`made.grant_revoked`** (siempre en el stream del host, nunca en el de la sesión: una sesión cerrada no acepta hechos nuevos en su propio stream): `{grantId, session, reason: session_closed|expired_cleanup}`.
 - **`made.confirmation`** (stream de la sesión): `{action, scopeSummary, outcome: accepted|declined|no_ui}`.
 
 Reglas del ciclo de vida:
 
-- **Cierre de sesión:** el host revoca los grants emitidos para esa sesión que sigan vigentes.
-- **Arranque del host:** revoca los grants que registró en el log, que no están revocados y cuya sesión ya está cerrada o abandonada.
+- **Cierre de sesión:** el host revoca los grants emitidos para esa sesión que sigan vigentes, y registra `made.grant_revoked` en el stream del host con `reason: session_closed`.
+- **Arranque del host:** revoca los grants que registró en el log, que no están revocados y cuya sesión ya está cerrada. Cuentan como huérfanos (`reason: session_closed`) los grants emitidos antes del `session.closed` de su sesión, incluso si esa sesión se reabrió más tarde: la orfandad se decide por el hecho `session.closed` visto en el log, no por el estado actual de la sesión.
 - **Si el host muere:** los grants caducan solos, en 12 h como máximo.
 - **Prerrequisito:** los lectores del log (el almacén SQLite, el de memoria, `ImportEventLog`) toleran tipos de hecho desconocidos.
   - Un tipo desconocido se conserva como registro opaco: la cadena de hashes se verifica igual y las proyecciones lo ignoran.
@@ -92,7 +95,7 @@ Reglas del ciclo de vida:
   - `OK`: el host puede autorizarse. Lo comprueba con una operación de solo lectura de la política; no emite nada.
   - `WARN`: grants del host vigentes cuya sesión ya cerró (huérfanos), con el remedio `underpass made revoke-orphans`.
   - `WARN` informativo: el store de MADE es compartido con otra instalación, por ejemplo el plugin de Claude Code. Se detecta cuando hay más de una política en el store.
-- **`underpass made grants`:** lista los grants emitidos por el host (id, acción, alcance, clase, caducidad y estado).
+- **`underpass made grants`:** lista los grants emitidos por el host (id, sesión, acción, alcance, clase, caducidad y estado).
 - **`underpass made revoke-orphans`:** revoca los huérfanos y registra los hechos.
 - **`/underpass-status`:** añade la línea `made: <n> grants activos · <m> confirmaciones`.
 
@@ -101,7 +104,7 @@ Reglas del ciclo de vida:
 Issues en `underpass-ai/made`:
 
 1. Alcance por definición o por contrato para `design_ceremony`, `list_contracts` y `diff_ceremony_definitions`, para retirar la excepción global del §0.4.
-2. `made_get_help` no tiene acción de autorización y queda denegada cuando la autorización está configurada.
+2. `made_get_help` (y el descubrimiento) responden antes de la puerta de autorización: verificado en 0.8.0, no está documentado en el catálogo. Pedimos que quede documentado qué tools se sirven sin autorizar.
 3. A futuro: un principal humano distinto en modo embebido, para poder usar el flujo nativo de aprobación.
 
 ## 7. Pruebas y aceptación
