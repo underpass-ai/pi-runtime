@@ -1,0 +1,833 @@
+{
+  "additionalProperties": false,
+  "else": {
+    "allOf": [
+      {
+        "if": {
+          "required": [
+            "memories"
+          ]
+        },
+        "then": {
+          "anyOf": [
+            {
+              "required": [
+                "labels"
+              ]
+            },
+            {
+              "properties": {
+                "memories": {
+                  "items": {
+                    "required": [
+                      "labels"
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "if": {
+            "not": {
+              "properties": {
+                "options": {
+                  "properties": {
+                    "strict": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "strict"
+                  ]
+                }
+              },
+              "required": [
+                "options"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "memories": {
+                "items": {
+                  "required": [
+                    "evidence"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "required": [
+            "search_summaries"
+          ]
+        },
+        "then": {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "labels"
+                ]
+              },
+              {
+                "required": [
+                  "occurred_at"
+                ]
+              },
+              {
+                "required": [
+                  "valid_from"
+                ]
+              },
+              {
+                "required": [
+                  "valid_until"
+                ]
+              },
+              {
+                "required": [
+                  "rank"
+                ]
+              },
+              {
+                "required": [
+                  "read_context"
+                ]
+              },
+              {
+                "required": [
+                  "review_token"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "options": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "sequence"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "labels_new"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "required": [
+            "relations"
+          ]
+        },
+        "then": {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "labels"
+                ]
+              },
+              {
+                "required": [
+                  "occurred_at"
+                ]
+              },
+              {
+                "required": [
+                  "valid_from"
+                ]
+              },
+              {
+                "required": [
+                  "valid_until"
+                ]
+              },
+              {
+                "required": [
+                  "rank"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "options": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "sequence"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "labels_new"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    ],
+    "if": {
+      "not": {
+        "required": [
+          "actor"
+        ]
+      }
+    },
+    "oneOf": [
+      {
+        "required": [
+          "memories"
+        ]
+      },
+      {
+        "required": [
+          "search_summaries"
+        ]
+      },
+      {
+        "required": [
+          "relations"
+        ]
+      }
+    ],
+    "required": [
+      "about"
+    ],
+    "then": {
+      "required": [
+        "context_id"
+      ]
+    }
+  },
+  "if": {
+    "required": [
+      "continuation"
+    ]
+  },
+  "properties": {
+    "about": {
+      "description": "Exact about receiving this one transaction. Never inferred or changed by a default.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "actor": {
+      "description": "Writer name; defaults to the persistent agent name when context_id is supplied. Required without a context.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "context_id": {
+      "type": "string"
+    },
+    "continuation": {
+      "description": "Returned call handle for the pending write and its review token; use alone. Resuming rechecks context before commit. Unavailable: submit the original call again.",
+      "pattern": "^read_[0-9a-fA-F]{32}$",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "One stable key per logical packet. Exact retries keep refs; a different payload must not reuse an accepted key. Omit to derive the key from the payload.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "labels": {
+      "additionalProperties": {
+        "items": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "minItems": 1,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "description": "Required for every record, shared here or on the record, e.g. {\"topic\":[\"write-path\"]}. Key-to-array memberships; each value is materialized. Reuse the about's keys from kmp_wake; a shared string does not prove entity identity.",
+      "minProperties": 1,
+      "type": "object"
+    },
+    "memories": {
+      "description": "One or more source-backed records. All ids and proof links are validated before one commit in this about. Shared labels union with record labels; every record needs at least one membership (labels here or per record). A one-record packet uses the same shape. Independent facts may be unlinked; do not invent relations.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "connect_to": {
+            "description": "Justified links: containing memory -> rel -> target. Each declaration and its generated evidence use the containing member's effective observation (root default, member override, or exact ingestion for null). Target clocks do not date the link. Occurrence and validity remain unknown.",
+            "items": {
+              "additionalProperties": false,
+              "if": {
+                "properties": {
+                  "rel": {
+                    "enum": [
+                      "chosen_because",
+                      "authorizes",
+                      "confirms_selection"
+                    ]
+                  }
+                },
+                "required": [
+                  "rel"
+                ]
+              },
+              "properties": {
+                "class": {
+                  "description": "Omit when rel allows exactly one class: KMP completes that class. Required for chosen_because, authorizes, confirms_selection. An explicit class is validated, never replaced. What the link explains: structural = containment/membership, no proof required; causal = one memory triggered or produced another; motivational = one memory justifies or authorizes another; procedural = how something was executed, or plain succession; evidential = validates, proves, contradicts or verifies; constraint = limits or shapes another memory.",
+                  "enum": [
+                    "structural",
+                    "causal",
+                    "motivational",
+                    "procedural",
+                    "evidential",
+                    "constraint"
+                  ],
+                  "type": "string"
+                },
+                "confidence": {
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                "evidence": {
+                  "description": "The concrete observation or source supporting the relation rationale. Required for non-structural links.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "ref": {
+                  "description": "Exact local id (with or without @) in this packet, or an existing canonical ref. No fuzzy matching. Rich links require the server neighborhood review, even with local targets or strict:false. Only same_event_as/same_entity_as may cross abouts, with the returned kmp_relate proposal.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "rel": {
+                  "description": "Choose the specific relation justified by the source. The relation carries the explanation: non-structural classes require why, evidence and confidence. Prefer rich types; anemic types are an honest fallback, never a default. Quality, classes and when to use each: kmp_guide topic write.",
+                  "enum": [
+                    "follows",
+                    "answers",
+                    "uses_background",
+                    "depends_on",
+                    "chosen_because",
+                    "triggers",
+                    "authorizes",
+                    "verified_by",
+                    "semantic_delta_from",
+                    "updates_state",
+                    "supports",
+                    "supersedes",
+                    "contradicts",
+                    "satisfies_constraint",
+                    "violates_constraint",
+                    "contributes_to",
+                    "excluded_from",
+                    "checked_against",
+                    "derived_from",
+                    "confirms_selection",
+                    "restates",
+                    "corrects",
+                    "component_of",
+                    "total_of",
+                    "same_event_as",
+                    "same_entity_as",
+                    "qualifies_as",
+                    "matches_requirement",
+                    "contains",
+                    "member_of",
+                    "scoped_to"
+                  ],
+                  "type": "string"
+                },
+                "why": {
+                  "description": "Why this specific semantic connection holds and what a later reader should understand. Required for non-structural links.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ref",
+                "rel"
+              ],
+              "then": {
+                "required": [
+                  "class"
+                ]
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "evidence": {
+            "description": "Concrete source or observation supporting this memory. Required unless options.strict is explicitly false.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "description": "Local name. Use this exact name or @name in connect_to.ref, including forward links. local_refs returns its canonical address.",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What this memory records. No separate writer intent is needed.",
+            "enum": [
+              "turn",
+              "observation",
+              "decision",
+              "feedback",
+              "semantic_delta",
+              "constraint",
+              "preference",
+              "derived_value",
+              "error_path",
+              "success_path"
+            ],
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "description": "Required for every record, shared here or on the record, e.g. {\"topic\":[\"write-path\"]}. Key-to-array memberships; each value is materialized. Reuse the about's keys from kmp_wake; a shared string does not prove entity identity.",
+            "minProperties": 1,
+            "type": "object"
+          },
+          "observed_at": {
+            "description": "When this fact became known, with its true RFC3339 UTC offset. Omit for the packet observation; if neither is supplied, KMP uses the exact ingestion time. Null resets to ingestion time. Explicit backfill is preserved; more than five minutes ahead is refused.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurred_at": {
+            "description": "When the event occurred, if known. Records inherit the packet value when omitted; null explicitly keeps occurrence unknown. KMP never substitutes observation or ingestion for an unknown occurrence.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rank": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "ref": {
+            "description": "Omit for a new memory. An explicit canonical ref updates that exact entry and must be a safe descendant of this about, not its anchor or an internal evidence/dimension object.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "search_expansions": {
+            "description": "Optional short ways a later reader may ask for this memory, in words it does not use: questions it answers, paraphrases, keys in the other language (Spanish or English). No new facts, numbers or answers. Kept only on a store that opted in, when TypeSafe Jev reads each as belonging to the memory; searched as their own surface, never cited: a question reaching the memory only through them brings its own text back outside the answer core, marked reached_by expansion.",
+            "items": {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 6,
+            "type": "array"
+          },
+          "summary": {
+            "description": "Literal memory text, in the language of the work. Ask cites this text byte for byte.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "summary_en": {
+            "description": "Required when summary is not English; omit it when summary is English (a copy is dropped). Your English search rendering, keeping numbers, identifiers and acronyms as written. Strict mode refuses a wrong-language, thin or identifier-dropping rendering; removing it never passes. Search uses it; citations keep summary.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "valid_from": {
+            "description": "Inclusive start of the recorded state's validity, only if known. Omit an unknown start; observation time is not a substitute.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "valid_until": {
+            "description": "Exclusive end of the recorded state's validity, only if known from this source. Do not backdate knowledge from a later report.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "observed_at": {
+      "description": "Shared observation and packet provenance. Omit or null for the exact ingestion time. Preserve an explicit source-backed RFC3339 observation; records may override it. Unknown occurrence is never inferred.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "occurred_at": {
+      "description": "When the event occurred, if known. Records inherit the packet value when omitted; null explicitly keeps occurrence unknown. KMP never substitutes observation or ingestion for an unknown occurrence.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "options": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "description": "Explicit preview against the selected store, without commit or reservation. Defaults to false: rich links still receive neighborhood review before a later commit. Requires an available backend.",
+          "type": "boolean"
+        },
+        "labels_new": {
+          "description": "Keys whose new values are intentional after consulting the catalogue. Every named key must occur in the packet; the kernel neither renames nor merges a label silently.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sequence": {
+          "description": "Optional first sequence, advanced per record. Omit for the next free sequence in each coordinate. Not used for search_summaries, which preserve stored coordinates.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "strict": {
+          "description": "Defaults to true. Requires evidence, justified supported relations, and valid search renderings; never bypasses neighborhood review; refuses resembling new labels unless confirmed.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "purpose": {
+      "enum": [
+        "continue",
+        "audit",
+        "history",
+        "answer"
+      ],
+      "type": "string"
+    },
+    "rank": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "read_context": {
+      "additionalProperties": false,
+      "description": "Caller-supplied audit of which stored refs were read before choosing a relation. Neighborhood review is enforced separately; KMP cannot prove that a caller actually read them, so prior_context_observed is an asserted audit fact rather than a server observation.",
+      "properties": {
+        "ask_refs": {
+          "items": {
+            "description": "Memory ref observed in deterministic kmp_ask proof/evidence before writing.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "inspected_refs": {
+          "items": {
+            "description": "Memory ref inspected with kmp_inspect before writing.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "relate_proposals": {
+          "description": "Proposals kmp_relate returned, handed back as they came: the proof a writer carries when it declares an equivalence to a ref of another about.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "description": "The proposal's `from`, as kmp_relate returned it.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "proposed_by": {
+                "items": {
+                  "enum": [
+                    "identifier",
+                    "summary",
+                    "entity"
+                  ],
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "to": {
+                "description": "The proposal's `to`, as kmp_relate returned it.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "proposed_by"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "temporal_refs": {
+          "items": {
+            "description": "Memory ref observed through kmp_time before writing.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "trace_paths": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "description": "Trace source ref observed before writing.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "refs": {
+                "items": {
+                  "description": "Optional intermediate ref observed in the trace path.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "to": {
+                "description": "Trace target ref observed before writing.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "wake_refs": {
+          "items": {
+            "description": "Memory ref observed in a kmp_wake packet before writing.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "relations": {
+      "description": "Evidenced links between memories that already exist in this about, separately from memories. KMP validates the stored endpoints and commits only links and evidence, so concurrent source updates remain intact. Each link and its evidence carry their own observation. Labels, occurrence, validity and rank cannot accompany it; use memories to record a new fact and kmp_relabel to change memberships.",
+      "items": {
+        "additionalProperties": false,
+        "if": {
+          "properties": {
+            "rel": {
+              "enum": [
+                "chosen_because",
+                "authorizes",
+                "confirms_selection"
+              ]
+            }
+          },
+          "required": [
+            "rel"
+          ]
+        },
+        "properties": {
+          "class": {
+            "description": "Omit when rel allows exactly one class: KMP completes that class. Required for chosen_because, authorizes, confirms_selection. An explicit class is validated, never replaced. What the link explains: structural = containment/membership, no proof required; causal = one memory triggered or produced another; motivational = one memory justifies or authorizes another; procedural = how something was executed, or plain succession; evidential = validates, proves, contradicts or verifies; constraint = limits or shapes another memory.",
+            "enum": [
+              "structural",
+              "causal",
+              "motivational",
+              "procedural",
+              "evidential",
+              "constraint"
+            ],
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "evidence": {
+            "description": "The concrete observation or source supporting the rationale. Stored as its own evidence node beside both memories; it never replaces the evidence they already carry.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "from": {
+            "description": "Existing memory of this about that asserts the link. Its stored text, evidence, coordinates, labels, metadata and ingestion history are preserved; a canonical ref returned by a read, never a local id.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "observed_at": {
+            "description": "When this link was asserted, with its true RFC3339 UTC offset. Omit for the packet observation; null for the exact ingestion time. The endpoints' own clocks never date the link, so an old source linked today is linked today.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rel": {
+            "description": "Choose the specific relation justified by the source. The relation carries the explanation: non-structural classes require why, evidence and confidence. Prefer rich types; anemic types are an honest fallback, never a default. Quality, classes and when to use each: kmp_guide topic write.",
+            "enum": [
+              "follows",
+              "answers",
+              "uses_background",
+              "depends_on",
+              "chosen_because",
+              "triggers",
+              "authorizes",
+              "verified_by",
+              "semantic_delta_from",
+              "updates_state",
+              "supports",
+              "supersedes",
+              "contradicts",
+              "satisfies_constraint",
+              "violates_constraint",
+              "contributes_to",
+              "excluded_from",
+              "checked_against",
+              "derived_from",
+              "confirms_selection",
+              "restates",
+              "corrects",
+              "component_of",
+              "total_of",
+              "same_event_as",
+              "same_entity_as",
+              "qualifies_as",
+              "matches_requirement",
+              "contains",
+              "member_of",
+              "scoped_to"
+            ],
+            "type": "string"
+          },
+          "to": {
+            "description": "Existing target, also preserved. Only same_event_as/same_entity_as may name a ref of another about, with the returned kmp_relate proposal in read_context.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "why": {
+            "description": "Why this specific semantic connection holds and what a later reader should understand. Always required here: a relation-only write declares no structural link.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "rel",
+          "why",
+          "evidence"
+        ],
+        "then": {
+          "required": [
+            "class"
+          ]
+        },
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "review_token": {
+      "description": "Returned neighborhood token, bound to this exact packet and context. Prefer the returned continuation. Omit on a new or corrected proposal; stale tokens refresh context without writing.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "search_summaries": {
+      "description": "Attach English search renderings or judged search expansions to existing memories, separately from memories. KMP reads the stored text, kind, coordinates and metadata first and preserves them. Duplicate targets or an invalid rendering reject the whole packet.",
+      "items": {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "summary_en"
+            ]
+          },
+          {
+            "required": [
+              "search_expansions"
+            ]
+          }
+        ],
+        "properties": {
+          "ref": {
+            "description": "Existing memory in this about. The stored source is not replaced.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "search_expansions": {
+            "description": "Optional short ways a later reader may ask for this memory, in words it does not use: questions it answers, paraphrases, keys in the other language (Spanish or English). No new facts, numbers or answers. Kept only on a store that opted in, when TypeSafe Jev reads each as belonging to the memory; searched as their own surface, never cited: a question reaching the memory only through them brings its own text back outside the answer core, marked reached_by expansion.",
+            "items": {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 6,
+            "type": "array"
+          },
+          "summary_en": {
+            "description": "English search rendering of the stored source, retaining its numbers, identifiers and acronyms.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "source_kind": {
+      "enum": [
+        "human",
+        "agent",
+        "projection",
+        "derived"
+      ],
+      "type": "string"
+    },
+    "valid_from": {
+      "description": "Inclusive start of the recorded state's validity, only if known. Omit an unknown start; observation time is not a substitute.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "valid_until": {
+      "description": "Exclusive end of the recorded state's validity, only if known from this source. Do not backdate knowledge from a later report.",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "then": {
+    "maxProperties": 1
+  },
+  "type": "object"
+}
