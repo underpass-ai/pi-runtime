@@ -18,6 +18,10 @@ import { ToolCatalog } from "../../../../src/domain/mcp/ToolCatalog.ts";
 import { ToolSuccess } from "../../../../src/domain/mcp/ToolSuccess.ts";
 import { McpToolMapper } from "../../../../src/application/mappers/McpToolMapper.ts";
 import type { MadeConfiguration } from "../../../../src/domain/made/MadeConfiguration.ts";
+import { Check } from "../../../../src/domain/diagnosis/Check.ts";
+import { CheckDetail } from "../../../../src/domain/diagnosis/CheckDetail.ts";
+import { CheckName } from "../../../../src/domain/diagnosis/CheckName.ts";
+import { CheckSection } from "../../../../src/domain/diagnosis/CheckSection.ts";
 import { MadeConfigurationError } from "../../../../src/application/ports/MadeConfigurationError.ts";
 
 const store = StorePath.of("/s/ceremonies.sqlite3");
@@ -146,4 +150,26 @@ test("doctor etiqueta un fallo de arranque de cualquier servidor como 'server co
     assert.equal(failed.status.value, "FAIL");
   }
   assert.equal(r.checks().some((c) => c.name.value === "private configuration"), false);
+});
+
+test("doctor añade los checks del log de eventos al final; si fallan, FAIL en 'event log'", async () => {
+  const d = deps();
+  const build = (eventLog: { execute(): Check[] }) => new DiagnoseInstallation(d.verify, d.runtime, d.pi, d.kmp, d.fingerprints, d.connections,
+    new VerifyServerProfiles(profiles), new DiscoverMadeCapabilities(), SemVer.of("0.87.1"), eventLog);
+  const ok = await build({ execute: () => [Check.ok(CheckSection.EVENTS, CheckName.of("event log"), CheckDetail.of("3 events, 1 streams"))] }).execute(false);
+  const last = ok.checks().at(-1)!;
+  assert.deepEqual([last.section.value, last.name.value, last.status.value], ["events", "event log", "OK"]);
+  assert.equal(ok.hasFailures(), false);
+  const broken = await build({ execute: () => { throw new Error("database is locked"); } }).execute(false);
+  const failed = broken.checks().find((c) => c.section.value === "events" && c.name.value === "event log")!;
+  assert.equal(failed.status.value, "FAIL");
+  assert.match(failed.detail.value, /database is locked/);
+});
+
+test("doctor también informa del log de eventos cuando los binarios fijados fallan", async () => {
+  const d = deps({ verify: { execute: async () => [{ name: BinaryName.KMP, path: "/b/k", status: "missing" }, { name: BinaryName.MADE, path: "/b/m", status: "verified" }] } });
+  const r = await new DiagnoseInstallation(d.verify as never, d.runtime, d.pi, d.kmp, d.fingerprints, d.connections, new VerifyServerProfiles(profiles),
+    new DiscoverMadeCapabilities(), SemVer.of("0.87.1"), { execute: () => [Check.warn(CheckSection.EVENTS, CheckName.of("event log"), CheckDetail.of("no events recorded yet"))] }).execute(false);
+  assert.ok(r.checks().some((c) => c.name.value === "pinned binaries" && c.status.value === "FAIL"));
+  assert.ok(r.checks().some((c) => c.section.value === "events" && c.status.value === "WARN"));
 });
