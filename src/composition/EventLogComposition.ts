@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { EventsCli } from "../adapters/inbound/cli/EventsCli.ts";
 import { LearningCli } from "../adapters/inbound/cli/LearningCli.ts";
+import { MadeCli } from "../adapters/inbound/cli/MadeCli.ts";
 import { MetricsCli } from "../adapters/inbound/cli/MetricsCli.ts";
 import { SystemClock } from "../adapters/outbound/clock/SystemClock.ts";
 import { FsSpoolGapMarkers } from "../adapters/outbound/fs/FsSpoolGapMarkers.ts";
@@ -13,6 +14,7 @@ import { SqliteEventStore } from "../adapters/outbound/sqlite/SqliteEventStore.t
 import { SqliteProjectionStore } from "../adapters/outbound/sqlite/SqliteProjectionStore.ts";
 import { SqliteTelemetryEpochStore } from "../adapters/outbound/sqlite/SqliteTelemetryEpochStore.ts";
 import type { EventStore } from "../application/ports/EventStore.ts";
+import type { McpConnection } from "../application/ports/McpConnection.ts";
 import type { Projection } from "../application/ports/Projection.ts";
 import type { ProjectionStore } from "../application/ports/ProjectionStore.ts";
 import type { TelemetryEpochStore } from "../application/ports/TelemetryEpochStore.ts";
@@ -23,6 +25,8 @@ import { LearningEvalProjection } from "../application/projections/LearningEvalP
 import { ToolBanditProjection } from "../application/projections/ToolBanditProjection.ts";
 import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
 import { LearningFactFactory } from "../application/services/LearningFactFactory.ts";
+import { MadeFactFactory } from "../application/services/MadeFactFactory.ts";
+import { MadeOwner } from "../application/services/MadeOwner.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { TelemetryEpochs } from "../application/services/TelemetryEpochs.ts";
 import { AcknowledgeSpoolGaps } from "../application/use-cases/AcknowledgeSpoolGaps.ts";
@@ -33,12 +37,14 @@ import { DiagnoseTelemetry } from "../application/use-cases/DiagnoseTelemetry.ts
 import { ExportEventLog } from "../application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../application/use-cases/ImportEventLog.ts";
 import { LearningReport } from "../application/use-cases/LearningReport.ts";
+import { ListMadeGrants } from "../application/use-cases/ListMadeGrants.ts";
 import { ListSessions } from "../application/use-cases/ListSessions.ts";
 import { ProjectionLag } from "../application/use-cases/ProjectionLag.ts";
 import { QualityKpisReport } from "../application/use-cases/QualityKpisReport.ts";
 import { ReadTelemetryMetrics } from "../application/use-cases/ReadTelemetryMetrics.ts";
 import { RebuildProjection } from "../application/use-cases/RebuildProjection.ts";
 import { RecordFact } from "../application/use-cases/RecordFact.ts";
+import { RevokeMadeGrants } from "../application/use-cases/RevokeMadeGrants.ts";
 import { SessionTrace } from "../application/use-cases/SessionTrace.ts";
 import { ShowSession } from "../application/use-cases/ShowSession.ts";
 import { ToolStatsReport } from "../application/use-cases/ToolStatsReport.ts";
@@ -117,6 +123,23 @@ export class EventLogComposition {
         const clock = new SystemClock();
         const mode = new ChangeLearningMode(events, new RecordFact(events, clock), new LearningFactFactory(clock, "cli", Actor.of("human", "underpass-cli")));
         return new LearningCli({ report: new LearningReport(projections), mode, lag: new ProjectionLag(events, projections, this.#projections()), print: this.#print }).run(args);
+      },
+    };
+  }
+
+  // `underpass made`: grants sólo lee; revoke-orphans escribe en un log que ya exista y sólo
+  // arranca MADE (connect) si hay huérfanos. La conexión se cierra al terminar.
+  made(connect: () => Promise<McpConnection>): { run(args: string[]): Promise<number> } {
+    return {
+      run: async (args: string[]) => {
+        let stores: Stores | null = null;
+        const events = new LazyEventStore(() => (stores ??= this.#open(args[0] === "revoke-orphans" ? "write" : "read")).events);
+        const opened: { connection: Promise<McpConnection> | null } = { connection: null };
+        const clock = new SystemClock();
+        const revoke = new RevokeMadeGrants(events, new MadeOwner(() => (opened.connection ??= connect())), new RecordFact(events, clock),
+          new MadeFactFactory(clock, Actor.of("human", "underpass-cli")), clock);
+        try { return await new MadeCli({ grants: new ListMadeGrants(events, clock), revoke, print: this.#print }).run(args); }
+        finally { if (opened.connection !== null) await (await opened.connection.catch(() => null))?.close(); }
       },
     };
   }

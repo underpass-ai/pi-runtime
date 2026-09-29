@@ -159,3 +159,31 @@ test("nunca lanza: un log ilegible o un registro que falla sólo se avisan", asy
   // Sin log tampoco lanza.
   assert.deepEqual(await new RevokeMadeGrants(broken, new MadeOwner(async () => h.made), h.record, h.facts, h.clock).execute(), { orphans: 0, revoked: 0 });
 });
+
+// Nota de revisión de la tarea 8: `underpass made revoke-orphans` en el proceso del CLI puede
+// correr a la vez que el host revoca en el suyo. Son dos `RevokeMadeGrants` sin cadena compartida
+// (el `#tail` de cada uno no ve al otro), así que la única defensa es el propio registro: el id del
+// hecho `made.grant_revoked` es determinista por grant (MadeFactFactory), y RecordFact ya es
+// idempotente para un hecho igual y rechaza (sin romper el barrido) uno que llegara con otro
+// contenido. Esto prueba que dos `RevokeMadeGrants` independientes contra el mismo log y el mismo
+// MADE, revocando el mismo huérfano a la vez, nunca dejan dos hechos.
+test("dos RevokeMadeGrants independientes (como el CLI y el host) revocando el mismo huérfano a la vez: nunca queda un hecho duplicado", async () => {
+  const clock = new ManualClock(Date.parse("2026-09-30T10:00:00.000Z")); const made = new FakeMade(() => clock.ms);
+  const events = new InMemoryEventStore(); const record = new RecordFact(events, clock);
+  const connection = async () => made; const facts = new MadeFactFactory(clock, Actor.of("human", "underpass-cli"));
+  const issued = new IssuedGrants();
+  const call = new CallMadeTool({ connection, owner: new MadeOwner(connection), policy: MadeActionPolicy.standard(), confirmations: new PendingConfirmations({ bytes: (k) => new Uint8Array(k).fill(1) }, clock), grants: issued, record, facts: new MadeFactFactory(clock, Actor.of("host", "host:1")), clock, log: null });
+  record.execute(opened("a", clock.ms));
+  await call.execute(ToolName.of("made_list_contracts"), {}, MadeCallContext.of(SessionId.of("a"), Phase.DESIGN));
+  record.execute(closed("a", clock.ms));
+
+  // Dos instancias distintas: cada una es su propio proceso, con su propia MadeOwner y su propio #tail.
+  const cli = new RevokeMadeGrants(events, new MadeOwner(connection), record, facts, clock);
+  const host = new RevokeMadeGrants(events, new MadeOwner(connection), record, facts, clock);
+  const [a, b] = await Promise.all([cli.execute(), host.execute()]);
+  assert.equal(a.orphans + b.orphans >= 1, true);
+  assert.equal(a.revoked + b.revoked >= 1, true);
+  const revoked = events.readStream(StreamId.HOST).filter((r) => r.type.value === "made.grant_revoked");
+  assert.equal(revoked.length, 1, "un solo hecho, nunca duplicado");
+  assert.equal(made.revoked.size, 1);
+});
