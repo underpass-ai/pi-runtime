@@ -76,7 +76,8 @@ Run `pi` as usual inside any git project. The KMP and MADE tools show up
 alongside Pi's own. Two Pi commands are added:
 
 - `/underpass-status` shows the project, the servers that are running, and each tool catalog's version, size and fingerprint.
-- `/underpass-phase interactive|design` switches which Underpass tools are active.
+- `/underpass-phase interactive|design|run` switches which Underpass tools are active
+  (`run` adds starting a published MADE ceremony and driving it to its end).
 
 ### Tool argument diagnostics
 
@@ -138,6 +139,16 @@ exact action and scope) and acts on its class:
   granted for a tool the current phase does not expose, and only `design_ceremony`,
   `list_contracts` and `diff_ceremony_definitions` are ever granted a global scope.
 
+In the `run` phase, starting a published ceremony
+(`made_start_published_ceremony`, with a `ceremony_id`) is the one call you confirm.
+Once it starts, the host records that this session started that instance, and
+claiming, completing and applying transitions on *that* instance are granted on
+their own, scoped to the instance, until it reaches a terminal state (then they
+are revoked) or the session closes. On any other instance they still ask. Outside
+`run` the host does not even pass them to MADE. `/underpass-status` and
+`node bin/underpass.ts made ceremonies` list the instances a session started and
+their grants.
+
 Grants are revoked when the session closes; a host that starts revokes those a
 previous one left behind. `node bin/underpass.ts made grants` lists them and
 `made revoke-orphans` cleans up by hand. `doctor` checks it under `[made-auth]` and
@@ -145,7 +156,8 @@ previous one left behind. `node bin/underpass.ts made grants` lists them and
 revocation and confirmation is a fact in the project's event log.
 
 Like tool learning, this adds fact types (`made.grant_issued`, `made.grant_revoked`,
-`made.confirmation`) that versions before it cannot read. From this version on,
+`made.confirmation`, and with the `run` phase `made.ceremony_started` and
+`made.ceremony_ended`) that versions before it cannot read. From this version on,
 the log readers keep fact types they do not know as opaque records, so later
 versions can add types without breaking this one.
 
@@ -198,5 +210,6 @@ npm test    # unit + architecture tests, coverage gate ≥ 80 % lines/branches/f
 - S1 acceptance on a real installation: [`docs/acceptance/s1.md`](docs/acceptance/s1.md)
 - F1 (tool argument diagnostics) acceptance on a real installation: [`docs/acceptance/f1.md`](docs/acceptance/f1.md)
 - S3a (host-managed MADE authorization): [spec](docs/specs/2026-09-30-s3a-made-authorization-design.md), [plan](docs/plans/2026-09-30-s3a-made-authorization.md), [MADE issues](docs/upstream/2026-09-30-made-s3a-issues.md)
+- F3 (run phase: start a published ceremony and drive it to its end): [spec](docs/specs/2026-09-30-f3-made-run-phase-design.md), [plan](docs/plans/2026-09-30-f3-made-run-phase.md), [acceptance](docs/acceptance/f3.md)
 
 The design documents are in Spanish.

@@ -118,7 +118,7 @@ test("select: decide con SelectTools, recuerda los catálogos servidos y rechaza
     await uc.execute({ id: 4, method: "catalog", server: "kmp" });
     const after = await uc.execute({ id: 5, method: "select", sessionId: "s1", phase: "interactive" });
     assert.deepEqual(after, { id: 5, ok: true, result: { mode: "shadow", control: false, selected: [], floor: [] } }, "el catálogo del servidor falso no tiene ninguna tool de la fase");
-    for (const req of [{ id: 6, method: "select" as const, sessionId: "s1", phase: "run" }, { id: 7, method: "select" as const, sessionId: "../x", phase: "design" }]) {
+    for (const req of [{ id: 6, method: "select" as const, sessionId: "s1", phase: "deploy" }, { id: 7, method: "select" as const, sessionId: "../x", phase: "design" }]) {
       const bad = await uc.execute(req);
       assert.ok(!bad.ok && bad.error.kind === "invalid", JSON.stringify(req));
     }

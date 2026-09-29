@@ -1,5 +1,6 @@
 import { CanonicalJson } from "../shared/CanonicalJson.ts";
 import { DomainError } from "../shared/DomainError.ts";
+import { CeremonyId } from "./CeremonyId.ts";
 
 // Campos de identidad de cada tipo de alcance de MADE 0.8.0 (esquema de made_issue_authorization_grant).
 const FIELDS: Record<string, string[]> = {
@@ -17,6 +18,10 @@ export class MadeScope {
   private constructor(kind: string, fields: Record<string, string | null>) { this.kind = kind; this.#fields = fields; }
 
   static readonly GLOBAL = new MadeScope("global", {});
+
+  // El alcance de una instancia de ceremonia (F3): la forma que MADE 0.8.0 pone en las decisiones
+  // de start_published_ceremony, claim, transición, lecturas de la instancia…
+  static ceremony(id: CeremonyId): MadeScope { return new MadeScope("ceremony", { ceremony_id: id.value }); }
 
   static parse(raw: unknown): MadeScope {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw DomainError.because("MADE scope must be an object");
@@ -37,6 +42,8 @@ export class MadeScope {
 
   // La forma de MADE, para emitir el grant y para los hechos.
   toJson(): Record<string, string | null> { return { kind: this.kind, ...this.#fields }; }
+  // La instancia si el alcance es `ceremony`; null si es de otro tipo.
+  ceremonyId(): CeremonyId | null { return this.kind === "ceremony" ? CeremonyId.of(this.#fields.ceremony_id as string) : null; }
   get key(): string { return CanonicalJson.of(this.toJson()).text; }
   equals(o: MadeScope): boolean { return o.key === this.key; }
 

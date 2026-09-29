@@ -5,6 +5,7 @@ import type { SessionId } from "../events/SessionId.ts";
 import type { Timestamp } from "../events/Timestamp.ts";
 import type { MadeAction } from "./MadeAction.ts";
 import type { MadeScope } from "./MadeScope.ts";
+import { GrantSequence } from "./GrantSequence.ts";
 
 const PREFIX = "pi-runtime-";
 
@@ -16,8 +17,10 @@ export class MadeGrantId extends ValueObject<string> {
     if (typeof raw !== "string" || !/^pi-runtime-[0-9a-f]{32}$/.test(raw)) throw DomainError.because(`invalid host grant id ${raw}`);
     return new MadeGrantId(raw);
   }
-  static derive(session: SessionId, action: MadeAction, scope: MadeScope, from: Timestamp): MadeGrantId {
-    const digest = createHash("sha256").update(`${session.value}\n${action.value}\n${scope.key}\n${from.value}`).digest("hex");
+  // La secuencia sólo entra a partir del segundo grant igual: el primero conserva el id de S3a.
+  static derive(session: SessionId, action: MadeAction, scope: MadeScope, from: Timestamp, sequence: GrantSequence = GrantSequence.FIRST): MadeGrantId {
+    const seq = sequence.equals(GrantSequence.FIRST) ? "" : `\n#${sequence.value}`;
+    const digest = createHash("sha256").update(`${session.value}\n${action.value}\n${scope.key}\n${from.value}${seq}`).digest("hex");
     return new MadeGrantId(`${PREFIX}${digest.slice(0, 32)}`);
   }
 }

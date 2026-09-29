@@ -3,8 +3,14 @@ import { GlobalPosition } from "../../domain/events/GlobalPosition.ts";
 import { SessionId } from "../../domain/events/SessionId.ts";
 import { StreamId } from "../../domain/events/StreamId.ts";
 import type { Timestamp } from "../../domain/events/Timestamp.ts";
+import { CeremonyEndReason } from "../../domain/made/CeremonyEndReason.ts";
+import type { CeremonyId } from "../../domain/made/CeremonyId.ts";
+import { GrantSequence } from "../../domain/made/GrantSequence.ts";
+import type { MadeAction } from "../../domain/made/MadeAction.ts";
 import { MadeGrant } from "../../domain/made/MadeGrant.ts";
+import type { MadeScope } from "../../domain/made/MadeScope.ts";
 import { RevocationReason } from "../../domain/made/RevocationReason.ts";
+import { StartedCeremony } from "../../domain/made/StartedCeremony.ts";
 import type { EventStore } from "../ports/EventStore.ts";
 
 // Como en O1 y L1: una sesión sin hechos durante 24 h está abandonada.
@@ -22,6 +28,8 @@ export class MadeGrantLedger {
   readonly #sessions = new Map<string, SessionMark>(); readonly #confirmations = new Map<string, number>();
   // Grants emitidos antes de un session.closed de su sesión: huérfanos aunque la sesión se reabra.
   readonly #closedOver = new Set<string>();
+  // F3: las instancias que arrancó cada sesión (por sesión, por id de instancia).
+  readonly #ceremonies = new Map<string, Map<string, StartedCeremony>>();
   private constructor() {}
 
   static of(records: Iterable<EventRecord>): MadeGrantLedger {
@@ -63,10 +71,25 @@ export class MadeGrantLedger {
       if (r.type.value === "made.grant_issued") {
         try { const g = MadeGrant.fromFact(r.stream.sessionId(), p, r.occurredAt); this.#grants.set(g.id.value, g); } catch { /* payload inesperado */ }
       }
+      if (r.type.value === "made.ceremony_started") this.#started(r.stream.sessionId(), p, r);
+      if (r.type.value === "made.ceremony_ended") this.#ended(sid, p);
       if (r.type.value === "made.confirmation") this.#confirmations.set(sid, (this.#confirmations.get(sid) ?? 0) + 1);
       return;
     }
     if (r.type.value === "made.grant_revoked" && typeof p?.grantId === "string" && !this.#revoked.has(p.grantId)) this.#revoked.set(p.grantId, typeof p.reason === "string" ? p.reason : "unknown");
+  }
+
+  #started(session: SessionId, p: unknown, r: EventRecord): void {
+    let started: StartedCeremony;
+    try { started = StartedCeremony.fromFact(session, p, r.occurredAt); } catch { return; /* payload inesperado */ }
+    const mine = this.#ceremonies.get(session.value) ?? new Map<string, StartedCeremony>();
+    if (!mine.has(started.ceremony.value)) mine.set(started.ceremony.value, started);
+    this.#ceremonies.set(session.value, mine);
+  }
+
+  #ended(sid: string, p: Record<string, unknown> | null): void {
+    const started = typeof p?.ceremonyId === "string" ? this.#ceremonies.get(sid)?.get(p.ceremonyId) : undefined;
+    if (started !== undefined && started.running()) this.#ceremonies.get(sid)!.set(started.ceremony.value, started.ended(CeremonyEndReason.of(p!.endReason)));
   }
 
   state(grant: MadeGrant, now: Timestamp): GrantState {
@@ -97,6 +120,28 @@ export class MadeGrantLedger {
       else if (mark === undefined || now.epochMs() >= mark.lastMs + ABANDONED_AFTER_MS || g.expired(now)) out.push({ grant: g, reason: RevocationReason.EXPIRED_CLEANUP });
     }
     return out;
+  }
+
+  // F3: las instancias que arrancó la sesión, por instante de arranque.
+  ceremonies(session: SessionId): StartedCeremony[] {
+    return [...(this.#ceremonies.get(session.value)?.values() ?? [])].sort((a, b) => a.startedAt.epochMs() - b.startedAt.epochMs() || a.ceremony.value.localeCompare(b.ceremony.value));
+  }
+
+  // La instancia si la arrancó esta sesión y aún no llegó a un terminal; null si no.
+  running(session: SessionId, ceremony: CeremonyId): StartedCeremony | null {
+    const found = this.#ceremonies.get(session.value)?.get(ceremony.value);
+    return found !== undefined && found.running() ? found : null;
+  }
+
+  // Los grants vigentes de la sesión con exactamente este alcance (los de una instancia).
+  liveOn(session: SessionId, scope: MadeScope, now: Timestamp): MadeGrant[] { return this.live(session, now).filter((g) => g.scope.equals(scope)); }
+
+  // Todas las sesiones con alguna instancia arrancada (para `underpass made ceremonies`).
+  sessionsWithCeremonies(): SessionId[] { return [...this.#ceremonies.keys()].sort().map((s) => SessionId.of(s)); }
+
+  // Cuántos grants con esta sesión, acción y alcance registró ya el host: la secuencia del siguiente.
+  sequence(session: SessionId, action: MadeAction, scope: MadeScope): GrantSequence {
+    return GrantSequence.of(this.grants().filter((g) => g.session.equals(session) && g.action.equals(action) && g.scope.equals(scope)).length);
   }
 
   confirmations(session: SessionId): number { return this.#confirmations.get(session.value) ?? 0; }

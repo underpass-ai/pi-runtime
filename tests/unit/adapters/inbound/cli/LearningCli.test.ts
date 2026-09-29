@@ -54,7 +54,7 @@ test("mode registra el cambio con k entre 4 y 64; el uso incorrecto sale con 2",
   for (const args of [["mode", "active", "--k", "3"], ["mode", "fallback"], ["mode", "eager"]]) assert.equal(c.run(args), 2, args.join(" "));
   assert.ok(out.every((l) => l.startsWith("error: ")));
   out.length = 0;
-  for (const args of [[], ["mode"], ["mode", "active", "--k"], ["mode", "active", "--k", "x"], ["report", "--context"], ["report", "--context", "run"], ["nope"]]) assert.equal(c.run(args), 2, args.join(" "));
+  for (const args of [[], ["mode"], ["mode", "active", "--k"], ["mode", "active", "--k", "x"], ["report", "--context"], ["report", "--context", "deploy"], ["nope"]]) assert.equal(c.run(args), 2, args.join(" "));
   assert.ok(out.every((l) => l.startsWith("usage: underpass learning report")), out.join("\n"));
 });
 

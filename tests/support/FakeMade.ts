@@ -20,6 +20,8 @@ const refuse = (code: string, message: string) => ToolRefusal.of(RefusalCode.of(
 // de la política; cada tool de negocio exige un grant de su acción y su alcance (definition si
 // lleva `definition_yaml` con `name:`/`version:`, global si no) y, si no lo hay, deniega con la
 // decisión registrada, que se lee con made_list_authorization_decisions (ids ordenados, cursor exclusivo).
+// F3: con `ceremony_id`, el alcance es el de la instancia (`ceremony`), y las tools de ejecución
+// mantienen una instancia mínima (running → ended). Como en 0.8.0, complete no pide grant propio.
 export class FakeMade implements McpConnection {
   readonly server = ServerName.MADE; readonly identity = ServerIdentity.of("made-mcp", SemVer.of("0.8.0")); readonly protocol = ProtocolVersion.MCP_2024_11_05;
   readonly owner = "made-local-host-test";
@@ -28,6 +30,7 @@ export class FakeMade implements McpConnection {
   now: () => number; failIssue = false; failDecisions = false; failRevoke = false;
   // Interruptores de las ramas raras: una negativa de negocio que no es de autorización, una
   // decisión registrada que no es deny y una página de decisiones que trae otra decisión.
+  readonly instances = new Map<string, Record<string, unknown>>();
   refuseBusiness = false; decisionOutcome = "deny"; foreignDecisions = false; decisionAction: string | null = null;
   constructor(now: () => number = () => Date.now()) { this.now = now; }
 
@@ -78,10 +81,23 @@ export class FakeMade implements McpConnection {
     const yaml = typeof args.definition_yaml === "string" ? args.definition_yaml : null;
     const name = yaml === null ? null : /^name: (.+)$/m.exec(yaml)?.[1] ?? null;
     const version = yaml === null ? null : /^version: "?([^"\n]+)"?$/m.exec(yaml)?.[1] ?? null;
-    const scope = name === null ? { kind: "global" } : { kind: "definition", name, version };
-    if (this.live(action, scope).length > 0) return ToolSuccess.of({ tool, ok: true }, `${tool} ok`);
+    const ceremony = typeof args.ceremony_id === "string" ? args.ceremony_id : null;
+    const scope = ceremony !== null ? { kind: "ceremony", ceremony_id: ceremony } : name === null ? { kind: "global" } : { kind: "definition", name, version };
+    if (action === "complete_ceremony_step" || this.live(action, scope).length > 0) return this.#perform(tool, action, ceremony, args);
     const id = createHash("sha256").update(`decision-${this.#n++}`).digest("hex");
     this.#decisions.set(id, { decision_id: id, action: this.decisionAction ?? action, scope, outcome: this.decisionOutcome, denial_reason: "no_matching_grant", principal: { principal_id: this.owner } });
     return refuse("refused", `authorization decision ${id} denied the operation`);
+  }
+
+  #perform(tool: string, action: string, ceremony: string | null, args: Record<string, unknown>): ToolOutcome {
+    if (ceremony === null) return ToolSuccess.of({ tool, ok: true }, `${tool} ok`);
+    if (action === "start_published_ceremony") {
+      this.instances.set(ceremony, { ceremony_id: ceremony, lifecycle: "running", end_reason: null, definition_name: args.ceremony, definition_version: args.version });
+    }
+    const instance = this.instances.get(ceremony);
+    if (instance === undefined) return refuse("not_found", "not found: ceremony instance");
+    if (action === "apply_ceremony_transition") Object.assign(instance, { lifecycle: "ended", end_reason: "completed" });
+    if (action === "cancel_ceremony") Object.assign(instance, { lifecycle: "ended", end_reason: "cancelled" });
+    return ToolSuccess.of(action === "claim_ceremony_step" ? { ...instance, claim_fence: "f".repeat(64) } : { ...instance }, `${tool} ok`);
   }
 }

@@ -1,6 +1,7 @@
 import type { SessionId } from "../../domain/events/SessionId.ts";
 import type { MadeGrant } from "../../domain/made/MadeGrant.ts";
-import type { RevocationReason } from "../../domain/made/RevocationReason.ts";
+import { RevocationReason } from "../../domain/made/RevocationReason.ts";
+import type { StartedCeremony } from "../../domain/made/StartedCeremony.ts";
 import type { EventStore } from "../ports/EventStore.ts";
 import type { Clock } from "../ports/Clock.ts";
 import type { HostLog } from "../ports/HostLog.ts";
@@ -34,15 +35,28 @@ export class RevokeMadeGrants {
     return run;
   }
 
+  // F3: la instancia que arrancó la sesión llegó a un terminal; se revocan los grants vigentes de la
+  // sesión con alcance a esa instancia (ceremony_ended). En la misma cadena que el cierre.
+  ceremonyEnded(ceremony: StartedCeremony): Promise<Tally> {
+    const run = this.#tail.then(() => this.#revokeAll(() => MadeGrantLedger.forSession(this.#events, ceremony.session).liveOn(ceremony.session, ceremony.scope(), this.#clock.now())
+      .map((grant) => ({ grant, reason: RevocationReason.CEREMONY_ENDED })), ceremony.session)).catch(() => NONE);
+    this.#tail = run;
+    return run;
+  }
+
   // Se resuelve cuando terminan las revocaciones en curso (el apagado las espera con tope).
   async settled(): Promise<void> { await this.#tail; }
 
-  async #sweep(session: SessionId | null): Promise<Tally> {
-    let orphans: Orphan[];
-    try {
+  #sweep(session: SessionId | null): Promise<Tally> {
+    return this.#revokeAll(() => {
       const ledger = session === null ? MadeGrantLedger.read(this.#events) : MadeGrantLedger.forSession(this.#events, session);
-      orphans = ledger.orphans(this.#clock.now()).filter((o) => session === null || o.grant.session.equals(session));
-    } catch (e) { this.#log?.warn("made grants not read", { reason: (e as Error).name }); return NONE; }
+      return ledger.orphans(this.#clock.now()).filter((o) => session === null || o.grant.session.equals(session));
+    }, session);
+  }
+
+  async #revokeAll(pick: () => Orphan[], session: SessionId | null): Promise<Tally> {
+    let orphans: Orphan[];
+    try { orphans = pick(); } catch (e) { this.#log?.warn("made grants not read", { reason: (e as Error).name }); return NONE; }
     let revoked = 0;
     for (const { grant, reason } of orphans) {
       try { await this.#owner.revoke(grant.id, reason); }

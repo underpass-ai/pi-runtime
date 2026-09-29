@@ -177,14 +177,18 @@ export class HostExtension {
             if (l) lines.push(`learning: ${l.mode} · ${l.selected ?? "-"}/${l.candidates ?? "-"} tools · miss ${pct(l.missRate)}`);
             const m = status.made;
             if (m) lines.push(`made: ${m.activeGrants} active grants · ${m.confirmations} confirmations`);
+            for (const c of m?.ceremonies ?? []) {
+              const live = c.grants.filter((g) => g.state === "active").map((g) => g.action);
+              lines.push(`  ${c.summary}: ${c.state === "running" ? "running" : `ended (${c.endReason})`} · ${live.length === 0 ? "no active grants" : `grants ${live.join(", ")}`}`);
+            }
           } catch { lines.push("session: summary unavailable"); }
         }
         ctx.ui.notify(lines.join("\n"), "info");
       },
     });
     pi.registerCommand("underpass-phase", {
-      description: "Switch active Underpass tools: interactive | design",
-      getArgumentCompletions: (p) => ["interactive", "design"].filter((x) => x.startsWith(p)).map((x) => ({ value: x, label: x })),
+      description: "Switch active Underpass tools: interactive | design | run",
+      getArgumentCompletions: (p) => ["interactive", "design", "run"].filter((x) => x.startsWith(p)).map((x) => ({ value: x, label: x })),
       handler: async (args, ctx) => {
         const phase = Phase.of(args.trim() || "interactive");
         this.applyPhase(pi, phase);

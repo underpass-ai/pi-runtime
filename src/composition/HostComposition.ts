@@ -127,10 +127,12 @@ export class HostComposition {
     const madeFacts = new MadeFactFactory(clock, Actor.of("host", hostActor));
     const confirmations = new PendingConfirmations(new NodeEntropySource(), clock);
     const owner = new MadeOwner(madeConnection);
+    // F3: la misma revocación (una sola cadena) sirve al cierre de la sesión y al terminal de una instancia.
+    const revoke = new RevokeMadeGrants(events, owner, record, madeFacts, clock, log);
     const made = {
-      call: new CallMadeTool({ connection: madeConnection, owner, policy: MadeActionPolicy.standard(), confirmations, record, facts: madeFacts, clock, log }),
+      call: new CallMadeTool({ connection: madeConnection, owner, policy: MadeActionPolicy.standard(), confirmations, record, facts: madeFacts, clock, log, events, revoke }),
       decline: new DeclineMadeConfirmation(confirmations, record, madeFacts),
-      revoke: new RevokeMadeGrants(events, owner, record, madeFacts, clock, log),
+      revoke,
     };
     const serve = new ServeHostRequest(project, pool, record, status, select, catalogs, made);
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
