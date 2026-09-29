@@ -14,7 +14,7 @@ test("endpoint: https, o http sólo en localhost, 127.0.0.1 o [::1]; sin credenc
   assert.equal(OtlpEndpoint.of("https://otel.example.com").describe(), "https");
   assert.equal(OtlpEndpoint.of("http://localhost:4318").describe(), "localhost");
   for (const bad of ["http://otel.example.com:4318", "ftp://localhost", "not a url", "https://user:pw@otel.example.com", "https://otel.example.com?x=1", "https://otel.example.com#f"]) {
-    assert.throws(() => OtlpEndpoint.of(bad), (e: Error) => e instanceof DomainError && !e.message.includes("otel.example.com") && !e.message.includes("pw"), bad);
+    assert.throws(() => OtlpEndpoint.of(bad), (e: Error) => e instanceof DomainError && !/otel\.example\.com/.test(e.message) && !e.message.includes("pw"), bad);
   }
   assert.throws(() => OtlpEndpoint.of(undefined as never), DomainError);
 });
@@ -55,7 +55,7 @@ test("el endpoint nunca se muestra como texto: String y JSON sólo dicen https o
   assert.equal(JSON.stringify({ e }), '{"e":"https"}');
   assert.equal(String(OtlpEndpoint.of("http://127.0.0.1:4318")), "OtlpEndpoint(localhost)");
   for (const bad of ["http://localhost.otel.example.com", "http://127.0.0.1.otel.example.com", "https://pw@otel.example.com"]) {
-    assert.throws(() => OtlpEndpoint.of(bad), (e: Error) => e instanceof DomainError && !e.message.includes("otel.example.com") && !e.message.includes("pw"), bad);
+    assert.throws(() => OtlpEndpoint.of(bad), (e: Error) => e instanceof DomainError && !/otel\.example\.com/.test(e.message) && !e.message.includes("pw"), bad);
   }
 });
 
