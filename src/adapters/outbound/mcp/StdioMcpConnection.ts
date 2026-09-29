@@ -25,7 +25,7 @@ export class StdioMcpConnection implements McpConnection {
   readonly #timeoutMs: number;
   readonly #graceMs: number;
   readonly #pending = new Map<number, Pending>();
-  readonly #exitListeners: (() => void)[] = [];
+  readonly #exitListeners: ((code: number | null) => void)[] = [];
   #nextId = 1;
   #exited = false;
   #stderrTail = "";
@@ -35,7 +35,7 @@ export class StdioMcpConnection implements McpConnection {
     this.server = server; this.#child = child; this.#timeoutMs = timeoutMs; this.#graceMs = graceMs;
     createInterface({ input: child.stdout }).on("line", (l) => this.#onLine(l));
     child.stderr.on("data", (chunk: Buffer) => { this.#stderrTail = (this.#stderrTail + chunk.toString()).slice(-4096); });
-    child.on("exit", (code) => this.#down(`${server} exited (${code}); outcome unknown${this.#stderrSuffix()}`));
+    child.on("exit", (code) => this.#down(`${server} exited (${code}); outcome unknown${this.#stderrSuffix()}`, code));
     child.on("error", (err) => this.#down(`${server} failed to start: ${err.message}`));
     // Sin este oyente, un EPIPE al escribir a un hijo que ya murió sería una
     // excepción no capturada que tumba el host entero.
@@ -47,12 +47,12 @@ export class StdioMcpConnection implements McpConnection {
     return tail ? `; stderr: ${tail}` : "";
   }
 
-  #down(message: string): void {
+  #down(message: string, code: number | null = null): void {
     if (this.#exited) return;
     this.#exited = true;
     for (const p of this.#pending.values()) { clearTimeout(p.timer); p.reject(new McpTransportError(message)); }
     this.#pending.clear();
-    for (const l of this.#exitListeners) l();
+    for (const l of this.#exitListeners) l(code);
   }
 
   async handshake(): Promise<void> {
@@ -73,7 +73,7 @@ export class StdioMcpConnection implements McpConnection {
     return new ToolOutcomeMapper().toDomain((await this.#request("tools/call", { name: tool.value, arguments: args })) as McpToolResultDto);
   }
 
-  onExit(listener: () => void): void { this.#exitListeners.push(listener); }
+  onExit(listener: (code: number | null) => void): void { this.#exitListeners.push(listener); }
 
   async close(): Promise<void> {
     if (this.#exited) return;

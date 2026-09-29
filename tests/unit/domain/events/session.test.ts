@@ -6,10 +6,12 @@ import { ContinuationSealer } from "../../../../src/domain/events/ContinuationSe
 import { DomainError } from "../../../../src/domain/shared/DomainError.ts";
 import { AT, fact } from "../../../support/recordFixtures.ts";
 
-test("decide exige una sesión abierta y no permite abrir dos veces", () => {
+test("decide exige una sesión abierta; session.opened sobre una abierta es una reapertura implícita", () => {
   assert.throws(() => SessionAggregate.decide(SessionState.EMPTY, fact("turn.completed", "t")), DomainError);
   const opened = SessionState.EMPTY.with({ open: true, everOpened: true });
-  assert.throws(() => SessionAggregate.decide(opened, fact("session.opened", "o2")), /already open/);
+  // Pi murió sin session.closed y la sesión se reanuda (resume): se acepta.
+  const again = SessionAggregate.decide(opened, fact("session.opened", "o2", { reason: "resume" }));
+  assert.equal(again.type.value, "session.opened");
   assert.ok(SessionAggregate.decide(opened, fact("turn.completed", "t")));
   const reopened = SessionAggregate.decide(opened.with({ open: false }), fact("session.opened", "o3"));
   assert.equal(reopened.type.value, "session.opened");

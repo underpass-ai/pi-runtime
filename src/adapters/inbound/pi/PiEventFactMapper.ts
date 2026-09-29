@@ -12,8 +12,9 @@ const about = (raw: string) => raw.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 20
 const ERROR = /^(?:kmp|made)_[A-Za-z0-9_]+ (refused|denied|rpc|transport|invalid) \(([A-Za-z0-9_.-]{1,64})\): /;
 
 export class PiEventFactMapper {
-  readonly #actorId: string; readonly #version: string;
-  constructor(actorId: string, piRuntimeVersion: string) { this.#actorId = actorId; this.#version = piRuntimeVersion; }
+  readonly #actorId: string; readonly #version: string; readonly #piVersion: string | null;
+  // piVersion: la versión de Pi fijada en pins.json (null si no se pudo leer).
+  constructor(actorId: string, piRuntimeVersion: string, piVersion: string | null) { this.#actorId = actorId; this.#version = piRuntimeVersion; this.#piVersion = piVersion; }
 
   static serverOf(tool: string): "kmp" | "made" | "pi" { return tool.startsWith("kmp_") ? "kmp" : tool.startsWith("made_") ? "made" : "pi"; }
 
@@ -35,7 +36,10 @@ export class PiEventFactMapper {
     return { status: m[1] === "refused" || m[1] === "denied" ? "refused" : "failed", errorKind: m[1], errorCode: m[2] === "-" ? null : m[2] };
   }
 
-  sessionOpened(sid: string, reason: string, atMs: number): FactDto { return this.#fact(sid, "session.opened", `opened.${atMs}`, atMs, { reason, piRuntimeVersion: this.#version }); }
+  // project es el ProjectId (hash de la raíz), nunca la ruta.
+  sessionOpened(sid: string, reason: string, atMs: number, project: string): FactDto {
+    return this.#fact(sid, "session.opened", `opened.${atMs}`, atMs, { reason, piRuntimeVersion: this.#version, piVersion: this.#piVersion, project });
+  }
   sessionClosed(sid: string, reason: string, atMs: number): FactDto { return this.#fact(sid, "session.closed", `closed.${atMs}`, atMs, { reason }); }
 
   phaseChanged(sid: string, from: string | null, to: string, activeTools: string[], atMs: number): FactDto {
@@ -66,10 +70,11 @@ export class PiEventFactMapper {
     });
   }
 
-  modelSelected(sid: string, ev: unknown, atMs: number): FactDto | null {
+  // effort: el nivel de razonamiento de Pi (off…max), null si no se conoce.
+  modelSelected(sid: string, ev: unknown, atMs: number, effort: string | null): FactDto | null {
     const e = obj(ev); const model = obj(e.model);
     if (str(model.id) === null) return null;
-    return this.#fact(sid, "model.selected", `model.${atMs}`, atMs, { model: str(model.id), provider: str(model.provider), source: str(e.source) });
+    return this.#fact(sid, "model.selected", `model.${atMs}`, atMs, { model: str(model.id), provider: str(model.provider), source: str(e.source), effort });
   }
 
   compacted(sid: string, ev: unknown, tokensAfter: number | null, atMs: number): FactDto | null {

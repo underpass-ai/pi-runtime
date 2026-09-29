@@ -52,10 +52,10 @@ test("timeout y muerte del proceso son McpTransportError", async () => {
   try { await assert.rejects(slow.call(ToolName.of("kmp_slow"), {}), (e) => e instanceof McpTransportError && /outcome unknown/.test(e.message)); }
   finally { await slow.close(); }
   const dying = await open();
-  let exited = false;
-  dying.onExit(() => { exited = true; });
+  let exited: number | null | undefined;
+  dying.onExit((code) => { exited = code; });
   await assert.rejects(dying.call(ToolName.of("kmp_die"), {}), (e) => e instanceof McpTransportError && /stderr: dying now/.test(e.message));
-  assert.equal(exited, true);
+  assert.equal(exited, 3);
   await assert.rejects(dying.call(ToolName.of("kmp_echo"), {}), /not running/);
   await dying.close();
 });
@@ -102,12 +102,12 @@ const spawnNode = (code: string) => spawn(process.execPath, ["-e", code], { stdi
 test("un 'error' en stdin del hijo marca la conexión caída sin lanzar", async () => {
   const child = spawnNode("setTimeout(() => {}, 10_000)");
   const conn = new StdioMcpConnection(ServerName.KMP, child, 5000);
-  let exited = false;
-  conn.onExit(() => { exited = true; });
+  let exited: number | null | undefined;
+  conn.onExit((code) => { exited = code; });
   const pending = conn.catalog();
   child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
   await assert.rejects(pending, (e) => e instanceof McpTransportError && /EPIPE/.test(e.message));
-  assert.equal(exited, true);
+  assert.equal(exited, null, "sin código de salida conocido");
   await assert.rejects(conn.catalog(), /not running/);
   child.kill("SIGKILL");
 });

@@ -1,4 +1,5 @@
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
+import { JsonPinSetSource } from "../adapters/outbound/fs/JsonPinSetSource.ts";
 import { UnixSocketHostGateway } from "../adapters/outbound/ipc/UnixSocketHostGateway.ts";
 import { DetachedHostLauncher } from "../adapters/outbound/process/DetachedHostLauncher.ts";
 import { FsFactSpool } from "../adapters/outbound/fs/FsFactSpool.ts";
@@ -53,8 +54,8 @@ export class ExtensionComposition {
     const host = this.#shared();
     const paths = new StatePaths(process.env); const locator = new GitProjectLocator();
     new EventCaptureExtension(
-      (cwd) => this.factSink(paths.spoolDirOf(locator.locate(cwd)), process.pid, () => host.gateway()),
-      new PiEventFactMapper(`pi:${process.pid}`, PackageInfo.version()),
+      (cwd) => { const project = locator.locate(cwd); return { sink: this.factSink(paths.spoolDirOf(project), process.pid, () => host.gateway()), project: project.id.value }; },
+      new PiEventFactMapper(`pi:${process.pid}`, PackageInfo.version(), this.#piVersion()),
     ).register(pi);
     host.register(pi);
   }
@@ -64,6 +65,12 @@ export class ExtensionComposition {
   // #flushing serializa todos los drains del mismo `<pid>.jsonl`.
   static factSink(spoolDir: string, pid: number, gateway: () => Promise<HostGateway>): FactSink {
     return SharedInstance.get(`pi-runtime.fact-sink@${PackageInfo.version()}:${spoolDir}:${pid}`, () => new HostFactSink(gateway, new FsFactSpool(spoolDir, pid)));
+  }
+
+  // La versión de Pi fijada en pins.json (la que instala `underpass setup`);
+  // se lee una vez al cargar, nunca por evento. Sin pins legibles: null.
+  static #piVersion(): string | null {
+    try { return new JsonPinSetSource(new URL("../../pins.json", import.meta.url).pathname).load().pi.version.value; } catch { return null; }
   }
 
   static server(pi: PiExtensionApi, server: ServerName, toSchema: (json: Record<string, unknown>) => unknown): void {

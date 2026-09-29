@@ -11,11 +11,10 @@ const obj = (v: unknown): Json => (v !== null && typeof v === "object" && !Array
 export class SessionAggregate {
   private constructor() {}
 
+  // session.opened sobre una sesión abierta es una reapertura implícita: Pi
+  // murió sin session.closed y la sesión se reanuda (resume).
   static decide(state: SessionState, fact: Fact): Fact {
-    if (fact.type.value === "session.opened") {
-      if (state.open) throw DomainError.because("session already open");
-      return fact;
-    }
+    if (fact.type.value === "session.opened") return fact;
     if (!state.open) throw DomainError.because(`${fact.type.value} requires an open session`);
     return fact;
   }

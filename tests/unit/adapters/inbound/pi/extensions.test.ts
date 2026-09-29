@@ -320,7 +320,7 @@ test("captura registrada antes que el host: session.opened espera en el spool y 
   const spool = { append: (f: FactDto) => { spooled.push(f); }, readAll: () => [...spooled], removeFirst: (n: number) => { spooled.splice(0, n); }, pending: () => spooled.length };
   const gw = { ...gatewayFake({ v: false }), record: async (f: FactDto) => { sent.push(f.type); } };
   const host = new HostExtension(async () => { await new Promise((r) => setTimeout(r, 5)); return gw; }, new SelectPhaseTools(PhaseToolSelection.standard()));
-  new EventCaptureExtension(() => new HostFactSink(() => host.gateway(), spool), new PiEventFactMapper("pi:1", "0.1.0")).register(pi as never);
+  new EventCaptureExtension(() => ({ sink: new HostFactSink(() => host.gateway(), spool), project: "p1" }), new PiEventFactMapper("pi:1", "0.1.0", "0.87.1")).register(pi as never);
   host.register(pi as never);
   await pi.fire("session_start"); // Pi espera cada handler en orden de registro
   assert.deepEqual([sent, spooled.length], [["session.opened"], 0]);
@@ -335,7 +335,7 @@ test("cierre normal: session.closed se entrega antes de que el host cierre el ga
     record: async (f: FactDto) => { await new Promise((r) => setTimeout(r, 5)); if (closed) throw new HostCallError("transport", "host connection closed"); sent.push(f.type); },
     close: () => { closed = true; } };
   const host = new HostExtension(async () => gw, new SelectPhaseTools(PhaseToolSelection.standard()));
-  new EventCaptureExtension(() => new HostFactSink(() => host.gateway(), spool), new PiEventFactMapper("pi:1", "0.1.0")).register(pi as never);
+  new EventCaptureExtension(() => ({ sink: new HostFactSink(() => host.gateway(), spool), project: "p1" }), new PiEventFactMapper("pi:1", "0.1.0", "0.87.1")).register(pi as never);
   host.register(pi as never);
   await pi.fire("session_start");
   await pi.fire("session_shutdown");

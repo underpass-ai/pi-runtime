@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { PiEventFactMapper } from "../../../../../src/adapters/inbound/pi/PiEventFactMapper.ts";
 import { FactMapper } from "../../../../../src/application/mappers/FactMapper.ts";
 
-const m = new PiEventFactMapper("pi:7", "0.1.0");
+const m = new PiEventFactMapper("pi:7", "0.1.0", "0.87.1");
 const SECRET = "sk-THIS-MUST-NOT-LEAK /home/user/secret.txt";
 
 test("tool.started y tool.completed solo llevan metadatos y digests", () => {
@@ -41,10 +41,12 @@ test("turn_end usa el uso del mensaje del asistente y descarta otros roles", () 
 });
 
 test("sesión, fase, modelo y compaction", () => {
-  assert.deepEqual(m.sessionOpened("s1", "startup", 5).payload, { reason: "startup", piRuntimeVersion: "0.1.0" });
+  assert.deepEqual(m.sessionOpened("s1", "startup", 5, "41ae276521aaee43").payload, { reason: "startup", piRuntimeVersion: "0.1.0", piVersion: "0.87.1", project: "41ae276521aaee43" });
+  assert.equal(new PiEventFactMapper("pi:7", "0.1.0", null).sessionOpened("s1", "resume", 5, "p").payload.piVersion, null);
   assert.deepEqual(m.phaseChanged("s1", null, "interactive", ["kmp_ask", "bash"], 6).payload.activeTools, 2);
-  assert.deepEqual(m.modelSelected("s1", { model: { id: "m", provider: "p" }, source: "set" }, 7)!.payload, { model: "m", provider: "p", source: "set" });
-  assert.equal(m.modelSelected("s1", {}, 7), null);
+  assert.deepEqual(m.modelSelected("s1", { model: { id: "m", provider: "p" }, source: "set" }, 7, "high")!.payload, { model: "m", provider: "p", source: "set", effort: "high" });
+  assert.equal(m.modelSelected("s1", { model: { id: "m" } }, 7, null)!.payload.effort, null);
+  assert.equal(m.modelSelected("s1", {}, 7, "high"), null);
   assert.deepEqual(m.compacted("s1", { compactionEntry: { id: "c1", tokensBefore: 9000 }, reason: "threshold" }, 1200, 8)!.payload, { tokensBefore: 9000, tokensAfter: 1200, reason: "threshold" });
 });
 

@@ -24,6 +24,10 @@ export class CanonicalJson {
     }
     if (Array.isArray(v)) return v.map((x, i) => CanonicalJson.#normalize(x, `${path}[${i}]`));
     if (typeof v === "object") {
+      // Sólo objetos planos: Date, Map, Set o instancias de clase se
+      // serializarían en silencio como {} (o como otra cosa) y perderían datos.
+      const proto = Object.getPrototypeOf(v);
+      if (proto !== Object.prototype && proto !== null) throw DomainError.because(`unsupported JSON value at ${path}: not a plain object`);
       const o = v as Record<string, unknown>;
       return Object.fromEntries(Object.keys(o).sort().filter((k) => o[k] !== undefined).map((k) => [k, CanonicalJson.#normalize(o[k], `${path}.${k}`)]));
     }

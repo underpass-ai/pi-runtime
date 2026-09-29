@@ -92,3 +92,20 @@ test("un listener que lanza no rompe connection() ni el olvido al morir", async 
     assert.deepEqual(p.started(), []);
   } finally { await p.close(); }
 });
+
+test("el listener recibe el código de salida del servidor (null si no se conoce)", async () => {
+  const exits: [string, number | null][] = [];
+  const p = new ServerPool(project, new StdioMcpConnector(2000), new Map([["kmp", factory("kmp")]]), { started: () => {}, exited: (s, code) => { exits.push([s.value, code]); } });
+  try {
+    const c = await p.connection(ServerName.KMP);
+    const exited = new Promise<void>((r) => c.onExit(() => r()));
+    await assert.rejects(c.call(ToolName.of("kmp_die"), {}));
+    await exited;
+    assert.deepEqual(exits, [["kmp", 3]]);
+  } finally { await p.close(); }
+  const fakeConn = { server: ServerName.KMP, identity: null, onExit: (l: (code?: number | null) => void) => { l(); }, close: async () => {} };
+  const unknown: (number | null)[] = [];
+  const q = new ServerPool(project, { open: async () => fakeConn as never }, new Map([["kmp", factory("kmp")]]), { started: () => {}, exited: (_s, code) => { unknown.push(code); } });
+  await q.connection(ServerName.KMP); await q.close();
+  assert.deepEqual(unknown, [null]);
+});

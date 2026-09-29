@@ -24,7 +24,7 @@ export class ServerPool {
     const conn = this.#connector.open(server, factory.commandFor(this.#project)).then(async (c) => {
       if (this.#closed) { await c.close(); throw new Error("server pool closed"); }
       this.#notify(() => this.#listener?.started(server, c.identity));
-      c.onExit(() => { this.#open.delete(server.value); this.#notify(() => this.#listener?.exited(server)); });
+      c.onExit((code) => { this.#open.delete(server.value); this.#notify(() => this.#listener?.exited(server, typeof code === "number" ? code : null)); });
       return c;
     });
     conn.catch(() => this.#open.delete(server.value));

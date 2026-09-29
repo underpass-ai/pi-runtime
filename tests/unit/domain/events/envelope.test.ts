@@ -51,6 +51,13 @@ test("timestamps ISO con milisegundos", () => {
   assert.throws(() => Timestamp.fromEpochMs(Number.NaN), DomainError);
 });
 
+test("fromEpochMs exige un entero en [0, 9999-12-31T23:59:59.999Z]: lo que produce siempre se puede volver a leer", () => {
+  const max = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+  assert.equal(Timestamp.fromEpochMs(max).value, "9999-12-31T23:59:59.999Z");
+  assert.equal(Timestamp.parse(Timestamp.fromEpochMs(max).value).epochMs(), max);
+  for (const bad of [1e15, max + 1, 1.5, -1, Infinity, "5" as unknown as number]) assert.throws(() => Timestamp.fromEpochMs(bad), DomainError);
+});
+
 test("actor, about, id derivado y hash", () => {
   const a = Actor.of("agent", "pi:42");
   assert.ok(a.equals(Actor.of("agent", "pi:42")));

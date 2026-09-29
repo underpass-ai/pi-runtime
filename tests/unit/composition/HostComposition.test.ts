@@ -57,6 +57,8 @@ test("dos conexiones desde el mismo proyecto comparten un único host", async ()
   await waitFor(() => !alive(pid));
   assert.deepEqual(hostStream(log).map((e) => e.type), ["host.started", "server.started", "server.exited", "host.stopped"]);
   assert.deepEqual(hostStream(log)[3].payload, { reason: "idle" });
+  assert.deepEqual(started[0].payload.catalogs, {}, "sin fingerprints.json registrados: huellas vacías");
+  assert.ok("code" in hostStream(log)[2].payload, "server.exited lleva el código de salida");
 });
 
 test("el host adopta al arrancar el spool de un proceso de Pi muerto y lo borra tras registrarlo", async () => {

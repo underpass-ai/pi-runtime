@@ -15,3 +15,12 @@ test("rechaza números no finitos, funciones y JSON inválido", () => {
   assert.throws(() => CanonicalJson.of({ f: () => 1 }), DomainError);
   assert.throws(() => CanonicalJson.parse("{nope"), DomainError);
 });
+
+test("rechaza objetos que no son planos (Date, Map, Set, instancias de clase) y acepta los de prototipo nulo", () => {
+  class Point { x = 1; }
+  for (const bad of [new Date(0), new Map([["a", 1]]), new Set([1]), new Point(), { nested: [new Date(0)] }, new Uint8Array(2), /re/]) {
+    assert.throws(() => CanonicalJson.of(bad), DomainError);
+  }
+  const bare = Object.create(null) as Record<string, unknown>; bare.b = 2; bare.a = 1;
+  assert.equal(CanonicalJson.of(bare).text, '{"a":1,"b":2}');
+});
