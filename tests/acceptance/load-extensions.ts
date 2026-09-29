@@ -32,5 +32,8 @@ while (Date.now() < deadline) {
 const active = session.getActiveToolNames();
 const checks = { kmpRegistered: names.includes("kmp_ask"), madeRegistered: names.includes("made_claim_ceremony_step"), kmpActive: active.includes("kmp_ask"), madeControlHidden: !active.includes("made_claim_ceremony_step") };
 console.log(JSON.stringify({ tools: names.length, active: active.length, checks }, null, 2));
+// Como AgentSessionRuntime.dispose(): session_shutdown antes de dispose(),
+// que por sí solo no lo emite (y la sesión quedaría sin session.closed).
+await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 session.dispose();
 process.exit(Object.values(checks).every(Boolean) ? 0 : 1);
