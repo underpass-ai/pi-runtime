@@ -1,7 +1,11 @@
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
 import { UnixSocketHostGateway } from "../adapters/outbound/ipc/UnixSocketHostGateway.ts";
 import { DetachedHostLauncher } from "../adapters/outbound/process/DetachedHostLauncher.ts";
+import { FsFactSpool } from "../adapters/outbound/fs/FsFactSpool.ts";
+import { HostFactSink } from "../adapters/outbound/ipc/HostFactSink.ts";
+import { EventCaptureExtension } from "../adapters/inbound/pi/EventCaptureExtension.ts";
 import { HostExtension } from "../adapters/inbound/pi/HostExtension.ts";
+import { PiEventFactMapper } from "../adapters/inbound/pi/PiEventFactMapper.ts";
 import type { PiExtensionApi } from "../adapters/inbound/pi/PiExtensionApi.ts";
 import { PiToolFactory } from "../adapters/inbound/pi/PiToolFactory.ts";
 import { ServerToolsExtension } from "../adapters/inbound/pi/ServerToolsExtension.ts";
@@ -38,7 +42,20 @@ export class ExtensionComposition {
     });
   }
 
-  static host(pi: PiExtensionApi): void { this.#shared().register(pi); }
+  // La captura se registra ANTES que el HostExtension: Pi espera cada
+  // handler en orden de registro, y el de session_start del host emite
+  // HOST_READY al terminar de conectar. Así el sink de la sesión ya existe
+  // cuando llega HOST_READY (el flush vacía lo que esperaba en el spool,
+  // empezando por session.opened) y ningún PHASE_CHANGED llega sin sesión.
+  static host(pi: PiExtensionApi): void {
+    const host = this.#shared();
+    const paths = new StatePaths(process.env); const locator = new GitProjectLocator();
+    new EventCaptureExtension(
+      (cwd) => new HostFactSink(() => host.gateway(), new FsFactSpool(paths.spoolDirOf(locator.locate(cwd)), process.pid)),
+      new PiEventFactMapper(`pi:${process.pid}`, PackageInfo.version()),
+    ).register(pi);
+    host.register(pi);
+  }
 
   static server(pi: PiExtensionApi, server: ServerName, toSchema: (json: Record<string, unknown>) => unknown): void {
     new ServerToolsExtension(server, this.#shared(), new PiToolFactory(toSchema)).register(pi);
