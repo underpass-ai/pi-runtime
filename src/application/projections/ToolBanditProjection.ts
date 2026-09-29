@@ -1,6 +1,7 @@
 import { ProjectionName } from "../../domain/events/ProjectionName.ts";
 import type { StoredEvent } from "../../domain/events/StoredEvent.ts";
 import { LearningContext } from "../../domain/learning/LearningContext.ts";
+import { LearningMode } from "../../domain/learning/LearningMode.ts";
 import { SelectionSize } from "../../domain/learning/SelectionSize.ts";
 import { SlidingBeta } from "../../domain/learning/SlidingBeta.ts";
 import type { BanditArmDto } from "../dto/BanditArmDto.ts";
@@ -14,8 +15,6 @@ type Json = Record<string, unknown>;
 type Decision = { atMs: number; context: string; phase: string; project: string; narrows: boolean; tracked: string[]; seen: string[]; turns: number };
 
 const SOFT_ZERO_WEIGHT = 0.2;
-const MODES = ["off", "shadow", "active"];
-const DECISION_MODES = ["shadow", "active", "fallback"];
 const obj = (v: unknown): Json => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Json) : {});
 const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
@@ -25,8 +24,9 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
 // las candidatas expuestas: la primera invocación de cada tool en la ventana cuenta 1 si
 // `succeeded` y 0 si `failed` (peso 1); `refused` y `aborted` no cuentan. En una decisión
 // active fuera del control, cada tool seleccionada y no usada suma un 0 de peso 0,2 al
-// cerrarse la ventana, y sólo si en ella hubo al menos un turno. Shadow, control y fallback
-// exponían el conjunto completo: sólo actualizan las usadas.
+// cerrarse la ventana, y sólo si en ella hubo actividad del modelo (un turno o una llamada a
+// una tool seguida). Shadow, control y fallback exponían el conjunto completo: sólo
+// actualizan las usadas.
 export class ToolBanditProjection implements Projection {
   static readonly NAME = ProjectionName.of("tool_bandit");
   static readonly VERSION = 1;
@@ -43,10 +43,10 @@ export class ToolBanditProjection implements Projection {
   apply(state: ProjectionState, e: StoredEvent): void {
     const r = e.record; const p = obj(r.payload.toValue());
     if (r.type.value === "learning.mode_changed") {
-      const to = str(p.to);
-      if (to !== null && MODES.includes(to)) {
+      const to = ToolBanditProjection.#mode(p.to, LearningMode.setting);
+      if (to !== null) {
         const previous = state.get<LearningModeDto>(ToolBanditProjection.MODE_KEY) ?? ToolBanditProjection.DEFAULT_MODE;
-        state.set(ToolBanditProjection.MODE_KEY, { mode: to, k: ToolBanditProjection.#k(p.k) ?? previous.k });
+        state.set(ToolBanditProjection.MODE_KEY, { mode: to.value, k: ToolBanditProjection.#k(p.k) ?? previous.k });
       }
     }
     const opened = r.type.value === "tools.selected" ? ToolBanditProjection.#decision(p, r.occurredAt.epochMs()) : null;
@@ -62,7 +62,7 @@ export class ToolBanditProjection implements Projection {
   }
 
   #close(state: ProjectionState, d: Decision): void {
-    if (!d.narrows || d.turns === 0) return;
+    if (!d.narrows || (d.turns === 0 && d.seen.length === 0)) return;
     for (const tool of d.tracked) if (!d.seen.includes(tool)) this.#observe(state, d, tool, 0, SOFT_ZERO_WEIGHT);
   }
 
@@ -76,14 +76,18 @@ export class ToolBanditProjection implements Projection {
 
   // Un payload inesperado no abre decisión (spec §9).
   static #decision(p: Json, atMs: number): Decision | null {
-    const mode = str(p.mode);
-    if (mode === null || !DECISION_MODES.includes(mode)) return null;
+    const mode = ToolBanditProjection.#mode(p.mode, LearningMode.of);
+    if (mode === null || mode.equals(LearningMode.OFF)) return null;
     let context: LearningContext;
     try { context = LearningContext.parse(p.context); } catch { return null; }
     const candidates = strings(p.candidates);
-    const narrows = mode === "active" && p.control !== true;
+    const narrows = mode.equals(LearningMode.ACTIVE) && p.control !== true;
     const tracked = narrows ? strings(p.selected).filter((t) => candidates.includes(t)) : candidates;
     return { atMs, context: context.key, phase: context.phase.value, project: context.project.value, narrows, tracked, seen: [], turns: 0 };
+  }
+
+  static #mode(raw: unknown, parse: (raw: string) => LearningMode): LearningMode | null {
+    try { return parse(raw as string); } catch { return null; }
   }
 
   static #k(raw: unknown): number | null {

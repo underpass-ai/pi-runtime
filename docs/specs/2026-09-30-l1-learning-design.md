@@ -53,6 +53,7 @@ Por cada tool candidata expuesta dentro de la ventana de una decisión:
 
 - **Actualización:** una observación de peso `w` suma `w·r` a α y `w·(1−r)` a β.
 - **Ventana:** desde un `tools.selected` hasta el siguiente de la misma sesión, o hasta el cierre o el abandono de la sesión.
+- **Cuándo cuenta el 0 suave:** sólo si la ventana tuvo actividad del modelo, es decir, al menos un turno completado o una llamada a tool; una ventana sin actividad no dice nada de las tools expuestas.
 - **Candidatas no expuestas:** no reciben recompensa, porque no se observan.
 - **Decisiones que no cuentan:** las del grupo de control y las del modo shadow no actualizan las recompensas de «expuesta y no usada». Con el conjunto completo, todas las tools estaban expuestas. Las tools usadas sí actualizan con peso 1, porque son observaciones reales de utilidad.
 

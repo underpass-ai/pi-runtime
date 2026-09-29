@@ -8,8 +8,8 @@ const MAX_OPEN = 32;
 
 // Ventanas de decisión de L1 (spec §3), compartidas por tool_bandit y learning_eval. La
 // ventana de un tools.selected va desde su occurredAt hasta el del siguiente de la sesión,
-// o hasta el cierre, la reapertura o el abandono (24 h sin hechos de la sesión, medido con
-// recordedAt de cualquier hecho, como en O1). El host registra tools.selected en el acto,
+// o hasta el cierre o la reapertura posteriores (por occurredAt), o el abandono (24 h sin
+// hechos de la sesión, medido con recordedAt de cualquier hecho, como en O1). El host registra tools.selected en el acto,
 // pero los hechos de Pi llegan por su propia cola y pueden registrarse después de la
 // decisión siguiente: por eso un hecho de Pi se atribuye por su occurredAt a la última
 // decisión anterior a él, y una ventana sólo se cierra cuando llega un hecho de Pi posterior
@@ -41,8 +41,10 @@ export class SelectionWindows<T extends { atMs: number }> {
             while (s.windows.length > MAX_OPEN) this.#close(state, s.windows.shift()!);
           }
           break;
+        // Por occurredAt: un session.opened que llega por la cola de Pi después del primer
+        // tools.selected no cierra esa decisión; sólo las que empezaron antes o a la vez.
         case "session.opened": case "session.closed":
-          for (const w of s.windows.splice(0)) this.#close(state, w);
+          while (s.windows.length > 0 && s.windows[0].atMs <= at) this.#close(state, s.windows.shift()!);
           break;
         default:
           while (s.windows.length > 1 && s.windows[1].atMs <= at) this.#close(state, s.windows.shift()!);

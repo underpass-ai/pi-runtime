@@ -98,3 +98,34 @@ test("proyección igual en modo incremental y reconstruida", () => {
   assert.deepEqual(rebuilt.store.load(ToolBanditProjection.NAME), incremental.store.load(ToolBanditProjection.NAME));
   assert.ok(incremental.store.load(ToolBanditProjection.NAME).size >= 4);
 });
+
+test("un session.opened que llega tarde, tras el primer tools.selected, no cierra esa decisión", () => {
+  const l = new LearningLog([new ToolBanditProjection()]).addAll([selection("d1", {}, undefined, 1_100), fact("session.opened", "o", {}, undefined, 1_000),
+    used("c1", "kmp_time", "succeeded", undefined, 1_150)]);
+  assert.deepEqual(obs(l, "kmp_time"), [[1, 1]]);
+  assert.equal(Object.keys(open(l)).length, 1);
+});
+
+test("session.closed cierra sólo las ventanas que empezaron antes y conserva las posteriores", () => {
+  const l = log().addAll([selection("d1", {}, undefined, 1_000), selection("d2", { selected: ["made_get_help"] }, undefined, 3_000),
+    turn("t1", undefined, 1_500), fact("session.closed", "x", {}, undefined, 2_000)]);
+  assert.deepEqual([obs(l, "kmp_time"), obs(l, "kmp_guide")], [[[0, 0.2]], [[0, 0.2]]], "d1 cerrada con su turno");
+  assert.equal(Object.keys(open(l)).length, 1, "d2 sigue abierta");
+  l.add(used("c1", "made_get_help", "succeeded", undefined, 3_100));
+  assert.deepEqual(obs(l, "made_get_help"), [[1, 1]]);
+});
+
+test("una ventana con una llamada a tool pero sin turno completado aplica el 0 suave a las no usadas", () => {
+  const l = log().addAll([selection("d1"), used("c1", "kmp_time", "succeeded"), fact("session.closed", "x")]);
+  assert.deepEqual(obs(l, "kmp_time"), [[1, 1]]);
+  assert.deepEqual(obs(l, "kmp_guide"), [[0, 0.2]]);
+});
+
+test("con más de 32 ventanas abiertas se cierra la más antigua", () => {
+  const l = log().addAll([selection("d0", {}, undefined, 1_000), turn("t0", undefined, 1_000)]);
+  for (let i = 1; i < 32; i++) l.add(selection(`d${i}`, {}, undefined, 1_000 + i));
+  assert.equal(obs(l, "kmp_time"), null, "32 abiertas: ninguna cerrada");
+  l.add(selection("d32", {}, undefined, 1_032));
+  assert.deepEqual([obs(l, "kmp_time"), obs(l, "kmp_guide")], [[[0, 0.2]], [[0, 0.2]]], "d0 cerrada con su turno");
+  assert.equal((Object.values(open(l))[0] as { windows: unknown[] }).windows.length, 32);
+});
