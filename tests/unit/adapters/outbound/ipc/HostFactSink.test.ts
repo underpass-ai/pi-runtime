@@ -131,3 +131,21 @@ test("envíos directos serializados: con el host sano salen en orden de llegada 
   await sink.flush();
   assert.deepEqual([sent, spool.pending()], [["slow", "fast"], 0]);
 });
+
+// Aceptación real (docs/acceptance/e1.md, ola final): con el host recién
+// matado, tool.started iba directo y colgaba; un flush en curso hacía que
+// tool.completed fuera al spool en el acto, delante de tool.started, que caía
+// al spool después. En el log quedaba completed (v7) antes que started (v8).
+test("un hecho que llega durante un flush no adelanta a un envío directo todavía en vuelo", async () => {
+  const spool = new MemSpool();
+  const gateway = async () => ({ record: async (f: FactDto) => {
+    if (f.about === "started") await new Promise((r) => setTimeout(r, 20));
+    throw new HostCallError("transport", "host connection closed");
+  } }) as never;
+  const sink = new HostFactSink(gateway, spool as never);
+  sink.record(dto("started"));
+  const flushing = sink.flush();
+  sink.record(dto("completed"));
+  await flushing; await tick();
+  assert.deepEqual(spool.items.map((f) => f.about), ["started", "completed"]);
+});
