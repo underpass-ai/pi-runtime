@@ -7,7 +7,7 @@ import type { Span } from "../../../domain/telemetry/Span.ts";
 import type { TelemetryResource } from "../../../domain/telemetry/TelemetryResource.ts";
 import type { OtlpJsonMapper } from "./OtlpJsonMapper.ts";
 
-type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{ status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
+type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal; redirect: "manual" }) => Promise<{ status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
 
 // POST OTLP/HTTP JSON con `fetch` nativo y OTEL_EXPORTER_OTLP_TIMEOUT. Nunca lanza. El
 // cuerpo de la respuesta se descarta sin leerlo en ningún log.
@@ -27,6 +27,9 @@ export class OtlpHttpTelemetrySink implements TelemetrySink {
       const res = await this.#fetch(this.#settings.endpoint.signalUrl(kind), {
         method: "POST", headers: { ...this.#settings.headers.toRecord(), "content-type": "application/json" },
         body: JSON.stringify(body), signal: AbortSignal.timeout(this.#settings.timeoutMs),
+        // Nunca seguir una redirección: reenviaría cuerpo y cabeceras a otro origen (o a
+        // http). Un 3xx acaba como `rejected` (http 3xx) vía ExportResult.ofStatus.
+        redirect: "manual",
       });
       await res.arrayBuffer().catch(() => undefined);
       return ExportResult.ofStatus(res.status);

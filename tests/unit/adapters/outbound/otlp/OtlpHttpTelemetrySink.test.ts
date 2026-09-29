@@ -210,3 +210,25 @@ test("fetch que falla: el motivo es sólo un código, nunca el mensaje (que pued
   assert.deepEqual(seen.map((s) => s.url), ["https://otel.example.com/v1/traces", "https://otel.example.com/v1/metrics"]);
   assert.deepEqual(seen[0].headers, { authorization: "s3cr3t", "content-type": "application/json" });
 });
+
+test("una redirección no se sigue: ni el cuerpo ni las cabeceras llegan a otro origen y el lote se descarta", async () => {
+  const other = await collector();
+  const c = await collector();
+  const redirecting = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => res.writeHead(307, { location: `${other.url}/v1/traces` }).end());
+  });
+  await new Promise<void>((r) => redirecting.listen(0, "127.0.0.1", () => r()));
+  try {
+    const url = `http://127.0.0.1:${(redirecting.address() as { port: number }).port}`;
+    const seen: string[] = [];
+    const r = await new OtlpHttpTelemetrySink(OtlpConfiguration.fromEnvironment({ endpoint: url, headers: "x-api-key=s3cr3t" }).settings!, new OtlpJsonMapper("0.1.0"),
+      (u, init) => { seen.push(init.redirect); return fetch(u, init); }).sendSpans(RESOURCE, []);
+    assert.deepEqual([r.kind, r.reason], ["rejected", "http 307"]);
+    assert.deepEqual(seen, ["manual"]);
+    assert.equal(other.hits.length, 0, "el segundo servidor no recibe nada");
+  } finally {
+    redirecting.closeAllConnections(); await new Promise<void>((r) => redirecting.close(() => r()));
+    await other.close(); await c.close();
+  }
+});

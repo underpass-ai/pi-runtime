@@ -12,6 +12,9 @@ const SPAN_KIND_INTERNAL = 1;
 const STATUS_CODE_UNSET = 0;
 const STATUS_CODE_ERROR = 2;
 const AGGREGATION_TEMPORALITY_CUMULATIVE = 2;
+// Claves decimales; cualquier otro número (bytes, tokens, duraciones, códigos) es entero.
+// El tipo depende de la clave y no del valor: un coste de 1 sigue siendo double.
+const DOUBLE_KEYS = new Set(["pi_runtime.cost"]);
 const nanos = (t: Timestamp) => (BigInt(t.epochMs()) * 1_000_000n).toString();
 
 // ExportTraceServiceRequest y ExportMetricsServiceRequest en OTLP/JSON (mapeo JSON de
@@ -51,6 +54,11 @@ export class OtlpJsonMapper {
   }
 
   static #attributes(entries: [string, string | number | boolean][]): KeyValue[] {
-    return entries.map(([key, v]) => ({ key, value: typeof v === "string" ? { stringValue: v } : typeof v === "boolean" ? { boolValue: v } : Number.isInteger(v) ? { intValue: String(v) } : { doubleValue: v } }));
+    return entries.flatMap(([key, v]): KeyValue[] => {
+      if (typeof v === "string") return [{ key, value: { stringValue: v } }];
+      if (typeof v === "boolean") return [{ key, value: { boolValue: v } }];
+      if (!Number.isFinite(v)) return [];
+      return [{ key, value: DOUBLE_KEYS.has(key) ? { doubleValue: v } : { intValue: String(Math.round(v)) } }];
+    });
   }
 }

@@ -86,3 +86,28 @@ test("métricas: sum CUMULATIVE monótona (asInt o asDouble) e histograma con 12
     bucketCounts: ["0", "1", "0", "0", "0", "0", "0", "0", "0", "0", "0", "1"], explicitBounds: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000],
   });
 });
+
+test("atributos numéricos: el tipo depende de la clave, no del valor (cost siempre double; bytes, tokens y códigos siempre int)", () => {
+  const store = new InMemoryEventStore();
+  store.append(SESSION, StreamVersion.NONE, [
+    fact("session.opened", "o", {}, SESSION, 1000),
+    fact("tool.started", "c1s", { tool: "bash", server: "pi", callId: "c1", argsBytes: 12.6 }, SESSION, 2000),
+    fact("tool.completed", "c1", { tool: "bash", server: "pi", callId: "c1", status: "succeeded", outputBytes: 3 }, SESSION, 2400),
+    fact("turn.completed", "t", { cost: 1, tokens: { input: 7 } }, SESSION, 3000),
+  ], AT);
+  const a = new SpanAssembler(SpanAssembler.empty());
+  const spans = store.readStream(SESSION).flatMap((r) => a.feed(r));
+  const out = (new OtlpJsonMapper("0.1.0").traces(RESOURCE, spans) as J).resourceSpans[0].scopeSpans[0].spans;
+  const attr = (name: string, key: string) => out.find((s: J) => s.name === name).attributes.find((x: J) => x.key === key)?.value;
+  assert.deepEqual(attr("turn", "pi_runtime.cost"), { doubleValue: 1 });
+  assert.deepEqual(attr("turn", "pi_runtime.tokens.input"), { intValue: "7" });
+  assert.deepEqual(attr("tool", "pi_runtime.args_bytes"), { intValue: "13" });
+  assert.deepEqual(attr("tool", "pi_runtime.output_bytes"), { intValue: "3" });
+});
+
+test("atributos numéricos no finitos se descartan", () => {
+  const fake = { traceId: { value: "0".repeat(32) }, spanId: { value: "0".repeat(16) }, parentId: null, name: "turn", start: { epochMs: () => 1 }, end: { epochMs: () => 2 },
+    status: { isError: () => false }, events: [], attributes: { entries: () => [["pi_runtime.cost", Number.NaN], ["pi_runtime.tokens.input", Number.POSITIVE_INFINITY], ["pi_runtime.model", "m"]] } };
+  const span = (new OtlpJsonMapper("0.1.0").traces(RESOURCE, [fake as never]) as J).resourceSpans[0].scopeSpans[0].spans[0];
+  assert.deepEqual(span.attributes, [{ key: "pi_runtime.model", value: { stringValue: "m" } }]);
+});

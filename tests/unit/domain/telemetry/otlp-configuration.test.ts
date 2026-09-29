@@ -69,3 +69,14 @@ test("cabeceras: un valor que fetch no aceptaría se rechaza en la configuració
   assert.equal(c.state, "invalid");
   assert.ok(c.problem !== null && !c.problem.includes("s3cr3t"));
 });
+
+test("cabeceras: las que fetch prohíbe y las repetidas (sin distinguir mayúsculas) son configuración inválida, nombrando sólo la cabecera", () => {
+  for (const name of ["Connection", "transfer-encoding", "keep-alive", "upgrade", "content-length", "expect", "host", "te", "trailer", "proxy-authorization", "Proxy-Connection"]) {
+    assert.throws(() => OtlpHeaders.parse(`${name}=s3cr3t`), (e: Error) => e instanceof DomainError && e.message.includes(name.toLowerCase()) && !e.message.includes("s3cr3t"), name);
+  }
+  for (const raw of ["Authorization=s3cr3t,authorization=0th3r", "a=s3cr3t,a=0th3r", " a =s3cr3t,A=0th3r"]) {
+    assert.throws(() => OtlpHeaders.parse(raw), (e: Error) => e instanceof DomainError && !e.message.includes("s3cr3t") && !e.message.includes("0th3r"), raw);
+  }
+  assert.deepEqual(OtlpHeaders.parse("x-proxied=1,tenant=2").names(), ["tenant", "x-proxied"]);
+  assert.equal(OtlpConfiguration.fromEnvironment({ endpoint: "http://localhost:4318", headers: "host=s3cr3t" }).state, "invalid");
+});
