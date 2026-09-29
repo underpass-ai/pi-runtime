@@ -71,8 +71,9 @@ export class TelemetryExporter {
       if (result.kind === "retryable" || this.#lag() === 0) break;
     }
     if (decisive === null) return;
-    this.#health.record("traces", decisive, now);
+    // La espera se fija antes de registrar: un log que lance no puede dejarla sin poner.
     this.#backoff = decisive.kind !== "retryable" ? null : this.#backoff === null ? ExportBackoff.first(now.epochMs()) : this.#backoff.failedAgain(now.epochMs());
+    this.#health.record("traces", decisive, now);
   }
 
   #lag(): number { try { return this.#traces.lag(); } catch { return 0; } }

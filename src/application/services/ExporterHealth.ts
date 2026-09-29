@@ -9,6 +9,7 @@ type Signal = "traces" | "metrics";
 // primer fallo (o un motivo nuevo), la recuperación y cada motivo de descarte distinto.
 // Un descarte (4xx) no es un fallo: el colector responde. Una pasada `stale` (perdió el
 // compare-and-set frente a un rebuild) no dice nada del colector: no cambia el estado.
+// El estado se actualiza siempre antes de registrar: un log que lance no lo deja atascado.
 export class ExporterHealth {
   readonly #log: HostLog;
   readonly #failingSince = new Map<Signal, Timestamp>();
@@ -19,8 +20,8 @@ export class ExporterHealth {
     if (result.kind === "stale") return;
     if (result.kind === "ok") {
       const since = this.#failingSince.get(signal);
-      if (since !== undefined) this.#log.info("otlp exporter recovered", { signal, failing_since: since.value });
       this.#failingSince.delete(signal); this.#last.delete(signal);
+      if (since !== undefined) this.#log.info("otlp exporter recovered", { signal, failing_since: since.value });
       return;
     }
     if (result.kind === "retryable") { if (!this.#failingSince.has(signal)) this.#failingSince.set(signal, now); }

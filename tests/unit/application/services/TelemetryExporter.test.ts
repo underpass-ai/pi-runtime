@@ -227,3 +227,21 @@ test("un fallo del propio log del host no rompe la cola de pasadas", async () =>
   assert.equal(sink.batches.length, 1, "la pasada de trazas corre tras el fallo del log en la de métricas");
   assert.equal(broken.status().state, "failing");
 });
+
+test("con un log del host que lanza, la espera y la salud se actualizan igual: el estado se asigna antes de registrar", async () => {
+  const { events, store, sink, clock } = world();
+  const throwing = () => { throw new Error("disk full"); };
+  const exporter = new TelemetryExporter(
+    new TraceExport(events, store, sink, RESOURCE),
+    new MetricsExport(new ReadTelemetryMetrics(events, store), new TelemetryEpochs(new InMemoryTelemetryEpochStore(), clock), sink, RESOURCE, clock),
+    new ExporterHealth({ info: throwing, warn: throwing, error: throwing }),
+    clock);
+  sink.results.push(ExportResult.retryable("http 503"));
+  await exporter.tickTraces();
+  assert.equal(exporter.status().state, "failing");
+  clock.ms = 500; await exporter.tickTraces();
+  assert.equal(sink.batches.length, 1, "la espera quedó fijada aunque el aviso lanzara");
+  clock.ms = 1000; await exporter.tickTraces();
+  assert.equal(sink.batches.length, 2);
+  assert.deepEqual(exporter.status(), { state: "ok", lag: 0, since: null }, "la recuperación cuenta aunque su línea lanzara");
+});
