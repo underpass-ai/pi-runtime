@@ -38,7 +38,7 @@ test("contexto (fase, proyecto HMAC) con clave estable y parseo del payload", ()
   assert.equal(c.key, "design|ecf99390f4089f4f");
   assert.deepEqual(c.toJson(), { phase: "design", project: "ecf99390f4089f4f" });
   assert.ok(LearningContext.parse({ phase: "design", project: "ecf99390f4089f4f" }).equals(c));
-  for (const bad of [null, [], "design", { phase: "run", project: "ecf99390f4089f4f" }, { phase: "design", project: "/home/x" }]) assert.throws(() => LearningContext.parse(bad), DomainError);
+  for (const bad of [null, [], "design", { phase: "deploy", project: "ecf99390f4089f4f" }, { phase: "design", project: "/home/x" }]) assert.throws(() => LearningContext.parse(bad), DomainError);
 });
 
 test("el mínimo fijo sólo entra si la fase lo permite y nunca es candidata", () => {

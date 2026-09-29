@@ -19,5 +19,6 @@ test("diseño añade la autoría de MADE", () => {
 
 test("Phase valida", () => {
   assert.ok(Phase.of("design").equals(Phase.DESIGN));
-  assert.throws(() => Phase.of("run"), DomainError);
+  assert.ok(Phase.of("run").equals(Phase.RUN));
+  assert.throws(() => Phase.of("deploy"), DomainError);
 });

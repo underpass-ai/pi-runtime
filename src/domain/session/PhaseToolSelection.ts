@@ -3,6 +3,10 @@ import { Phase } from "./Phase.ts";
 
 const KMP_INTERACTIVE = ["kmp_guide", "kmp_wake", "kmp_ask", "kmp_time", "kmp_trace", "kmp_inspect", "kmp_relate", "kmp_write_memory", "kmp_relabel", "kmp_condense", "kmp_view_open", "kmp_view_get_state", "kmp_view_apply_intent"];
 const MADE_DESIGN = ["made_design_ceremony", "made_validate_ceremony_draft", "made_explain_ceremony_draft", "made_diff_ceremony_definitions", "made_publish_ceremony_definition", "made_list_contracts", "made_get_help"];
+// F3, determinado contra made-mcp 0.8.0: arrancar una publicada (con ceremony_id: sin él, MADE
+// sólo decide con alcance global y no lo admite), reclamar y completar cada paso host_callback y
+// aplicar la transición habilitada hasta el terminal. get_ceremony_instance, para releer el estado.
+const MADE_RUN = ["made_start_published_ceremony", "made_get_ceremony_instance", "made_claim_ceremony_step", "made_complete_ceremony_step", "made_apply_ceremony_transition"];
 
 export class PhaseToolSelection {
   readonly #byPhase: Map<string, Set<string>>;
@@ -11,6 +15,7 @@ export class PhaseToolSelection {
     return new PhaseToolSelection(new Map([
       [Phase.INTERACTIVE.value, new Set(KMP_INTERACTIVE)],
       [Phase.DESIGN.value, new Set([...KMP_INTERACTIVE, ...MADE_DESIGN])],
+      [Phase.RUN.value, new Set([...KMP_INTERACTIVE, ...MADE_DESIGN, ...MADE_RUN])],
     ]));
   }
   // Otra tabla de fases (la simulación de L1 usa candidatas sintéticas).

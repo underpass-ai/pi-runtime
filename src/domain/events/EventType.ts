@@ -2,7 +2,7 @@ import { ValueObject } from "../shared/ValueObject.ts";
 import { DomainError } from "../shared/DomainError.ts";
 
 const SESSION = ["session.opened", "session.closed", "phase.changed", "turn.completed", "tool.started", "tool.completed", "model.selected", "context.compacted", "tools.selected",
-  "made.grant_issued", "made.confirmation"];
+  "made.grant_issued", "made.confirmation", "made.ceremony_started", "made.ceremony_ended"];
 const HOST = ["host.started", "host.stopped", "server.started", "server.exited", "learning.mode_changed", "made.grant_revoked"];
 // Forma de cualquier tipo de hecho, conocido o de una versión futura: `familia.nombre`.
 const WELL_FORMED = /^[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){1,3}$/;
