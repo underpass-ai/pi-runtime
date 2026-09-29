@@ -4,7 +4,7 @@ import type { HostResponseDto } from "../../../application/dto/HostResponseDto.t
 import type { CatalogDto } from "../../../application/dto/CatalogDto.ts";
 import type { ToolCallResultDto } from "../../../application/dto/ToolCallResultDto.ts";
 import type { FactDto } from "../../../application/dto/FactDto.ts";
-import type { SessionSummaryDto } from "../../../application/dto/SessionSummaryDto.ts";
+import type { SessionStatusDto } from "../../../application/dto/SessionStatusDto.ts";
 import type { SessionId } from "../../../domain/events/SessionId.ts";
 import { CatalogMapper } from "../../../application/mappers/CatalogMapper.ts";
 import type { ServerName } from "../../../domain/mcp/ServerName.ts";
@@ -60,7 +60,7 @@ export class UnixSocketHostGateway implements HostGateway {
   call(server: ServerName, tool: ToolName, args: Record<string, unknown>): Promise<ToolCallResultDto> { return this.raw({ method: "call", server: server.value, tool: tool.value, args }); }
   health(): Promise<{ project: string; started: string[] }> { return this.raw({ method: "health" }); }
   record(fact: FactDto): Promise<void> { return this.raw({ method: "record", fact }).then(() => undefined); }
-  summary(id: SessionId): Promise<SessionSummaryDto | null> { return this.raw({ method: "summary", sessionId: id.value }); }
+  summary(id: SessionId): Promise<SessionStatusDto> { return this.raw({ method: "summary", sessionId: id.value }); }
   close(): void { this.#sock.end(); }
 
   // Avisa cuando la conexión con el host se cierra (host muerto, error o

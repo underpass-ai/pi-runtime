@@ -177,15 +177,15 @@ test("record y summary llegan al handler y hacen ida y vuelta por el gateway", a
   const server = await UnixSocketHostServer.start(path, async (req) => {
     seen.push(req);
     if (req.method === "record") return { id: req.id, ok: true, result: { recorded: 1, idempotent: false } };
-    if (req.method === "summary") return { id: req.id, ok: true, result: req.sessionId === "s1" ? summary : null };
+    if (req.method === "summary") return { id: req.id, ok: true, result: { summary: req.sessionId === "s1" ? summary : null, logPosition: 3, sessionChainIntact: true } };
     return { id: req.id, ok: false, error: { kind: "invalid", message: "unexpected" } };
   });
   try {
     const gw = await UnixSocketHostGateway.connect(path);
     const dto: FactDto = { stream: "session", sessionId: "s1", type: "session.opened", typeVersion: 1, about: "open", occurredAtMs: 1000, actor: { kind: "agent", id: "pi:1" }, payload: { reason: "startup" } };
     assert.equal(await gw.record(dto), undefined);
-    assert.deepEqual(await gw.summary(SessionId.of("s1")), summary);
-    assert.equal(await gw.summary(SessionId.of("s2")), null);
+    assert.deepEqual(await gw.summary(SessionId.of("s1")), { summary, logPosition: 3, sessionChainIntact: true });
+    assert.deepEqual(await gw.summary(SessionId.of("s2")), { summary: null, logPosition: 3, sessionChainIntact: true });
     assert.deepEqual(seen.map((r) => (r as { method: string }).method), ["record", "summary", "summary"]);
     assert.deepEqual((seen[0] as { fact: FactDto }).fact, dto);
     gw.close();

@@ -7,6 +7,7 @@ import { Project } from "../../../../src/domain/project/Project.ts";
 import { ProjectRoot } from "../../../../src/domain/project/ProjectRoot.ts";
 import { RecordFact } from "../../../../src/application/use-cases/RecordFact.ts";
 import { ReadSessionSummary } from "../../../../src/application/use-cases/ReadSessionSummary.ts";
+import { ReadSessionStatus } from "../../../../src/application/use-cases/ReadSessionStatus.ts";
 import { ProjectionRunner } from "../../../../src/application/services/ProjectionRunner.ts";
 import { SessionSummaryProjection } from "../../../../src/application/projections/SessionSummaryProjection.ts";
 import { ToolStatsProjection } from "../../../../src/application/projections/ToolStatsProjection.ts";
@@ -42,7 +43,7 @@ const emptyPool = () => new ServerPool(project, new StdioMcpConnector(2000), new
 function eventLog() {
   const events = new InMemoryEventStore(); const store = new InMemoryProjectionStore();
   const runner = new ProjectionRunner(events, store, [new SessionSummaryProjection(), new ToolStatsProjection()]);
-  return { events, runner, record: new RecordFact(events, new FixedClock()), summaries: new ReadSessionSummary(store, () => runner.runOnce()) };
+  return { events, runner, record: new RecordFact(events, new FixedClock()), summaries: new ReadSessionStatus(events, new ReadSessionSummary(store, () => runner.runOnce())) };
 }
 
 test("record: registra un hecho, es idempotente y una DomainError da invalid", async () => {
@@ -74,15 +75,17 @@ test("summary: devuelve el resumen tras proyectar, null si no existe e invalid c
   await uc.execute({ id: 1, method: "record", fact: opened });
   const res = await uc.execute({ id: 2, method: "summary", sessionId: "s1" });
   assert.ok(res.ok);
-  assert.equal((res.result as { sessionId: string; openedAt: string }).sessionId, "s1");
-  assert.equal((res.result as { openedAt: string }).openedAt, "1970-01-01T00:00:01.000Z");
-  assert.deepEqual(await uc.execute({ id: 3, method: "summary", sessionId: "otra" }), { id: 3, ok: true, result: null });
+  const status = res.result as { summary: { sessionId: string; openedAt: string }; logPosition: number; sessionChainIntact: boolean };
+  assert.equal(status.summary.sessionId, "s1");
+  assert.equal(status.summary.openedAt, "1970-01-01T00:00:01.000Z");
+  assert.deepEqual([status.logPosition, status.sessionChainIntact], [1, true]);
+  assert.deepEqual(await uc.execute({ id: 3, method: "summary", sessionId: "otra" }), { id: 3, ok: true, result: { summary: null, logPosition: 1, sessionChainIntact: true } });
   const bad = await uc.execute({ id: 4, method: "summary", sessionId: "a b" });
   assert.ok(!bad.ok && bad.error.kind === "invalid");
 });
 
 test("summary: un fallo que no es de dominio al refrescar da transport", async () => {
-  const summaries = new ReadSessionSummary(new InMemoryProjectionStore(), () => { throw new Error("projection store gone"); });
+  const summaries = new ReadSessionStatus(new InMemoryEventStore(), new ReadSessionSummary(new InMemoryProjectionStore(), () => { throw new Error("projection store gone"); }));
   const uc = new ServeHostRequest(project, emptyPool(), null, summaries);
   assert.deepEqual(await uc.execute({ id: 1, method: "summary", sessionId: "s1" }), { id: 1, ok: false, error: { kind: "transport", message: "projection store gone" } });
 });

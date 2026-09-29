@@ -19,6 +19,7 @@ import { HostFactFactory } from "../application/services/HostFactFactory.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { ServerPool } from "../application/services/ServerPool.ts";
 import { ReadSessionSummary } from "../application/use-cases/ReadSessionSummary.ts";
+import { ReadSessionStatus } from "../application/use-cases/ReadSessionStatus.ts";
 import { RecordFact } from "../application/use-cases/RecordFact.ts";
 import { ServeHostRequest } from "../application/use-cases/ServeHostRequest.ts";
 import { BinaryName } from "../domain/distribution/BinaryName.ts";
@@ -46,7 +47,7 @@ export class HostComposition {
     const listener: ServerLifecycleListener = { started: (s, id) => safeRecord(hostFacts.serverStarted(s, id)), exited: (s) => safeRecord(hostFacts.serverExited(s)) };
 
     const pool = new ServerPool(project, new StdioMcpConnector(60_000), commands ?? HostComposition.commands(env, paths), listener);
-    const serve = new ServeHostRequest(project, pool, record, new ReadSessionSummary(projectionStore, () => runner.runOnce()));
+    const serve = new ServeHostRequest(project, pool, record, new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce())));
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
     safeRecord(hostFacts.hostStarted(PackageInfo.version(), process.pid));
 

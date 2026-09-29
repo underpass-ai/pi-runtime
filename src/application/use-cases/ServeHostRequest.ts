@@ -13,13 +13,13 @@ import { ToolOutcomeMapper } from "../mappers/ToolOutcomeMapper.ts";
 import type { ServerPool } from "../services/ServerPool.ts";
 import { CallServerTool } from "./CallServerTool.ts";
 import { ReadServerCatalog } from "./ReadServerCatalog.ts";
-import type { ReadSessionSummary } from "./ReadSessionSummary.ts";
+import type { ReadSessionStatus } from "./ReadSessionStatus.ts";
 import type { RecordFact } from "./RecordFact.ts";
 
 export class ServeHostRequest {
   readonly #project: Project; readonly #pool: ServerPool; readonly #responses = new HostResponseMapper();
-  readonly #record: RecordFact | null; readonly #summaries: ReadSessionSummary | null;
-  constructor(project: Project, pool: ServerPool, record: RecordFact | null = null, summaries: ReadSessionSummary | null = null) {
+  readonly #record: RecordFact | null; readonly #summaries: ReadSessionStatus | null;
+  constructor(project: Project, pool: ServerPool, record: RecordFact | null = null, summaries: ReadSessionStatus | null = null) {
     this.#project = project; this.#pool = pool; this.#record = record; this.#summaries = summaries;
   }
 

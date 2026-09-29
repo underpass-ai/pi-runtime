@@ -63,3 +63,47 @@ test("eventos sin sesión, sin datos o fuera de orden no rompen ni inventan hech
   assert.deepEqual(facts.map((f) => f.type), ["session.opened", "phase.changed", "tool.completed", "context.compacted", "session.closed"]);
   assert.deepEqual([facts[0].payload.reason, facts[1].payload.activeTools, facts[1].payload.from, facts[2].payload.durationMs, facts[3].payload.tokensAfter, facts[4].payload.reason], ["startup", 0, null, null, null, "quit"]);
 });
+
+test("session_shutdown espera a entregar session.closed antes de que el host cierre el gateway", async () => {
+  const pi = new FakePi(); const log: string[] = [];
+  const sink = { record: (f: FactDto) => { log.push(`record ${f.type}`); }, flush: async () => { await new Promise((r) => setTimeout(r, 10)); log.push("flushed"); } };
+  new EventCaptureExtension(() => sink, new PiEventFactMapper("pi:1", "0.1.0")).register(pi as never);
+  pi.fire("session_start", { reason: "startup" });
+  await pi.handlers.get("session_shutdown")![0]({ reason: "quit" }, pi.ctx);
+  assert.deepEqual(log, ["record session.opened", "record session.closed", "flushed"]);
+});
+
+test("session_shutdown no se cuelga si el host no responde", async () => {
+  const pi = new FakePi();
+  const sink = { record: () => {}, flush: () => new Promise<void>(() => {}) };
+  new EventCaptureExtension(() => sink, new PiEventFactMapper("pi:1", "0.1.0"), () => 1, 10).register(pi as never);
+  pi.fire("session_start", {});
+  const t0 = Date.now();
+  await pi.handlers.get("session_shutdown")![0]({}, pi.ctx);
+  assert.ok(Date.now() - t0 < 1000);
+});
+
+test("un sink que no se puede crear o que lanza no rompe los handlers ni applyPhase", () => {
+  const pi = new FakePi();
+  new EventCaptureExtension(() => { throw new Error("EACCES spool"); }, new PiEventFactMapper("pi:1", "0.1.0")).register(pi as never);
+  assert.doesNotThrow(() => pi.fire("session_start", {}));
+  assert.doesNotThrow(() => pi.events.emit(PHASE_CHANGED, { phase: "design", activeTools: [] }));
+  const pi2 = new FakePi();
+  new EventCaptureExtension(() => ({ record: () => { throw new Error("ENOSPC"); }, flush: async () => { throw new Error("x"); } }), new PiEventFactMapper("pi:1", "0.1.0")).register(pi2 as never);
+  assert.doesNotThrow(() => pi2.fire("session_start", {}));
+  assert.doesNotThrow(() => pi2.events.emit(PHASE_CHANGED, { phase: "design", activeTools: [] }));
+  assert.doesNotThrow(() => pi2.events.emit(HOST_READY, null));
+});
+
+test("fase repetida y tools sin toolCallId no emiten hechos", () => {
+  const pi = new FakePi(); const facts: FactDto[] = [];
+  new EventCaptureExtension(() => ({ record: (f: FactDto) => { facts.push(f); }, flush: async () => {} }), new PiEventFactMapper("pi:1", "0.1.0"), () => 1).register(pi as never);
+  pi.fire("session_start", {});
+  pi.events.emit(PHASE_CHANGED, { phase: "interactive", activeTools: [] });
+  pi.events.emit(PHASE_CHANGED, { phase: "interactive", activeTools: ["kmp_ask"] });
+  pi.events.emit(PHASE_CHANGED, { phase: "design", activeTools: [] });
+  pi.fire("tool_execution_start", { toolName: "bash", args: {} });
+  pi.fire("tool_execution_end", { toolName: "bash", isError: false });
+  pi.fire("tool_execution_start", { toolCallId: "", toolName: "bash" });
+  assert.deepEqual(facts.map((f) => `${f.type}:${f.payload.to ?? ""}`), ["session.opened:", "phase.changed:interactive", "phase.changed:design"]);
+});

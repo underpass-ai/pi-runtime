@@ -71,8 +71,9 @@ export class HostExtension {
         const sid = ctx.sessionManager?.getSessionId();
         if (sid) {
           try {
-            const s = await g.summary(SessionId.of(sid));
+            const status = await g.summary(SessionId.of(sid)); const s = status.summary;
             if (s) lines.push(`session: ${s.turns} turns, ${s.tokens.input}+${s.tokens.output} tokens, $${s.cost.toFixed(4)}, ${Object.entries(s.calls).map(([k, v]) => `${k} ${Object.entries(v).map(([st, n]) => `${st}:${n}`).join("/")}`).join(", ") || "no calls"}, failures ${s.failures}`);
+            lines.push(`log: position ${status.logPosition}, session chain ${status.sessionChainIntact ? "intact" : "BROKEN"}`);
           } catch { lines.push("session: summary unavailable"); }
         }
         ctx.ui.notify(lines.join("\n"), "info");

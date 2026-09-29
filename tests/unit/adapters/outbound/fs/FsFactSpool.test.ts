@@ -41,3 +41,26 @@ test("directorio 0700, líneas corruptas se ignoran y removeFirst sobre vacío n
   assert.equal(statSync(join(dir, "9.jsonl")).mode & 0o777, 0o600);
   assert.equal(existsSync(join(dir, "9.gap")), false);
 });
+
+test("el contador vive en memoria: se inicializa del disco una sola vez", async () => {
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "spool-"));
+  writeFileSync(join(dir, "10.jsonl"), `${JSON.stringify(dto(1))}\n${JSON.stringify(dto(2))}\n`);
+  const s = new FsFactSpool(dir, 10);
+  assert.equal(s.pending(), 2);
+  writeFileSync(join(dir, "10.jsonl"), ""); // un cambio externo no se relee en cada llamada
+  assert.equal(s.pending(), 2);
+  s.append(dto(3));
+  assert.equal(s.pending(), 3);
+});
+
+test("un directorio sin permiso de escritura no lanza al añadir", async () => {
+  const { chmodSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "spool-"));
+  const s = new FsFactSpool(dir, 11);
+  chmodSync(dir, 0o500);
+  try {
+    assert.doesNotThrow(() => s.append(dto(1)));
+    assert.equal(s.pending(), 0);
+  } finally { chmodSync(dir, 0o700); }
+});

@@ -67,3 +67,14 @@ test("valores ausentes: nulos, about por instante y abouts saneados", () => {
   assert.equal(p.payload.activeToolsDigest, m.phaseChanged("s1", null, "design", ["a", "b"], 7).payload.activeToolsDigest);
   assert.equal(JSON.stringify(p).includes("\"a\""), false);
 });
+
+test("errorCode nunca lleva texto libre: sólo tools de kmp/made y códigos cortos", () => {
+  const txt = (text: string) => ({ content: [{ type: "text", text }] });
+  assert.deepEqual(PiEventFactMapper.outcomeOf(true, txt("kmp_ask refused (/home/user/secret.txt): no")), { status: "failed", errorKind: "tool_error", errorCode: null });
+  assert.deepEqual(PiEventFactMapper.outcomeOf(true, txt(`made_x rpc (${"a".repeat(65)}): no`)), { status: "failed", errorKind: "tool_error", errorCode: null });
+  assert.deepEqual(PiEventFactMapper.outcomeOf(true, txt("made_x rpc (-32602): bad params")), { status: "failed", errorKind: "rpc", errorCode: "-32602" });
+  const bash = m.toolCompleted("s1", { toolCallId: "c", toolName: "bash", isError: true, result: txt("kmp_ask refused (sk-THIS): x") }, null, 1);
+  assert.deepEqual([bash.payload.errorKind, bash.payload.errorCode, JSON.stringify(bash).includes("sk-THIS")], ["tool_error", null, false]);
+  const leak = m.toolCompleted("s1", { toolCallId: "c", toolName: "kmp_ask", isError: true, result: txt("kmp_ask refused (/home/user/x): x") }, null, 1);
+  assert.equal(JSON.stringify(leak).includes("/home/user"), false);
+});

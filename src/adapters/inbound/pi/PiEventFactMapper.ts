@@ -6,7 +6,10 @@ const obj = (v: unknown): Json => (v !== null && typeof v === "object" && !Array
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 const about = (raw: string) => raw.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 200);
-const ERROR = /^\S+ (refused|denied|rpc|transport|invalid) \(([^)]*)\): /;
+// Sólo se interpreta el formato de error de nuestras tools (PiToolFactory):
+// "<kmp_|made_tool> <kind> (<code>): …". El código se limita a un token corto
+// para que nunca arrastre texto libre de la salida (rutas, secretos).
+const ERROR = /^(?:kmp|made)_[A-Za-z0-9_]+ (refused|denied|rpc|transport|invalid) \(([A-Za-z0-9_.-]{1,64})\): /;
 
 export class PiEventFactMapper {
   readonly #actorId: string; readonly #version: string;
@@ -19,8 +22,11 @@ export class PiEventFactMapper {
     return { digest: createHash("sha256").update(text).digest("hex"), bytes: Buffer.byteLength(text) };
   }
 
-  static outcomeOf(isError: boolean, result: unknown): { status: string; errorKind: string | null; errorCode: string | null } {
+  // Con `tool`, las tools propias de Pi (bash, read…) nunca se interpretan:
+  // su texto de error es salida arbitraria.
+  static outcomeOf(isError: boolean, result: unknown, tool: string | null = null): { status: string; errorKind: string | null; errorCode: string | null } {
     if (!isError) return { status: "succeeded", errorKind: null, errorCode: null };
+    if (tool !== null && PiEventFactMapper.serverOf(tool) === "pi") return { status: "failed", errorKind: "tool_error", errorCode: null };
     const content = obj(result).content;
     const text = Array.isArray(content) ? String(content.map(obj).find((c) => c.type === "text")?.text ?? "") : "";
     if (/aborted; outcome unknown/.test(text)) return { status: "aborted", errorKind: "aborted", errorCode: null };
@@ -53,7 +59,7 @@ export class PiEventFactMapper {
 
   toolCompleted(sid: string, ev: unknown, startedAtMs: number | null, atMs: number): FactDto {
     const e = obj(ev); const tool = String(e.toolName ?? "unknown"); const out = PiEventFactMapper.digest(e.result);
-    const o = PiEventFactMapper.outcomeOf(e.isError === true, e.result);
+    const o = PiEventFactMapper.outcomeOf(e.isError === true, e.result, tool);
     return this.#fact(sid, "tool.completed", `tool.${String(e.toolCallId)}.completed`, atMs, {
       tool, server: PiEventFactMapper.serverOf(tool), callId: String(e.toolCallId), durationMs: startedAtMs === null ? null : Math.max(0, atMs - startedAtMs),
       status: o.status, errorKind: o.errorKind, errorCode: o.errorCode, outputDigest: out.digest, outputBytes: out.bytes,
