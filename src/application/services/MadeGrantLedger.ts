@@ -18,7 +18,7 @@ type GrantState = "active" | "expired" | "revoked";
 // (sesión), revocados (host), y el cierre y la última actividad de Pi de sus sesiones. Un payload
 // inesperado se ignora: el log nunca rompe la lectura.
 export class MadeGrantLedger {
-  readonly #grants = new Map<string, MadeGrant>(); readonly #revoked = new Set<string>();
+  readonly #grants = new Map<string, MadeGrant>(); readonly #revoked = new Map<string, string>();
   readonly #sessions = new Map<string, SessionMark>(); readonly #confirmations = new Map<string, number>();
   // Grants emitidos antes de un session.closed de su sesión: huérfanos aunque la sesión se reabra.
   readonly #closedOver = new Set<string>();
@@ -66,13 +66,16 @@ export class MadeGrantLedger {
       if (r.type.value === "made.confirmation") this.#confirmations.set(sid, (this.#confirmations.get(sid) ?? 0) + 1);
       return;
     }
-    if (r.type.value === "made.grant_revoked" && typeof p?.grantId === "string") this.#revoked.add(p.grantId);
+    if (r.type.value === "made.grant_revoked" && typeof p?.grantId === "string" && !this.#revoked.has(p.grantId)) this.#revoked.set(p.grantId, typeof p.reason === "string" ? p.reason : "unknown");
   }
 
   state(grant: MadeGrant, now: Timestamp): GrantState {
     if (this.#revoked.has(grant.id.value)) return "revoked";
     return grant.expired(now) ? "expired" : "active";
   }
+
+  // Por qué se revocó (session_closed, expired_cleanup, consumed), o null si no se revocó.
+  revocation(grant: MadeGrant): string | null { return this.#revoked.get(grant.id.value) ?? null; }
 
   // Todos los grants del host, por instante de emisión.
   grants(): MadeGrant[] { return [...this.#grants.values()].sort((a, b) => a.validFrom.epochMs() - b.validFrom.epochMs() || a.id.value.localeCompare(b.id.value)); }

@@ -12,7 +12,9 @@ import { MadeGrantId } from "../../../../src/domain/made/MadeGrantId.ts";
 import { MadeScope } from "../../../../src/domain/made/MadeScope.ts";
 import { RevocationReason } from "../../../../src/domain/made/RevocationReason.ts";
 import { TrustedHostId } from "../../../../src/domain/made/TrustedHostId.ts";
+import { RefusalCode } from "../../../../src/domain/mcp/RefusalCode.ts";
 import { ToolName } from "../../../../src/domain/mcp/ToolName.ts";
+import { ToolRefusal } from "../../../../src/domain/mcp/ToolRefusal.ts";
 import { Phase } from "../../../../src/domain/session/Phase.ts";
 import { PhaseToolSelection } from "../../../../src/domain/session/PhaseToolSelection.ts";
 import { DomainError } from "../../../../src/domain/shared/DomainError.ts";
@@ -70,10 +72,13 @@ test("alcances: forma exacta de MADE, clave estable y resumen legible sin conten
 });
 
 test("decisiones: el id sale de la denegación exacta y su cursor la deja primera de la página", () => {
-  const id = MadeDecisionId.fromDenial(`authorization decision ${ID} denied the operation`)!;
+  const refusal = (code: string, message: string) => ToolRefusal.of(RefusalCode.of(code), message, false);
+  const id = MadeDecisionId.fromDenial(refusal("refused", `authorization decision ${ID} denied the operation`))!;
   assert.equal(id.value, ID);
-  assert.equal(MadeDecisionId.fromDenial(`authorization decision ${ID} has expired`), null);
-  assert.equal(MadeDecisionId.fromDenial("no grant"), null);
+  assert.equal(MadeDecisionId.fromDenial(refusal("refused", `authorization decision ${ID} has expired`)), null);
+  assert.equal(MadeDecisionId.fromDenial(refusal("refused", "no grant")), null);
+  assert.equal(MadeDecisionId.fromDenial(refusal("invalid_request", `authorization decision ${ID} denied the operation`)), null, "el texto sin el código de MADE no es una denegación");
+  assert.equal(MadeDecisionId.fromDenial(ToolRefusal.of(RefusalCode.UNKNOWN, `authorization decision ${ID} denied the operation`, false)), null);
   assert.equal(MadeDecisionId.fromDenial(undefined as never), null);
   assert.equal(id.cursor(), "3b0bd929b09d10e02bdb74fad064bb39a6fda2acdc86d9b70c658171acbdda3a");
   assert.equal(MadeDecisionId.of("0".repeat(63) + "1").cursor(), "0".repeat(64));
@@ -94,17 +99,15 @@ test("grants: id determinista, vigencia por clase, cobertura exacta y argumentos
   assert.ok(!g.id.equals(MadeGrant.issue(SessionId.of("s2"), action, scope, MadeActionClass.AUTO, NOW).id));
   assert.match(g.id.value, /^pi-runtime-[0-9a-f]{32}$/);
   assert.equal(g.validUntil.epochMs() - NOW.epochMs(), 12 * 3_600_000);
-  assert.ok(g.covers(action, MadeScope.parse(DEF), NOW));
-  assert.ok(!g.covers(MadeAction.of("publish_ceremony_definition"), scope, NOW));
-  assert.ok(!g.covers(action, MadeScope.GLOBAL, NOW));
-  assert.ok(!g.covers(action, scope, g.validUntil), "valid_until es exclusivo");
+  assert.ok(!g.expired(NOW));
+  assert.ok(g.expired(g.validUntil), "valid_until es exclusivo");
   const host = TrustedHostId.of("made-local-host-abc");
   assert.deepEqual(g.issueArguments(host), { grant_id: g.id.value, grantee_id: "made-local-host-abc", actions: ["validate_ceremony_draft"], scope: DEF,
     valid_from: NOW.value, valid_until: g.validUntil.value, delegation_depth: 0 });
   const payload = g.toFactPayload();
   assert.deepEqual(payload, { grantId: g.id.value, action: "validate_ceremony_draft", scope: DEF, validUntil: g.validUntil.value, class: "auto" });
   const back = MadeGrant.fromFact(s, payload, NOW);
-  assert.ok(back.id.equals(g.id) && back.actionClass === MadeActionClass.AUTO && back.covers(action, scope, NOW));
+  assert.ok(back.id.equals(g.id) && back.actionClass === MadeActionClass.AUTO && back.action.equals(action) && back.scope.equals(scope));
   assert.throws(() => MadeGrant.fromFact(s, null, NOW), DomainError);
   assert.equal(MadeGrant.issue(s, action, scope, MadeActionClass.CONFIRM, NOW).validUntil.epochMs() - NOW.epochMs(), 300_000);
   assert.throws(() => MadeGrant.issue(s, action, scope, MadeActionClass.NEVER, NOW), DomainError);
@@ -114,5 +117,22 @@ test("grants: id determinista, vigencia por clase, cobertura exacta y argumentos
 test("motivos de revocación", () => {
   assert.equal(RevocationReason.of("session_closed"), RevocationReason.SESSION_CLOSED);
   assert.equal(RevocationReason.of("expired_cleanup"), RevocationReason.EXPIRED_CLEANUP);
+  assert.equal(RevocationReason.of("consumed"), RevocationReason.CONSUMED);
   assert.throws(() => RevocationReason.of("bored"), DomainError);
+});
+
+test("la excepción global sólo cubre las tres acciones de S3a §0.4; cualquier otra con alcance global no se concede", () => {
+  const p = MadeActionPolicy.standard();
+  for (const a of ["design_ceremony", "list_contracts", "diff_ceremony_definitions"]) assert.equal(p.grantable(MadeAction.of(a), MadeScope.GLOBAL), true, a);
+  for (const a of ["list_ceremony_instances", "get_metrics", "publish_ceremony_definition", "start_ceremony", "validate_ceremony_draft"]) assert.equal(p.grantable(MadeAction.of(a), MadeScope.GLOBAL), false, a);
+  assert.equal(p.grantable(MadeAction.of("validate_ceremony_draft"), MadeScope.parse(DEF)), true, "fuera de global manda la clase");
+  assert.equal(p.grantable(MadeAction.of("start_ceremony"), MadeScope.parse({ kind: "ceremony", ceremony_id: "c-1" })), true);
+});
+
+test("el catálogo que ve Pi nunca lleva las tools never", () => {
+  const p = MadeActionPolicy.standard();
+  assert.equal(p.exposable(tool("made_get_authorization_policy")), false);
+  assert.equal(p.exposable(tool("made_issue_authorization_grant")), false);
+  assert.equal(p.exposable(tool("made_design_ceremony")), true);
+  assert.equal(p.exposable(tool("made_publish_ceremony_definition")), true);
 });

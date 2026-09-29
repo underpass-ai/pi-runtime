@@ -15,8 +15,8 @@ Decisiones:
 
 1. **El host es el punto de control.** Cuando MADE deniega una llamada, el host lee la decisión, que le da la acción y el alcance exactos. Si la política de fase lo permite, se emite un grant exacto y reintenta una sola vez. Así Pi no duplica la lógica de alcances de MADE.
 2. **Las acciones de lectura y borrador son automáticas:** grant exacto hasta el cierre de la sesión.
-3. **Las acciones que escriben requieren confirmación humana en la TUI de Pi.** El host emite un grant exacto de 5 minutos y ejecuta. Sin UI, se deniega. No se usa `made_approve_authorization_operation`: en modo embebido quien aprueba no puede ser distinto de quien ejecuta, así que es estructuralmente imposible.
-4. **Excepción temporal para las acciones que MADE 0.8.0 solo autoriza con alcance `global`:** `design_ceremony`, `list_contracts` y `diff_ceremony_definitions`. Se conceden con alcance global, limitadas a esa acción y a la sesión, y se abren issues en MADE para poder acotarlas por definición.
+3. **Las acciones que escriben requieren confirmación humana en la TUI de Pi.** El host emite un grant exacto de 5 minutos, ejecuta la llamada confirmada y revoca el grant en cuanto vuelve (motivo `consumed`, ruling R5): el grant cubre sólo esa llamada, no otras con la misma acción y alcance (de otra sesión o del plugin de Claude, que en el mismo store actúan como el mismo principal). Sin UI, se deniega. No se usa `made_approve_authorization_operation`: en modo embebido quien aprueba no puede ser distinto de quien ejecuta, así que es estructuralmente imposible.
+4. **Excepción temporal para las acciones que MADE 0.8.0 solo autoriza con alcance `global`:** `design_ceremony`, `list_contracts` y `diff_ceremony_definitions`. Se conceden con alcance global, limitadas a esa acción y a la sesión, y se abren issues en MADE para poder acotarlas por definición. La lista es cerrada (`MadeActionPolicy`): cualquier otra acción cuya decisión tenga alcance `global` no se concede nunca y devuelve la denegación original.
 5. **Auditoría en el log de E1** con hechos nuevos. Antes de añadirlos, los lectores del log deben tolerar tipos desconocidos.
 
 ## 1. Clasificación de acciones
@@ -33,7 +33,9 @@ Decisiones:
   - Intervenciones, contratos, artefactos (`register_*`, `commit_*`, `tombstone_artifact`…).
   - Cualquier otra acción que no esté en `auto` ni en `never`.
 - **`never`: nunca se conceden desde Pi.**
-  - Administración de la autorización: `issue_authorization_grant`, `revoke_authorization_grant`, `approve_authorization_operation`, `get_authorization_policy`, `list_authorization_decisions`. Las usa solo el host, como dueño, y nunca las expone al modelo.
+  - Administración de la autorización: `issue_authorization_grant`, `revoke_authorization_grant`, `approve_authorization_operation`, `get_authorization_policy`, `list_authorization_decisions`. Las usa solo el host, como dueño (`MadeOwner`), y nunca las expone al modelo:
+    - no aparecen en el catálogo de MADE que el host sirve a Pi (ni en las candidatas de L1);
+    - una llamada por el socket a cualquiera de ellas se rechaza antes de llegar a MADE (negativa `refused`), traiga o no contexto de sesión. Pi puede reactivar tools de extensión por su cuenta; la negativa del host no depende de eso.
 
 Reglas de clasificación:
 
@@ -45,18 +47,17 @@ Reglas de clasificación:
 `ServeHostRequest.call` para el servidor `made`:
 
 1. Llama a la tool.
-2. Si el resultado es una denegación de autorización (código de MADE `authorization denied` con un id de decisión), el host:
+2. Si el resultado es una denegación de autorización (negativa con el código `refused` de MADE y el mensaje exacto `authorization decision <id> denied the operation`; el mensaje con otro código pasa tal cual), el host:
    1. Lee la decisión con `list_authorization_decisions`, como dueño, para obtener la acción y el alcance exactos. Si no la encuentra, devuelve el error original.
-   2. **Clase `auto` permitida por la fase:** emite un grant con estos parámetros y reintenta la llamada exactamente una vez.
+   2. Si la decisión tiene alcance `global` y la acción no está en la excepción del §0.4, devuelve la denegación original.
+   3. **Clase `auto` permitida por la fase:** emite un grant con estos parámetros y reintenta la llamada exactamente una vez.
       - `grantee` = `issuer` = trusted host.
       - La acción y el alcance exactos de la decisión.
       - Vigencia desde ahora hasta el mínimo entre el cierre de la sesión y 12 h. Como no conocemos el cierre, se usa 12 h y se revoca al cerrar (§4).
       - `delegation_depth` 0, sin padre.
-   3. **Clase `confirm`:** si la petición trae un token de confirmación válido para esta llamada (§3), emite un grant con la misma acción y alcance, válido 5 minutos, y reintenta. Si no lo trae, devuelve un rechazo estructurado `needs_confirmation {action, scopeSummary}`. `scopeSummary` es legible: tipo de alcance y nombre o versión de la definición o id de ceremonia, nunca contenido.
-   4. **Clase `never`, o una acción que la fase no permite:** devuelve la denegación original.
-3. **Caché:** si ya existe un grant emitido por el host en esta sesión que cubre esa acción y alcance y no ha caducado, no se emite otro.
-   - **Caché obsoleta con token de confirmación:** si la llamada trae un token de confirmación y el grant cacheado que cubre esa acción y alcance es denegado por MADE (por ejemplo, revocado por fuera), el host lo expulsa de la caché, emite un grant nuevo de 5 minutos para la misma acción y alcance aceptados, y vuelve a llamar. Como mucho dos llamadas a MADE por esta vía, para no gastar dos veces el consentimiento de un solo uso del usuario.
-   - **Caché obsoleta en la vía automática:** si la llamada no trae token (clase `auto`) y el grant cacheado es denegado, el host lo expulsa de la caché y devuelve la denegación tal cual; la siguiente llamada reemite el grant desde cero.
+   4. **Clase `confirm`:** si no hay token, devuelve un rechazo estructurado `needs_confirmation {action, scopeSummary}`. `scopeSummary` es legible: tipo de alcance y nombre o versión de la definición o id de ceremonia, nunca contenido. Si la petición trae un token de confirmación válido para esta llamada (§3), el host no llama primero: emite un grant con la acción y el alcance aceptados, válido 5 minutos, hace la llamada y revoca el grant en cuanto vuelve, con éxito, negativa o error (`made.grant_revoked`, motivo `consumed`). Al redimir el token vuelve a mirar la fase: si ya no expone la tool, la llamada sigue sin grant y vuelve la denegación original.
+   5. **Clase `never`, o una acción que la fase no permite:** devuelve la denegación original. (Las `never` ni siquiera llegan a MADE: §1.)
+3. **Sin caché.** El host sólo emite tras una denegación de MADE, y una denegación significa que ningún grant vigente cubre esa acción y alcance, tampoco uno que el host emitiera antes y alguien revocara por fuera: nunca se reutiliza, se emite otro. Dos denegaciones simultáneas de la misma sesión, acción y alcance comparten una sola emisión. Los grants `confirm` nunca se reutilizan: cada confirmación emite el suyo y lo consume.
 4. **Ids:** el id de grant es determinista, derivado de la sesión, la acción, el alcance y el instante, para que el reintento sea idempotente (MADE trata como no-op un grant idéntico con el mismo id).
 5. **Fallos:** si la emisión falla, se devuelve la denegación original. Nunca hay bucles: un único reintento por llamada.
 
@@ -77,7 +78,7 @@ Hechos nuevos, todos con `type_version` 1:
 
 - **`made.grant_issued`** (stream de la sesión): `{grantId, action, scope, validUntil, class: auto|confirm}`.
   - `scope` es la forma de MADE: tipo y nombre, versión o id; nunca contenido.
-- **`made.grant_revoked`** (siempre en el stream del host, nunca en el de la sesión: una sesión cerrada no acepta hechos nuevos en su propio stream): `{grantId, session, reason: session_closed|expired_cleanup}`.
+- **`made.grant_revoked`** (siempre en el stream del host, nunca en el de la sesión: una sesión cerrada no acepta hechos nuevos en su propio stream): `{grantId, session, reason: session_closed|expired_cleanup|consumed}`. `consumed` es el grant de 5 minutos de una confirmación, revocado al volver su llamada (§2.2.4).
 - **`made.confirmation`** (stream de la sesión): `{action, scopeSummary, outcome: accepted|declined|no_ui}`.
 
 Reglas del ciclo de vida:
@@ -111,7 +112,7 @@ Issues en `underpass-ai/made`:
 
 - **Unitarias:**
   - `MadeActionPolicy` (las tres clases, fase y acciones desconocidas);
-  - emisión con caché e ids deterministas;
+  - emisión sin caché (compartida entre denegaciones simultáneas) e ids deterministas; grant `confirm` consumido tras su llamada;
   - un único reintento;
   - token de confirmación de un solo uso, con caducidad y ligado a los argumentos;
   - hechos nuevos;

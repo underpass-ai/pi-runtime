@@ -95,6 +95,8 @@ test("el libro: vigentes por sesión, estados, confirmaciones y huérfanos por c
   assert.deepEqual(ids(ledger.grants().slice(3)), ids([d, e]), "por instante de emisión");
   assert.equal(ledger.state(e, clock.now()), "revoked");
   assert.equal(ledger.state(a, clock.now()), "active");
+  assert.equal(ledger.revocation(e), "session_closed");
+  assert.equal(ledger.revocation(a), null);
   assert.deepEqual(ledger.live(sid("open"), clock.now()).map((g) => g.id.value).sort(), [a.id.value, d.id.value].sort());
   assert.equal(ledger.confirmations(sid("open")), 1);
   assert.equal(ledger.confirmations(sid("idle")), 0);

@@ -11,6 +11,6 @@ export class ListMadeGrants {
   execute(): MadeGrantRowDto[] {
     const ledger = MadeGrantLedger.read(this.#events); const now = this.#clock.now();
     return ledger.grants().map((g) => ({ grantId: g.id.value, session: g.session.value, action: g.action.value, scope: g.scope.summary(), class: g.actionClass.value,
-      validUntil: g.validUntil.value, state: ledger.state(g, now) }));
+      validUntil: g.validUntil.value, state: ledger.state(g, now), reason: ledger.revocation(g) }));
   }
 }

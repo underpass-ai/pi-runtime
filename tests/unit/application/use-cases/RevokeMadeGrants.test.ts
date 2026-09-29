@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { InMemoryEventStore } from "../../../../src/adapters/outbound/memory/InMemoryEventStore.ts";
 import { StdioMcpConnector } from "../../../../src/adapters/outbound/mcp/StdioMcpConnector.ts";
 import type { HostLog } from "../../../../src/application/ports/HostLog.ts";
-import { IssuedGrants } from "../../../../src/application/services/IssuedGrants.ts";
 import { MadeFactFactory } from "../../../../src/application/services/MadeFactFactory.ts";
 import { MadeOwner } from "../../../../src/application/services/MadeOwner.ts";
 import { PendingConfirmations } from "../../../../src/application/services/PendingConfirmations.ts";
@@ -36,11 +35,11 @@ function host() {
   const clock = new ManualClock(Date.parse("2026-09-30T10:00:00.000Z")); const made = new FakeMade(() => clock.ms);
   const events = new InMemoryEventStore(); const record = new RecordFact(events, clock);
   const connection = async () => made; const owner = new MadeOwner(connection); const facts = new MadeFactFactory(clock, Actor.of("host", "host:1"));
-  const issued = new IssuedGrants(); const lines: string[] = [];
+  const lines: string[] = [];
   const log: HostLog = { info: (m, f) => { lines.push(`${m} ${JSON.stringify(f)}`); }, warn: (m, f) => { lines.push(`${m} ${JSON.stringify(f)}`); }, error: () => {} };
   const confirmations = new PendingConfirmations({ bytes: (k) => new Uint8Array(k).fill(1) }, clock);
-  const call = new CallMadeTool({ connection, owner, policy: MadeActionPolicy.standard(), confirmations, grants: issued, record, facts, clock, log });
-  const revoke = new RevokeMadeGrants(events, owner, record, facts, clock, issued, log);
+  const call = new CallMadeTool({ connection, owner, policy: MadeActionPolicy.standard(), confirmations, record, facts, clock, log });
+  const revoke = new RevokeMadeGrants(events, owner, record, facts, clock, log);
   const grant = async (s: string, tool: string) => call.execute(ToolName.of(tool), {}, MadeCallContext.of(SessionId.of(s), Phase.DESIGN));
   const revocations = () => events.readStream(StreamId.HOST).filter((r) => r.type.value === "made.grant_revoked").map((r) => r.payload.toValue() as { session: string; reason: string });
   return { clock, made, events, record, facts, confirmations, call, revoke, grant, revocations, lines };
@@ -60,7 +59,7 @@ test("al cerrar una sesión se revocan sus grants (y sólo los suyos) y se regis
   assert.match(h.lines.join("\n"), /made grants revoked \{"count":2,"session":"a"\}/);
 });
 
-test("al cerrar la sesión la caché se olvida: si se reabre, pide un grant nuevo", async () => {
+test("una sesión cerrada y reabierta: la siguiente denegación emite un grant nuevo", async () => {
   const h = host();
   h.record.execute(opened("a", h.clock.ms));
   await h.grant("a", "made_list_contracts");
@@ -126,7 +125,7 @@ test("una sesión reabierta tras un cierre sin revocar: sus grants de antes del 
   // Al arrancar, el grant de antes del cierre se revoca aunque la sesión se reabriera; el nuevo sigue vivo.
   assert.deepEqual(await h.revoke.execute(), { orphans: 1, revoked: 1 });
   assert.deepEqual(h.revocations().map((r) => [r.session, r.reason]), [["a", "session_closed"]]);
-  // Al volver a cerrarla se revoca todo lo que quedaba vivo de la sesión, esté o no en la caché.
+  // Al volver a cerrarla se revoca todo lo que quedaba vivo de la sesión, .
   h.clock.ms += 1; h.record.execute(closed("a", h.clock.ms));
   assert.deepEqual(await h.revoke.execute(SessionId.of("a")), { orphans: 1, revoked: 1 });
   assert.equal(h.made.revoked.size, 2);
@@ -149,11 +148,11 @@ test("nunca lanza: un log ilegible o un registro que falla sólo se avisan", asy
   await h.grant("a", "made_list_contracts");
   h.record.execute(closed("a", h.clock.ms));
   const broken = { ...h.events, readAll: () => { throw new TypeError("disk"); }, readStream: () => { throw new TypeError("disk"); } } as unknown as InMemoryEventStore;
-  const unreadable = new RevokeMadeGrants(broken, new MadeOwner(async () => h.made), h.record, h.facts, h.clock, null, { info: () => {}, warn: (m, f) => { h.lines.push(`${m} ${JSON.stringify(f)}`); }, error: () => {} });
+  const unreadable = new RevokeMadeGrants(broken, new MadeOwner(async () => h.made), h.record, h.facts, h.clock, { info: () => {}, warn: (m, f) => { h.lines.push(`${m} ${JSON.stringify(f)}`); }, error: () => {} });
   assert.deepEqual(await unreadable.execute(), { orphans: 0, revoked: 0 });
   assert.match(h.lines.join("\n"), /made grants not read \{"reason":"TypeError"\}/);
   const failing = { execute: () => { throw new RangeError("closed"); } } as unknown as RecordFact;
-  const unrecorded = new RevokeMadeGrants(h.events, new MadeOwner(async () => h.made), failing, h.facts, h.clock, null, { info: () => {}, warn: (m, f) => { h.lines.push(`${m} ${JSON.stringify(f)}`); }, error: () => {} });
+  const unrecorded = new RevokeMadeGrants(h.events, new MadeOwner(async () => h.made), failing, h.facts, h.clock, { info: () => {}, warn: (m, f) => { h.lines.push(`${m} ${JSON.stringify(f)}`); }, error: () => {} });
   assert.deepEqual(await unrecorded.execute(SessionId.of("a")), { orphans: 1, revoked: 0 });
   assert.match(h.lines.join("\n"), /made revocation not recorded .*"reason":"RangeError"/);
   // Sin log tampoco lanza.
@@ -171,8 +170,7 @@ test("dos RevokeMadeGrants independientes (como el CLI y el host) revocando el m
   const clock = new ManualClock(Date.parse("2026-09-30T10:00:00.000Z")); const made = new FakeMade(() => clock.ms);
   const events = new InMemoryEventStore(); const record = new RecordFact(events, clock);
   const connection = async () => made; const facts = new MadeFactFactory(clock, Actor.of("human", "underpass-cli"));
-  const issued = new IssuedGrants();
-  const call = new CallMadeTool({ connection, owner: new MadeOwner(connection), policy: MadeActionPolicy.standard(), confirmations: new PendingConfirmations({ bytes: (k) => new Uint8Array(k).fill(1) }, clock), grants: issued, record, facts: new MadeFactFactory(clock, Actor.of("host", "host:1")), clock, log: null });
+  const call = new CallMadeTool({ connection, owner: new MadeOwner(connection), policy: MadeActionPolicy.standard(), confirmations: new PendingConfirmations({ bytes: (k) => new Uint8Array(k).fill(1) }, clock), record, facts: new MadeFactFactory(clock, Actor.of("host", "host:1")), clock, log: null });
   record.execute(opened("a", clock.ms));
   await call.execute(ToolName.of("made_list_contracts"), {}, MadeCallContext.of(SessionId.of("a"), Phase.DESIGN));
   record.execute(closed("a", clock.ms));

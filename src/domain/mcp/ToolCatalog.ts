@@ -18,6 +18,8 @@ export class ToolCatalog {
   fingerprint(): CatalogFingerprint {
     return CatalogFingerprint.digest(JSON.stringify(this.#tools.map((t) => [t.name.value, t.schema.canonical()])));
   }
+  // El mismo catálogo con sólo las tools que `keep` acepta (su huella es la del subconjunto).
+  filter(keep: (name: ToolName) => boolean): ToolCatalog { return new ToolCatalog(this.server, this.identity, this.#tools.filter((t) => keep(t.name))); }
   has(name: ToolName): boolean { return this.#tools.some((t) => t.name.equals(name)); }
   names(): ToolName[] { return this.#tools.map((t) => t.name); }
   tools(): ToolDescriptor[] { return [...this.#tools]; }

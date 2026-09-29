@@ -5,7 +5,6 @@ import { FsTelemetryKeyRepository } from "../adapters/outbound/fs/FsTelemetryKey
 import { FsOrphanSpoolSource } from "../adapters/outbound/fs/FsOrphanSpoolSource.ts";
 import { FsMadeConfigurationRepository } from "../adapters/outbound/fs/FsMadeConfigurationRepository.ts";
 import { NodeEntropySource } from "../adapters/outbound/crypto/NodeEntropySource.ts";
-import { IssuedGrants } from "../application/services/IssuedGrants.ts";
 import { MadeFactFactory } from "../application/services/MadeFactFactory.ts";
 import { MadeOwner } from "../application/services/MadeOwner.ts";
 import { PendingConfirmations } from "../application/services/PendingConfirmations.ts";
@@ -124,12 +123,11 @@ export class HostComposition {
     const madeConnection = () => pool.connection(ServerName.MADE);
     const madeFacts = new MadeFactFactory(clock, Actor.of("host", hostActor));
     const confirmations = new PendingConfirmations(new NodeEntropySource(), clock);
-    // Una sola caché de grants: la que CallMadeTool llena es la que la revocación olvida al cerrar.
-    const owner = new MadeOwner(madeConnection); const issued = new IssuedGrants();
+    const owner = new MadeOwner(madeConnection);
     const made = {
-      call: new CallMadeTool({ connection: madeConnection, owner, policy: MadeActionPolicy.standard(), confirmations, grants: issued, record, facts: madeFacts, clock, log }),
+      call: new CallMadeTool({ connection: madeConnection, owner, policy: MadeActionPolicy.standard(), confirmations, record, facts: madeFacts, clock, log }),
       decline: new DeclineMadeConfirmation(confirmations, record, madeFacts),
-      revoke: new RevokeMadeGrants(events, owner, record, madeFacts, clock, issued, log),
+      revoke: new RevokeMadeGrants(events, owner, record, madeFacts, clock, log),
     };
     const serve = new ServeHostRequest(project, pool, record, status, select, catalogs, made);
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));

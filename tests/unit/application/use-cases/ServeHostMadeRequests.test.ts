@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryEventStore } from "../../../../src/adapters/outbound/memory/InMemoryEventStore.ts";
 import { StdioMcpConnector } from "../../../../src/adapters/outbound/mcp/StdioMcpConnector.ts";
-import { IssuedGrants } from "../../../../src/application/services/IssuedGrants.ts";
 import { MadeFactFactory } from "../../../../src/application/services/MadeFactFactory.ts";
 import { MadeOwner } from "../../../../src/application/services/MadeOwner.ts";
 import { PendingConfirmations } from "../../../../src/application/services/PendingConfirmations.ts";
@@ -14,6 +13,10 @@ import { ServeHostRequest } from "../../../../src/application/use-cases/ServeHos
 import { Actor } from "../../../../src/domain/events/Actor.ts";
 import { SessionId } from "../../../../src/domain/events/SessionId.ts";
 import { StreamId } from "../../../../src/domain/events/StreamId.ts";
+import { ToolName } from "../../../../src/domain/mcp/ToolName.ts";
+import { ServerName } from "../../../../src/domain/mcp/ServerName.ts";
+import { KnownCatalogs } from "../../../../src/application/services/KnownCatalogs.ts";
+import type { CatalogDto } from "../../../../src/application/dto/CatalogDto.ts";
 import { MadeActionPolicy } from "../../../../src/domain/made/MadeActionPolicy.ts";
 import { Project } from "../../../../src/domain/project/Project.ts";
 import { ProjectRoot } from "../../../../src/domain/project/ProjectRoot.ts";
@@ -33,7 +36,7 @@ function host() {
   const connection = async () => made; const facts = new MadeFactFactory(clock, Actor.of("host", "host:1"));
   let n = 0; const confirmations = new PendingConfirmations({ bytes: (k) => new Uint8Array(k).fill(++n) }, clock);
   const deps = {
-    call: new CallMadeTool({ connection, owner: new MadeOwner(connection), policy: MadeActionPolicy.standard(), confirmations, grants: new IssuedGrants(), record, facts, clock, log: null }),
+    call: new CallMadeTool({ connection, owner: new MadeOwner(connection), policy: MadeActionPolicy.standard(), confirmations, record, facts, clock, log: null }),
     decline: new DeclineMadeConfirmation(confirmations, record, facts),
   };
   const pool = new ServerPool(project, new StdioMcpConnector(2000), new Map([["kmp", { commandFor: () => ({ command: process.execPath, args: [kmp], cwd: process.cwd(), env: { ...process.env, FAKE_FLAVOR: "kmp" } }) }]]));
@@ -67,10 +70,8 @@ test("needs_confirmation lleva token, acción y alcance; el token confirma una v
     assert.match(c.token, /^[0-9a-f]{32}$/);
     assert.ok((await call(2, c.token)).ok);
 
-    const again = await call(3);
-    assert.ok(again.ok, "el grant de 5 min sigue vivo");
-    h.made.grants.clear();
     const second = await call(4);
+    assert.ok(!second.ok && second.error.code === "needs_confirmation", "el grant de 5 min se consumió con la llamada confirmada");
     const token = !second.ok ? second.error.confirmation!.token : "";
     assert.deepEqual(await h.uc.execute({ id: 5, method: "confirmation", sessionId: "s1", token, outcome: "declined" }), { id: 5, ok: true, result: { recorded: true } });
     assert.deepEqual(await h.uc.execute({ id: 6, method: "confirmation", sessionId: "s1", token, outcome: "declined" }), { id: 6, ok: true, result: { recorded: false } });
@@ -103,4 +104,24 @@ test("el contexto sólo se valida en llamadas a MADE: una fase desconocida o un 
     const bad = await h.uc.execute({ id: 4, method: "call", server: "made", tool: "made_list_contracts", args: {}, sessionId: "s1", phase: "cooking" });
     assert.ok(!bad.ok && bad.error.kind === "invalid");
   } finally { await h.pool.close(); }
+});
+
+test("el catálogo de MADE que se sirve a Pi no lleva las tools never; el de KMP no se toca", async () => {
+  const h = host();
+  const fake = (flavor: string, extra: string) => ({ commandFor: () => ({ command: process.execPath, args: [kmp], cwd: process.cwd(), env: { ...process.env, FAKE_FLAVOR: flavor, FAKE_EXTRA_TOOLS: extra } }) });
+  const pool = new ServerPool(project, new StdioMcpConnector(2000), new Map([["made", fake("made", "get_authorization_policy,issue_authorization_grant,list_authorization_decisions,design_ceremony")],
+    ["kmp", fake("kmp", "get_authorization_policy")]]));
+  const deps = { call: new CallMadeTool({ connection: pool.connection.bind(pool, ServerName.MADE), owner: new MadeOwner(async () => h.made), policy: MadeActionPolicy.standard(),
+    confirmations: new PendingConfirmations({ bytes: (k) => new Uint8Array(k) }, new ManualClock(0)), record: new RecordFact(h.events, new ManualClock(0)),
+    facts: new MadeFactFactory(new ManualClock(0), Actor.of("host", "host:1")), clock: new ManualClock(0), log: null }), decline: {} as never };
+  const catalogs = new KnownCatalogs();
+  const uc = new ServeHostRequest(project, pool, null, null, null, catalogs, deps);
+  try {
+    const made = await uc.execute({ id: 1, method: "catalog", server: "made" });
+    assert.ok(made.ok);
+    assert.deepEqual((made.result as CatalogDto).tools.map((x) => x.name), ["made_design_ceremony", "made_die", "made_echo", "made_fail", "made_slow"]);
+    assert.deepEqual(catalogs.available([ToolName.of("made_design_ceremony"), ToolName.of("made_get_authorization_policy")]).map(String), ["made_design_ceremony"], "L1 tampoco las ve");
+    const kmpCatalog = await uc.execute({ id: 2, method: "catalog", server: "kmp" });
+    assert.ok(kmpCatalog.ok && (kmpCatalog.result as CatalogDto).tools.some((x) => x.name === "kmp_get_authorization_policy"));
+  } finally { await pool.close(); await h.pool.close(); }
 });

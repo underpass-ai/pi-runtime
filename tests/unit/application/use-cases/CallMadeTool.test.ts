@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryEventStore } from "../../../../src/adapters/outbound/memory/InMemoryEventStore.ts";
 import type { HostLog } from "../../../../src/application/ports/HostLog.ts";
-import { IssuedGrants } from "../../../../src/application/services/IssuedGrants.ts";
 import { MadeFactFactory } from "../../../../src/application/services/MadeFactFactory.ts";
 import { MadeGrantLedger } from "../../../../src/application/services/MadeGrantLedger.ts";
 import { MadeOwner } from "../../../../src/application/services/MadeOwner.ts";
@@ -43,7 +42,7 @@ function host(opts: { open?: boolean } = {}) {
   const log: HostLog = { info: () => {}, warn: (m, f) => { warnings.push(`${m} ${JSON.stringify(f)}`); }, error: () => {} };
   const connection = async () => made;
   const confirmations = new PendingConfirmations(entropy, clock);
-  const uc = new CallMadeTool({ connection, owner: new MadeOwner(connection), policy: MadeActionPolicy.standard(), confirmations, grants: new IssuedGrants(),
+  const uc = new CallMadeTool({ connection, owner: new MadeOwner(connection), policy: MadeActionPolicy.standard(), confirmations,
     record, facts: new MadeFactFactory(clock, Actor.of("host", "host:1")), clock, log });
   return { clock, made, events, uc, warnings, confirmations };
 }
@@ -66,35 +65,98 @@ test("auto: una lectura denegada se concede sola con un grant exacto de 12 h y u
   assert.deepEqual(h.made.calls, ["made_validate_ceremony_draft"]);
 });
 
-test("caché: si MADE deniega con un grant del host vigente en caché, no se emite otro y se reintenta una vez", async () => {
+test("auto: si MADE deniega aunque el host ya emitió un grant (revocado por fuera), se emite otro y se reintenta una vez", async () => {
   const h = host();
   await h.uc.execute(t("made_list_contracts"), {}, design());
   h.made.revoked.add([...h.made.grants.keys()][0]); // alguien lo revocó por fuera
-  h.made.calls.length = 0;
+  h.made.calls.length = 0; h.clock.ms += 1_000;
   const out = await h.uc.execute(t("made_list_contracts"), {}, design());
-  assert.ok(out instanceof ToolRefusal && MadeDecisionId.fromDenial(out.message) !== null, "la segunda denegación vuelve tal cual");
-  assert.deepEqual(h.made.calls, ["made_list_contracts", "made_list_authorization_decisions", "made_list_contracts"]);
-  assert.equal(h.made.grants.size, 1);
-
-  h.clock.ms += 1_000; // la entrada que MADE ya no honra salió de la caché: la siguiente llamada emite otro
-  assert.ok(await h.uc.execute(t("made_list_contracts"), {}, design()) instanceof ToolSuccess);
+  assert.ok(out instanceof ToolSuccess, "sin denegación espuria: el grant viejo no se reutiliza");
+  assert.deepEqual(h.made.calls, ["made_list_contracts", "made_list_authorization_decisions", "made_issue_authorization_grant", "made_list_contracts"]);
   assert.equal(h.made.grants.size, 2);
   assert.equal(madeTypes(h.events).filter((x) => x === "made.grant_issued").length, 2);
 });
 
-test("caché en confirm: si el grant de 5 min en caché ya no vale, el token emite otro y llama una vez más", async () => {
+test("confirm: el grant de 5 min cubre sólo la llamada confirmada; se revoca al volver (consumed) y la siguiente vuelve a preguntar", async () => {
   const h = host();
   const args = { definition_yaml: YAML };
   const first = await h.uc.execute(t("made_publish_ceremony_definition"), args, design()) as PendingConfirmation;
-  assert.ok(await h.uc.execute(t("made_publish_ceremony_definition"), args, design(first.token)) instanceof ToolSuccess);
-  h.made.revoked.add([...h.made.grants.keys()][0]);
-  h.clock.ms += 1_000;
-  const second = await h.uc.execute(t("made_publish_ceremony_definition"), args, design());
-  assert.ok(second instanceof PendingConfirmation);
   h.made.calls.length = 0;
-  assert.ok(await h.uc.execute(t("made_publish_ceremony_definition"), args, design(second.token)) instanceof ToolSuccess, "la aceptación no se pierde en la caché");
-  assert.deepEqual(h.made.calls, ["made_publish_ceremony_definition", "made_issue_authorization_grant", "made_publish_ceremony_definition"]);
-  assert.equal(h.made.grants.size, 2);
+  assert.ok(await h.uc.execute(t("made_publish_ceremony_definition"), args, design(first.token)) instanceof ToolSuccess);
+  assert.deepEqual(h.made.calls, ["made_get_authorization_policy", "made_issue_authorization_grant", "made_publish_ceremony_definition", "made_revoke_authorization_grant"]);
+  const [id] = [...h.made.grants.keys()];
+  assert.deepEqual([...h.made.revoked], [id]);
+  assert.equal(h.made.live("publish_ceremony_definition", { kind: "definition", name: "pr_review_two_reviewers", version: "1.0" }).length, 0, "ningún grant confirm queda vivo");
+  const revoked = h.events.readStream(StreamId.HOST).filter((r) => r.type.value === "made.grant_revoked").map((r) => r.payload.toValue());
+  assert.deepEqual(revoked, [{ grantId: id, session: "s1", reason: "consumed" }]);
+  assert.deepEqual(MadeGrantLedger.read(h.events).live(S1, h.clock.now()), []);
+  h.clock.ms += 1_000;
+  assert.ok(await h.uc.execute(t("made_publish_ceremony_definition"), args, design()) instanceof PendingConfirmation, "otra llamada igual pide otra confirmación");
+});
+
+test("confirm: el grant se revoca también si la llamada confirmada falla o lanza; si la revocación falla, se avisa", async () => {
+  const h = host();
+  const args = { definition_yaml: YAML };
+  const asked = await h.uc.execute(t("made_publish_ceremony_definition"), args, design()) as PendingConfirmation;
+  h.made.refuseBusiness = true;
+  const out = await h.uc.execute(t("made_publish_ceremony_definition"), args, design(asked.token));
+  assert.ok(out instanceof ToolRefusal && out.code.value === "invalid_argument");
+  assert.equal(h.made.revoked.size, 1);
+  h.made.refuseBusiness = false; h.clock.ms += 1_000;
+  const again = await h.uc.execute(t("made_publish_ceremony_definition"), args, design()) as PendingConfirmation;
+  const call = h.made.call.bind(h.made);
+  h.made.call = async (tool, a) => { if (tool.value === "made_publish_ceremony_definition") throw new Error("pipe closed"); return call(tool, a); };
+  await assert.rejects(h.uc.execute(t("made_publish_ceremony_definition"), args, design(again.token)), /pipe closed/);
+  assert.equal(h.made.revoked.size, 2);
+  h.made.call = call; h.clock.ms += 1_000;
+  const third = await h.uc.execute(t("made_publish_ceremony_definition"), args, design()) as PendingConfirmation;
+  h.made.failRevoke = true;
+  assert.ok(await h.uc.execute(t("made_publish_ceremony_definition"), args, design(third.token)) instanceof ToolSuccess);
+  assert.match(h.warnings.at(-1)!, /^made grant not revoked \{"action":"publish_ceremony_definition","reason":"unavailable","grant":"pi-runtime-/);
+  assert.equal(h.events.readStream(StreamId.HOST).filter((r) => r.type.value === "made.grant_revoked").length, 2, "sin revocación no hay hecho");
+});
+
+test("never: la administración de la autorización nunca llega a MADE por el IPC, con o sin contexto", async () => {
+  const h = host();
+  for (const n of ["made_get_authorization_policy", "made_list_authorization_decisions", "made_issue_authorization_grant", "made_revoke_authorization_grant", "made_approve_authorization_operation"]) {
+    for (const ctx of [null, design()]) {
+      const out = await h.uc.execute(t(n), { grant_id: "x" }, ctx);
+      assert.ok(out instanceof ToolRefusal && out.code.value === "refused" && out.message === `${n} is reserved to the pi-runtime host and never runs for a session`, n);
+      assert.equal(MadeDecisionId.fromDenial(out as ToolRefusal), null);
+    }
+  }
+  assert.deepEqual(h.made.calls, []);
+});
+
+test("alcance global: sólo design_ceremony, list_contracts y diff_ceremony_definitions; otra acción global se queda en la denegación", async () => {
+  const h = host();
+  const denied = (o: unknown) => o instanceof ToolRefusal && MadeDecisionId.fromDenial(o) !== null;
+  assert.ok(denied(await h.uc.execute(t("made_validate_ceremony_draft"), {}, design())), "auto con alcance global: no");
+  assert.ok(denied(await h.uc.execute(t("made_publish_ceremony_definition"), {}, design())), "confirm con alcance global: ni se pregunta");
+  assert.equal(h.made.grants.size, 0);
+  assert.ok(await h.uc.execute(t("made_design_ceremony"), {}, design()) instanceof ToolSuccess);
+  assert.ok(await h.uc.execute(t("made_diff_ceremony_definitions"), {}, design()) instanceof ToolSuccess);
+  assert.deepEqual([...h.made.grants.values()].map((g) => [g.actions[0], g.scope.kind]), [["design_ceremony", "global"], ["diff_ceremony_definitions", "global"]]);
+});
+
+test("una negativa con el texto de una denegación pero otro código pasa tal cual, sin leer decisiones", async () => {
+  const h = host();
+  const text = `authorization decision ${"a".repeat(64)} denied the operation`;
+  h.made.call = async (tool) => { h.made.calls.push(tool.value); return ToolRefusal.of(RefusalCode.of("invalid_request"), text, false); };
+  const out = await h.uc.execute(t("made_list_contracts"), {}, design());
+  assert.ok(out instanceof ToolRefusal && out.code.value === "invalid_request" && out.message === text);
+  assert.deepEqual(h.made.calls, ["made_list_contracts"]);
+});
+
+test("confirm: al redimir el token se vuelve a mirar la fase; si ya no expone la tool, la denegación original", async () => {
+  const h = host();
+  const args = { definition_yaml: YAML };
+  const asked = await h.uc.execute(t("made_publish_ceremony_definition"), args, design()) as PendingConfirmation;
+  h.made.calls.length = 0;
+  const out = await h.uc.execute(t("made_publish_ceremony_definition"), args, MadeCallContext.of(S1, Phase.INTERACTIVE, asked.token));
+  assert.ok(out instanceof ToolRefusal && MadeDecisionId.fromDenial(out) !== null);
+  assert.deepEqual(h.made.calls, ["made_publish_ceremony_definition"]);
+  assert.equal(h.made.grants.size, 0);
 });
 
 test("una negativa de MADE que no es de autorización pasa tal cual, sin leer decisiones", async () => {
@@ -107,7 +169,7 @@ test("una negativa de MADE que no es de autorización pasa tal cual, sin leer de
 
 test("una decisión que no es deny o una página con otra decisión: la denegación original", async () => {
   const h = host();
-  const denied = (o: unknown) => o instanceof ToolRefusal && MadeDecisionId.fromDenial(o.message) !== null;
+  const denied = (o: unknown) => o instanceof ToolRefusal && MadeDecisionId.fromDenial(o) !== null;
   h.made.decisionOutcome = "allow";
   assert.ok(denied(await h.uc.execute(t("made_list_contracts"), {}, design())), "outcome distinto de deny");
   h.made.decisionOutcome = "deny"; h.made.foreignDecisions = true;
@@ -117,7 +179,7 @@ test("una decisión que no es deny o una página con otra decisión: la denegaci
 
 test("una decisión con una acción más estricta que la tool no se concede", async () => {
   const h = host();
-  const denied = (o: unknown) => o instanceof ToolRefusal && MadeDecisionId.fromDenial(o.message) !== null;
+  const denied = (o: unknown) => o instanceof ToolRefusal && MadeDecisionId.fromDenial(o) !== null;
   h.made.decisionAction = "publish_ceremony_definition";
   assert.ok(denied(await h.uc.execute(t("made_list_contracts"), {}, design())), "tool auto, acción confirm");
   h.made.decisionAction = "issue_authorization_grant";
@@ -131,7 +193,7 @@ test("si el grant no se registra y tampoco se puede revocar, se avisa de que sig
   const h = host({ open: false });
   h.made.failRevoke = true;
   const out = await h.uc.execute(t("made_list_contracts"), {}, design());
-  assert.ok(out instanceof ToolRefusal && MadeDecisionId.fromDenial(out.message) !== null);
+  assert.ok(out instanceof ToolRefusal && MadeDecisionId.fromDenial(out) !== null);
   const [id] = [...h.made.grants.keys()];
   assert.equal(h.made.revoked.size, 0);
   assert.deepEqual(h.warnings, [`made grant not revoked {"action":"list_contracts","reason":"unavailable","grant":"${id}"}`]);
@@ -155,7 +217,7 @@ test("dos llamadas denegadas a la vez comparten una sola emisión", async () => 
 
 test("sin contexto, fuera de fase, never, otra negativa o decisión ilegible: la denegación original", async () => {
   const h = host();
-  const denied = (o: unknown) => o instanceof ToolRefusal && MadeDecisionId.fromDenial(o.message) !== null;
+  const denied = (o: unknown) => o instanceof ToolRefusal && MadeDecisionId.fromDenial(o) !== null;
   assert.ok(denied(await h.uc.execute(t("made_list_contracts"), {}, null)), "extensión anterior: sin sesión ni fase");
   assert.ok(denied(await h.uc.execute(t("made_list_contracts"), {}, MadeCallContext.of(S1, Phase.INTERACTIVE))), "la fase no la expone");
   assert.ok(denied(await h.uc.execute(t("made_list_contracts"), {}, MadeCallContext.of(S1, null))), "fase desconocida");
@@ -198,7 +260,7 @@ test("confirm: sin token pide confirmación; con el token emite un grant de 5 mi
   h.made.calls.length = 0;
   const done = await h.uc.execute(t("made_publish_ceremony_definition"), args, design(asked.token));
   assert.ok(done instanceof ToolSuccess);
-  assert.deepEqual(h.made.calls, ["made_get_authorization_policy", "made_issue_authorization_grant", "made_publish_ceremony_definition"]);
+  assert.deepEqual(h.made.calls, ["made_get_authorization_policy", "made_issue_authorization_grant", "made_publish_ceremony_definition", "made_revoke_authorization_grant"]);
   const [grant] = [...h.made.grants.values()];
   assert.equal(Date.parse(grant.valid_until!) - Date.parse(grant.valid_from), 300_000);
   assert.deepEqual(madeTypes(h.events), ["made.confirmation", "made.grant_issued"]);
@@ -207,8 +269,8 @@ test("confirm: sin token pide confirmación; con el token emite un grant de 5 mi
   assert.ok(!confirmation.payload.text.includes("version: "), "nunca el YAML");
 
   const again = await h.uc.execute(t("made_publish_ceremony_definition"), args, design(asked.token));
-  assert.ok(again instanceof ToolSuccess, "el grant de 5 min sigue vivo");
-  assert.equal(madeTypes(h.events).filter((x) => x === "made.confirmation").length, 1, "el token ya no vale: no hay otra aceptación");
+  assert.ok(again instanceof PendingConfirmation, "el grant se consumió y el token ya no vale: se vuelve a preguntar");
+  assert.equal(madeTypes(h.events).filter((x) => x === "made.confirmation").length, 1, "no hay otra aceptación");
 });
 
 test("confirm: un token de otra llamada o caducado no concede nada y vuelve a pedir confirmación", async () => {

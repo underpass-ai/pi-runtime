@@ -84,6 +84,8 @@ export class ServeHostRequest {
         let catalog: ToolCatalog;
         try { catalog = await new ReadServerCatalog(this.#pool).execute(server); }
         catch (e) { this.#catalogs?.unavailable(server); throw e; }
+        // S3a: las tools never de MADE nunca llegan a Pi (ni a las candidatas de L1).
+        if (this.#authorizes(server)) catalog = this.#made!.call.exposed(catalog);
         this.#catalogs?.remember(catalog);
         return this.#responses.success(req.id, new CatalogMapper().toDto(catalog));
       }

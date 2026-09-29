@@ -5,6 +5,11 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { MADE_BIN } from "./support.ts";
+import { StdioMcpConnector } from "../../src/adapters/outbound/mcp/StdioMcpConnector.ts";
+import { MadeServerCommandFactory } from "../../src/adapters/outbound/process/MadeServerCommandFactory.ts";
+import { Project } from "../../src/domain/project/Project.ts";
+import { ProjectRoot } from "../../src/domain/project/ProjectRoot.ts";
+import { ToolSuccess } from "../../src/domain/mcp/ToolSuccess.ts";
 import { NodeEntropySource } from "../../src/adapters/outbound/crypto/NodeEntropySource.ts";
 import { FsMadeConfigurationRepository } from "../../src/adapters/outbound/fs/FsMadeConfigurationRepository.ts";
 import { GitProjectLocator } from "../../src/adapters/outbound/git/GitProjectLocator.ts";
@@ -45,9 +50,19 @@ function install() {
   const store = paths.madeStore();
   mkdirSync(dirname(store.value), { recursive: true, mode: 0o700 });
   const { configuration } = new EnsureMadeConfiguration(new FsMadeConfigurationRepository(paths.madeConfigRoot()), new NodeEntropySource()).execute(store);
-  execFileSync(MADE_BIN!, ["bootstrap-authorization", store.value, "--policy-id", configuration.policy.value, "--trusted-host-id", configuration.trustedHost.value]);
+  execFileSync(MADE_BIN!, ["bootstrap-authorization", store.value, "--policy-id", configuration.policy.value, "--trusted-host-id", configuration.trustedHost.value], { env });
   const project = new GitProjectLocator().locate(cwd);
-  return { home, cwd, env, socket: paths.socketOf(project), log: paths.eventLogOf(project), cleanup: () => { rmSync(home, { recursive: true, force: true }); rmSync(cwd, { recursive: true, force: true }); } };
+  // La política se lee directamente como dueño, con otro made-mcp sobre el mismo store: por el
+  // host, las tools never ya no llegan a MADE.
+  const policy = async () => {
+    const conn = await new StdioMcpConnector(60_000).open(ServerName.MADE, new MadeServerCommandFactory(MADE_BIN!, store, configuration, env).commandFor(Project.of(ProjectRoot.of(cwd))));
+    try {
+      const out = await conn.call(t("made_get_authorization_policy"), {});
+      assert.ok(out instanceof ToolSuccess, "el dueño lee la política");
+      return (out.structured as { policy: { grants: { grant_id: string; actions: string[] }[]; revocations: string[] } }).policy;
+    } finally { await conn.close(); }
+  };
+  return { home, cwd, env, policy, socket: paths.socketOf(project), log: paths.eventLogOf(project), cleanup: () => { rmSync(home, { recursive: true, force: true }); rmSync(cwd, { recursive: true, force: true }); } };
 }
 
 async function start(i: ReturnType<typeof install>): Promise<{ child: ChildProcess; gw: UnixSocketHostGateway }> {
@@ -69,8 +84,6 @@ const madeFacts = (log: string) => {
     return events.streams().flatMap((s) => events.readStream(s)).filter((r) => r.type.value.startsWith("made.")).map((r) => ({ type: r.type.value, stream: r.stream.value, payload: r.payload.toValue() as Record<string, unknown> }));
   } finally { db.close(); }
 };
-const policy = async (gw: UnixSocketHostGateway, ctx: CallContextDto) =>
-  (await gw.call(ServerName.MADE, t("made_get_authorization_policy"), {}, ctx)).structured as { policy: { grants: { grant_id: string; actions: string[] }[]; revocations: string[] } };
 
 test("made-mcp 0.8.0 por el host real: lecturas automáticas, publicar con confirmación, rechazo, revocación al cerrar", { skip, timeout: 120_000 }, async () => {
   const i = install();
@@ -81,6 +94,16 @@ test("made-mcp 0.8.0 por el host real: lecturas automáticas, publicar con confi
 
     // Sin contexto (una extensión anterior) nada cambia: la denegación original de MADE.
     await assert.rejects(h.gw.call(ServerName.MADE, t("made_list_contracts"), {}), (e) => HostCallError.is(e) && e.code === "refused" && /denied the operation/.test(e.message));
+
+    // Las tools never nunca llegan a MADE por el host, con o sin contexto, y Pi no las ve en el catálogo.
+    for (const c of [undefined, ctx]) {
+      await assert.rejects(h.gw.call(ServerName.MADE, t("made_get_authorization_policy"), {}, c), (e) => HostCallError.is(e) && e.code === "refused" && /reserved to the pi-runtime host/.test(e.message));
+    }
+    const names = (await h.gw.catalog(ServerName.MADE)).names().map(String);
+    assert.ok(names.includes("made_publish_ceremony_definition"));
+    for (const never of ["made_get_authorization_policy", "made_list_authorization_decisions", "made_issue_authorization_grant", "made_revoke_authorization_grant", "made_approve_authorization_operation"]) {
+      assert.ok(!names.includes(never), never);
+    }
 
     // Diseñar, validar y explicar: auto, sin fricción.
     const designed = (await h.gw.call(ServerName.MADE, t("made_design_ceremony"), DESIGN, ctx)).structured as { definition_yaml: string; publishable: boolean };
@@ -117,16 +140,21 @@ test("made-mcp 0.8.0 por el host real: lecturas automáticas, publicar con confi
     assert.deepEqual(facts.filter((f) => f.type === "made.confirmation").map((f) => [f.payload.scopeSummary, f.payload.outcome]),
       [["definition s3a_contract v1.0", "accepted"], ["definition s3a_declined v1.0", "declined"]]);
     assert.ok(!JSON.stringify(facts).includes("Review it."), "ningún hecho lleva el YAML ni las instrucciones");
-    const live = (await policy(h.gw, ctx)).policy;
+    // El grant de 5 min de la publicación se revocó en cuanto volvió la llamada (consumed): ningún
+    // grant confirm queda vivo para otras llamadas, sesiones u otros clientes del mismo store.
+    const consumed = facts.filter((f) => f.type === "made.grant_revoked");
+    const confirmGrant = facts.find((f) => f.type === "made.grant_issued" && f.payload.class === "confirm")!.payload.grantId;
+    assert.deepEqual(consumed.map((f) => [f.stream, f.payload.grantId, f.payload.reason]), [["host", confirmGrant, "consumed"]]);
+    const live = await i.policy();
     assert.equal(live.grants.length, 5);
-    assert.deepEqual(live.revocations, []);
+    assert.deepEqual(live.revocations, [confirmGrant]);
 
-    // Cierre de la sesión: el host revoca sus grants y lo registra.
+    // Cierre de la sesión: el host revoca los que quedan vivos y lo registra.
     await record(h.gw, "s1", "session.closed", "c");
     await waitFor(() => madeFacts(i.log).filter((f) => f.type === "made.grant_revoked").length === 5);
-    assert.deepEqual(new Set(madeFacts(i.log).filter((f) => f.type === "made.grant_revoked").map((f) => `${f.stream} ${f.payload.session} ${f.payload.reason}`)), new Set(["host s1 session_closed"]));
-    await record(h.gw, "s2", "session.opened", "o");
-    assert.deepEqual((await policy(h.gw, { sessionId: "s2", phase: "design" })).policy.revocations.sort(), live.grants.map((g) => g.grant_id).sort());
+    assert.deepEqual(madeFacts(i.log).filter((f) => f.type === "made.grant_revoked").map((f) => `${f.stream} ${f.payload.session} ${f.payload.reason}`).sort(),
+      ["host s1 consumed", "host s1 session_closed", "host s1 session_closed", "host s1 session_closed", "host s1 session_closed"]);
+    assert.deepEqual((await i.policy()).revocations.sort(), live.grants.map((g) => g.grant_id).sort());
   } finally { await stop(h); i.cleanup(); }
 });
 
@@ -146,7 +174,6 @@ test("made-mcp 0.8.0: al arrancar, el host revoca los grants que dejó vivos otr
     await waitFor(() => madeFacts(i.log).some((f) => f.type === "made.grant_revoked"));
     const revoked = madeFacts(i.log).filter((f) => f.type === "made.grant_revoked");
     assert.deepEqual(revoked.map((f) => f.payload.reason), ["session_closed"]);
-    await record(h.gw, "s2", "session.opened", "o");
-    assert.deepEqual((await policy(h.gw, { sessionId: "s2", phase: "design" })).policy.revocations, [revoked[0].payload.grantId]);
+    assert.deepEqual((await i.policy()).revocations, [revoked[0].payload.grantId]);
   } finally { await stop(h); i.cleanup(); }
 });

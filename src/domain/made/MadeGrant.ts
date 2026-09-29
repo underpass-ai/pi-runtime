@@ -31,7 +31,6 @@ export class MadeGrant {
       actionClass: MadeActionClass.of(p.class as string), validFrom, validUntil: Timestamp.parse(p.validUntil as string) });
   }
 
-  covers(action: MadeAction, scope: MadeScope, now: Timestamp): boolean { return this.action.equals(action) && this.scope.equals(scope) && !this.expired(now); }
   expired(now: Timestamp): boolean { return now.epochMs() >= this.validUntil.epochMs(); }
 
   // Argumentos de made_issue_authorization_grant (el dueño no pasa padre).

@@ -6,7 +6,7 @@ import type { ListMadeGrants } from "../../../../../src/application/use-cases/Li
 import type { RevokeMadeGrants } from "../../../../../src/application/use-cases/RevokeMadeGrants.ts";
 import { DiagnosisReport } from "../../../../../src/domain/diagnosis/DiagnosisReport.ts";
 
-const ROW = { grantId: `pi-runtime-${"a".repeat(32)}`, session: "s1", action: "validate_ceremony_draft", scope: "definition d v1.0", class: "auto", validUntil: "2026-09-30T22:00:00.000Z", state: "active" };
+const ROW = { grantId: `pi-runtime-${"a".repeat(32)}`, session: "s1", action: "validate_ceremony_draft", scope: "definition d v1.0", class: "auto", validUntil: "2026-09-30T22:00:00.000Z", state: "active", reason: null };
 const cli = (rows: unknown[] | Error, revoke: { orphans: number; revoked: number } | Error = { orphans: 0, revoked: 0 }) => {
   const out: string[] = [];
   const grants = { execute: () => { if (rows instanceof Error) throw rows; return rows; } } as unknown as ListMadeGrants;
@@ -15,11 +15,11 @@ const cli = (rows: unknown[] | Error, revoke: { orphans: number; revoked: number
 };
 
 test("grants: una línea por grant con id, estado, clase, acción, alcance, caducidad y sesión", async () => {
-  const a = cli([ROW, { ...ROW, grantId: `pi-runtime-${"b".repeat(32)}`, state: "revoked", class: "confirm", action: "publish_ceremony_definition" }]);
+  const a = cli([ROW, { ...ROW, grantId: `pi-runtime-${"b".repeat(32)}`, state: "revoked", reason: "consumed", class: "confirm", action: "publish_ceremony_definition" }]);
   assert.equal(await a.cli.run(["grants"]), 0);
   assert.deepEqual(a.out, [
     `pi-runtime-${"a".repeat(32)}  active   auto     validate_ceremony_draft  definition d v1.0  until 2026-09-30T22:00:00.000Z  session s1`,
-    `pi-runtime-${"b".repeat(32)}  revoked  confirm  publish_ceremony_definition  definition d v1.0  until 2026-09-30T22:00:00.000Z  session s1`,
+    `pi-runtime-${"b".repeat(32)}  revoked (consumed)  confirm  publish_ceremony_definition  definition d v1.0  until 2026-09-30T22:00:00.000Z  session s1`,
   ]);
   const none = cli([]);
   assert.equal(await none.cli.run(["grants"]), 0);

@@ -16,7 +16,7 @@ export class MadeCli {
       if (args[0] === "grants") {
         const rows = d.grants.execute();
         if (rows.length === 0) { d.print("no MADE grants issued by the host"); return 0; }
-        for (const r of rows) d.print(`${r.grantId}  ${r.state.padEnd(7)}  ${r.class.padEnd(7)}  ${r.action}  ${r.scope}  until ${r.validUntil}  session ${r.session}`);
+        for (const r of rows) d.print(`${r.grantId}  ${(r.reason === null || r.reason === undefined ? r.state : `${r.state} (${r.reason})`).padEnd(7)}  ${r.class.padEnd(7)}  ${r.action}  ${r.scope}  until ${r.validUntil}  session ${r.session}`);
         return 0;
       }
       if (args[0] === "revoke-orphans") {

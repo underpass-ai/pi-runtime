@@ -113,9 +113,12 @@ exact action and scope) and acts on its class:
   (12 h at most), and the call is retried once.
 - **Writes** (`publish_ceremony_definition`, starting or advancing ceremonies…)
   ask for confirmation in Pi's TUI; if you accept, the host grants that one action
-  for five minutes. Without a UI (`pi -p`) they are refused.
-- **Authorization admin** tools are never granted to the model, and nothing is
-  granted for a tool the current phase does not expose.
+  for five minutes, runs the confirmed call and revokes the grant as soon as the call
+  returns, so it covers that call only. Without a UI (`pi -p`) they are refused.
+- **Authorization admin** tools are never granted to the model: they are left out of
+  the MADE tools Pi sees, and the host refuses them without reaching MADE. Nothing is
+  granted for a tool the current phase does not expose, and only `design_ceremony`,
+  `list_contracts` and `diff_ceremony_definitions` are ever granted a global scope.
 
 Grants are revoked when the session closes; a host that starts revokes those a
 previous one left behind. `node bin/underpass.ts made grants` lists them and

@@ -4,7 +4,6 @@ import type { RevocationReason } from "../../domain/made/RevocationReason.ts";
 import type { EventStore } from "../ports/EventStore.ts";
 import type { Clock } from "../ports/Clock.ts";
 import type { HostLog } from "../ports/HostLog.ts";
-import type { IssuedGrants } from "../services/IssuedGrants.ts";
 import type { MadeFactFactory } from "../services/MadeFactFactory.ts";
 import { MadeGrantLedger } from "../services/MadeGrantLedger.ts";
 import type { MadeOwner } from "../services/MadeOwner.ts";
@@ -16,22 +15,20 @@ const NONE: Tally = { orphans: 0, revoked: 0 };
 
 // S3a §4: revoca en MADE los grants del host que ya no deben vivir y registra cada revocación
 // (made.grant_revoked, stream del host). Con sesión, los de esa sesión al cerrarse (todos los que
-// el libro tiene sin revocar, estén o no en la caché); sin ella, todos los huérfanos del log
+// el libro tiene sin revocar); sin ella, todos los huérfanos del log
 // (arranque del host y `underpass made revoke-orphans`). Sin huérfanos no toca MADE. Un fallo de
 // MADE deja el grant para la próxima vez; nunca lanza. Las ejecuciones se encadenan: cada una lee
 // el libro cuando termina la anterior, así el cierre y el barrido nunca revocan dos veces lo mismo.
 export class RevokeMadeGrants {
   readonly #events: EventStore; readonly #owner: MadeOwner; readonly #record: RecordFact; readonly #facts: MadeFactFactory; readonly #clock: Clock;
-  readonly #cache: IssuedGrants | null; readonly #log: HostLog | null;
+  readonly #log: HostLog | null;
   #tail: Promise<unknown> = Promise.resolve();
-  constructor(events: EventStore, owner: MadeOwner, record: RecordFact, facts: MadeFactFactory, clock: Clock, cache: IssuedGrants | null = null, log: HostLog | null = null) {
-    this.#events = events; this.#owner = owner; this.#record = record; this.#facts = facts; this.#clock = clock; this.#cache = cache; this.#log = log;
+  constructor(events: EventStore, owner: MadeOwner, record: RecordFact, facts: MadeFactFactory, clock: Clock, log: HostLog | null = null) {
+    this.#events = events; this.#owner = owner; this.#record = record; this.#facts = facts; this.#clock = clock; this.#log = log;
   }
 
-  // Cuántos huérfanos había y cuántos quedaron revocados y registrados. La caché de la sesión se
-  // olvida en el acto: si se reabre antes de que la revocación termine, pide un grant nuevo.
+  // Cuántos huérfanos había y cuántos quedaron revocados y registrados.
   execute(session: SessionId | null = null): Promise<Tally> {
-    if (session !== null) this.#cache?.forget(session);
     const run = this.#tail.then(() => this.#sweep(session)).catch(() => NONE);
     this.#tail = run;
     return run;
