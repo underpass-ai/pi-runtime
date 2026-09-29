@@ -341,3 +341,42 @@ test("cierre normal: session.closed se entrega antes de que el host cierre el ga
   await pi.fire("session_shutdown");
   assert.deepEqual([sent, spooled.length, closed], [["session.opened", "session.closed"], 0, true]);
 });
+
+test("underpass-status añade los KPIs de la sesión y el estado del exportador OTLP", async () => {
+  const pi = new FakePi();
+  let exporter: unknown = { state: "disabled", lag: 0, since: null };
+  const kpis = { scope: "s1", sessions: 1, turns: 2, cost: 0.5, tokens: { input: 1, output: 1, cacheRead: 3, cacheWrite: 0 }, invocations: 4,
+    firstTrySuccess: 0.75, refusalRate: 0.25, cacheRatio: 0.75, compactions: 1, compactionsPerSession: 1 };
+  const gw = { ...gatewayFake({ v: false }), summary: async () => ({ summary: summaryOf(2), logPosition: 3, sessionChainIntact: true, kpis, exporter }) };
+  const host = new HostExtension(async () => gw, new SelectPhaseTools(PhaseToolSelection.standard()));
+  host.register(pi as never);
+  await pi.fire("session_start");
+  const ctx = { ...pi.ctx, sessionManager: { getSessionId: () => "s1" } };
+  await pi.commands.get("underpass-status")!.handler("", ctx);
+  assert.match(pi.notes.at(-1)!, /kpis: first-try 75%, refusals 25%, cache 75%, compactions 1/);
+  assert.match(pi.notes.at(-1)!, /otlp: disabled/);
+  exporter = { state: "ok", lag: 4, since: null };
+  await pi.commands.get("underpass-status")!.handler("", ctx);
+  assert.match(pi.notes.at(-1)!, /otlp: ok, lag 4/);
+  exporter = { state: "failing", lag: 9, since: "2026-09-29T10:00:00.000Z" };
+  await pi.commands.get("underpass-status")!.handler("", ctx);
+  assert.match(pi.notes.at(-1)!, /otlp: failing since 2026-09-29T10:00:00\.000Z/);
+});
+
+test("underpass-status con KPIs sin datos muestra guiones y sin KPIs ni exportador (host anterior) omite esas líneas", async () => {
+  const pi = new FakePi();
+  const kpis = { scope: "s1", sessions: 1, turns: 0, cost: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, invocations: 0,
+    firstTrySuccess: null, refusalRate: null, cacheRatio: null, compactions: 0, compactionsPerSession: 0 };
+  let status: Record<string, unknown> = { summary: summaryOf(1), logPosition: 1, sessionChainIntact: true, kpis };
+  const gw = { ...gatewayFake({ v: false }), summary: async () => status };
+  const host = new HostExtension(async () => gw as never, new SelectPhaseTools(PhaseToolSelection.standard()));
+  host.register(pi as never);
+  await pi.fire("session_start");
+  const ctx = { ...pi.ctx, sessionManager: { getSessionId: () => "s1" } };
+  await pi.commands.get("underpass-status")!.handler("", ctx);
+  assert.match(pi.notes.at(-1)!, /kpis: first-try -, refusals -, cache -, compactions 0/);
+  assert.doesNotMatch(pi.notes.at(-1)!, /otlp:/);
+  status = { summary: summaryOf(1), logPosition: 1, sessionChainIntact: true };
+  await pi.commands.get("underpass-status")!.handler("", ctx);
+  assert.doesNotMatch(pi.notes.at(-1)!, /kpis:|otlp:/);
+});

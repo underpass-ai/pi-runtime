@@ -6,32 +6,59 @@ import { FsMadeConfigurationRepository } from "../adapters/outbound/fs/FsMadeCon
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
 import { JsonPinSetSource } from "../adapters/outbound/fs/JsonPinSetSource.ts";
 import { UnixSocketHostServer } from "../adapters/inbound/ipc/UnixSocketHostServer.ts";
+import { JsonLineLogger } from "../adapters/outbound/log/JsonLineLogger.ts";
 import { StdioMcpConnector } from "../adapters/outbound/mcp/StdioMcpConnector.ts";
 import { SystemClock } from "../adapters/outbound/clock/SystemClock.ts";
+import { OtlpHttpTelemetrySink } from "../adapters/outbound/otlp/OtlpHttpTelemetrySink.ts";
+import { OtlpJsonMapper } from "../adapters/outbound/otlp/OtlpJsonMapper.ts";
 import { SqliteDatabase } from "../adapters/outbound/sqlite/SqliteDatabase.ts";
 import { SqliteEventStore } from "../adapters/outbound/sqlite/SqliteEventStore.ts";
 import { SqliteProjectionStore } from "../adapters/outbound/sqlite/SqliteProjectionStore.ts";
+import { SqliteTelemetryEpochStore } from "../adapters/outbound/sqlite/SqliteTelemetryEpochStore.ts";
 import { KmpServerCommandFactory } from "../adapters/outbound/process/KmpServerCommandFactory.ts";
 import { LazyMadeServerCommandFactory } from "../adapters/outbound/process/LazyMadeServerCommandFactory.ts";
+import type { Clock } from "../application/ports/Clock.ts";
+import type { EventStore } from "../application/ports/EventStore.ts";
+import type { HostLog } from "../application/ports/HostLog.ts";
+import type { Projection } from "../application/ports/Projection.ts";
+import type { ProjectionStore } from "../application/ports/ProjectionStore.ts";
 import type { ServerCommandFactory } from "../application/ports/ServerCommandFactory.ts";
 import type { ServerLifecycleListener } from "../application/ports/ServerLifecycleListener.ts";
+import { QualityKpisProjection } from "../application/projections/QualityKpisProjection.ts";
 import { SessionSummaryProjection } from "../application/projections/SessionSummaryProjection.ts";
+import { TelemetryMetricsProjection } from "../application/projections/TelemetryMetricsProjection.ts";
 import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
-import { OrphanSpoolAdoption } from "../application/services/OrphanSpoolAdoption.ts";
+import { ExporterHealth } from "../application/services/ExporterHealth.ts";
 import { HostFactFactory } from "../application/services/HostFactFactory.ts";
+import { OrphanSpoolAdoption } from "../application/services/OrphanSpoolAdoption.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { ServerPool } from "../application/services/ServerPool.ts";
+import { TelemetryEpochs } from "../application/services/TelemetryEpochs.ts";
+import { TelemetryExporter } from "../application/services/TelemetryExporter.ts";
 import { AdoptOrphanSpools } from "../application/use-cases/AdoptOrphanSpools.ts";
+import { MetricsExport } from "../application/use-cases/MetricsExport.ts";
+import { QualityKpisReport } from "../application/use-cases/QualityKpisReport.ts";
 import { ReadSessionSummary } from "../application/use-cases/ReadSessionSummary.ts";
 import { ReadSessionStatus } from "../application/use-cases/ReadSessionStatus.ts";
+import { ReadTelemetryMetrics } from "../application/use-cases/ReadTelemetryMetrics.ts";
 import { RecordFact } from "../application/use-cases/RecordFact.ts";
 import { ServeHostRequest } from "../application/use-cases/ServeHostRequest.ts";
+import { TraceExport } from "../application/use-cases/TraceExport.ts";
 import { BinaryName } from "../domain/distribution/BinaryName.ts";
 import type { Fact } from "../domain/events/Fact.ts";
 import type { CatalogFingerprint } from "../domain/mcp/CatalogFingerprint.ts";
+import type { Project } from "../domain/project/Project.ts";
+import type { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts";
+import { TraceId } from "../domain/telemetry/TraceId.ts";
 import { PackageInfo } from "./PackageInfo.ts";
 import { RepoFile } from "./RepoFile.ts";
 import { StatePaths } from "./StatePaths.ts";
+import { TelemetryEnvironment } from "./TelemetryEnvironment.ts";
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+// Tope de la exportación final en el apagado: una petición de trazas y otra de métricas,
+// cada una con OTEL_EXPORTER_OTLP_TIMEOUT, y nunca más de 30 s aunque el timeout sea mayor.
+const flushDeadline = (timeoutMs: number) => Math.min(2 * timeoutMs + 1_000, 30_000);
 
 export class HostComposition {
   static async run(projectCwd: string, env: Record<string, string | undefined>, commands?: Map<string, ServerCommandFactory>): Promise<void> {
@@ -40,38 +67,62 @@ export class HostComposition {
     const lock = new FsOwnerLock(paths.projectDir(project)).acquire();
     if (!lock.owned) return;
 
-    // Log de eventos del proyecto. Un fallo al registrar nunca tumba el host:
-    // se deja constancia en stderr (host.log) y se sigue sirviendo.
+    // host.log es JSON por líneas con rotación (JsonLineLogger); stdout/stderr del proceso
+    // van a host.stderr.log. Un fallo al registrar nunca tumba el host.
     const clock = new SystemClock();
+    const log = new JsonLineLogger(paths.hostLogOf(project), clock);
     const db = SqliteDatabase.open(paths.eventLogOf(project));
     const events = new SqliteEventStore(db);
     const projectionStore = new SqliteProjectionStore(db);
-    const runner = new ProjectionRunner(events, projectionStore, [new SessionSummaryProjection(), new ToolStatsProjection()]);
-    const record = new RecordFact(events, clock, () => runner.runOnce(), (e) => console.error(`projections: ${(e as Error)?.message ?? String(e)}`));
+    const runner = new ProjectionRunner(events, projectionStore, HostComposition.projections());
+    const record = new RecordFact(events, clock, () => runner.runOnce(), (e) => log.error("projections failed", { error: message(e) }));
     const hostFacts = new HostFactFactory(clock, String(process.pid));
-    const safeRecord = (f: Fact) => { try { record.execute(f); } catch (e) { console.error(`event log: ${(e as Error).message}`); } };
+    const safeRecord = (f: Fact) => {
+      try { record.execute(f); }
+      catch (e) { log.error("event log append failed", { error: message(e), type: f.type.value, trace_id: f.stream.isSession() ? TraceId.forStream(f.stream).value : null }); }
+    };
     const listener: ServerLifecycleListener = { started: (s, id) => safeRecord(hostFacts.serverStarted(s, id)), exited: (s, code) => safeRecord(hostFacts.serverExited(s, code)) };
 
     const pool = new ServerPool(project, new StdioMcpConnector(60_000), commands ?? HostComposition.commands(env, paths), listener);
-    const serve = new ServeHostRequest(project, pool, record, new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce())));
+    const otlp = TelemetryEnvironment.configuration(env);
+    const telemetry = HostComposition.#exporter(otlp, env, project, events, projectionStore, db, clock, log);
+    const status = new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce()), new QualityKpisReport(projectionStore),
+      () => telemetry?.status() ?? { state: "disabled", lag: 0, since: null });
+    const serve = new ServeHostRequest(project, pool, record, status);
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
     safeRecord(hostFacts.hostStarted(PackageInfo.version(), process.pid, HostComposition.#catalogs(paths)));
+    // El inicio del acumulado de métricas se fija con la primera proyección y sobrevive a los reinicios.
+    try { runner.runOnce(); new TelemetryEpochs(new SqliteTelemetryEpochStore(db), clock).current(); }
+    catch (e) { log.error("telemetry projections failed", { error: message(e) }); }
     // Spools de procesos de Pi muertos: se adoptan al arrancar y en cada tick,
     // con retroceso por fichero para los que fallan (ver OrphanSpoolAdoption).
-    const orphans = new OrphanSpoolAdoption(new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record), clock, (l) => console.error(l));
-    const adopt = () => { try { orphans.tick(); } catch (e) { console.error(`fact spool: ${(e as Error).message}`); } };
+    const orphans = new OrphanSpoolAdoption(new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record), clock, (line) => log.info(line));
+    const adopt = () => { try { orphans.tick(); } catch (e) { log.error("fact spool adoption failed", { error: message(e) }); } };
     adopt();
+    void telemetry?.tickTraces();
 
     const idleMs = Number(env.UNDERPASS_HOST_IDLE_MS ?? 60_000);
     let idleSince = Date.now();
-    const projectionTimer = setInterval(() => { adopt(); try { runner.runOnce(); } catch (e) { console.error(`projections: ${(e as Error).message}`); } }, 5_000);
+    const projectionTimer = setInterval(() => {
+      adopt();
+      try { runner.runOnce(); } catch (e) { log.error("projections failed", { error: message(e) }); }
+      void telemetry?.tickTraces();
+    }, 5_000);
+    // Métricas: snapshot acumulado cada 15 s, sin cola (un fallo lo cubre el siguiente).
+    // Sin exportador no hay temporizador de métricas.
+    const metricsTimer = telemetry === null ? null : setInterval(() => { void telemetry.tickMetrics(); }, 15_000);
     let stopping = false;
-    // host.stopped se registra tras cerrar el pool (y con él los server.exited)
-    // y siempre antes de cerrar la base de datos.
+    // host.stopped se registra tras cerrar el pool (y con él los server.exited); la última
+    // exportación va después, con tope, y siempre antes de cerrar la base de datos.
     const shutdown = async (reason: "idle" | "signal") => {
-      clearInterval(timer); clearInterval(projectionTimer);
-      try { await server.close(); await pool.close(); safeRecord(hostFacts.hostStopped(reason)); runner.runOnce(); }
-      finally { db.close(); lock.release(); }
+      clearInterval(timer); clearInterval(projectionTimer); if (metricsTimer !== null) clearInterval(metricsTimer);
+      try {
+        await server.close(); await pool.close(); safeRecord(hostFacts.hostStopped(reason));
+        try { runner.runOnce(); } catch (e) { log.error("projections failed", { error: message(e) }); }
+        if (telemetry !== null && otlp.settings !== null && !(await HostComposition.withinDeadline(telemetry.flush(), flushDeadline(otlp.settings.timeoutMs)))) {
+          log.warn("otlp final flush timed out; remaining telemetry is exported on the next start");
+        }
+      } finally { db.close(); lock.release(); }
     };
     const finish = (reason: "idle" | "signal") => {
       if (stopping) return;
@@ -83,6 +134,29 @@ export class HostComposition {
       else if (Date.now() - idleSince >= idleMs) finish("idle");
     }, Math.max(100, Math.min(1000, idleMs / 2)));
     process.once("SIGTERM", () => finish("signal"));
+  }
+
+  // Las proyecciones del host (EventLogComposition declara la misma lista para el CLI).
+  static projections(): Projection[] { return [new SessionSummaryProjection(), new ToolStatsProjection(), new TelemetryMetricsProjection(), new QualityKpisProjection()]; }
+
+  // Espera `work` como mucho `ms`: true si terminó (bien o mal), false si venció el tope.
+  // Nunca lanza; el temporizador se cancela en cuanto hay respuesta (público para probarlo).
+  static async withinDeadline(work: Promise<void>, ms: number): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
+    try { return await Promise.race([work.then(() => true, () => true), deadline]); }
+    finally { clearTimeout(timer); }
+  }
+
+  // Exportador OTLP: sólo con OTEL_EXPORTER_OTLP_ENDPOINT válida. Una configuración
+  // inválida lo desactiva y se avisa una vez (sin repetir endpoint ni cabeceras).
+  static #exporter(configuration: OtlpConfiguration, env: Record<string, string | undefined>, project: Project, events: EventStore, store: ProjectionStore, db: SqliteDatabase, clock: Clock, log: HostLog): TelemetryExporter | null {
+    if (configuration.state === "invalid") log.warn("otlp exporter disabled: invalid configuration", { reason: configuration.problem });
+    if (configuration.settings === null) return null;
+    const resource = TelemetryEnvironment.resource(env, project);
+    const sink = new OtlpHttpTelemetrySink(configuration.settings, new OtlpJsonMapper(PackageInfo.version()));
+    const metrics = new MetricsExport(new ReadTelemetryMetrics(events, store), new TelemetryEpochs(new SqliteTelemetryEpochStore(db), clock), sink, resource, clock);
+    return new TelemetryExporter(new TraceExport(events, store, sink, resource), metrics, new ExporterHealth(log), clock);
   }
 
   // Huellas de catálogo que el host ya conoce (las que registró `underpass
