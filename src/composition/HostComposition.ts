@@ -63,6 +63,7 @@ import type { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts
 import { TelemetryInstanceId } from "../domain/telemetry/TelemetryInstanceId.ts";
 import type { TelemetryKey } from "../domain/telemetry/TelemetryKey.ts";
 import { TraceId } from "../domain/telemetry/TraceId.ts";
+import { TelemetryKeyError } from "../application/ports/TelemetryKeyError.ts";
 import { Deadline } from "./Deadline.ts";
 import { PackageInfo } from "./PackageInfo.ts";
 import { RepoFile } from "./RepoFile.ts";
@@ -160,11 +161,15 @@ export class HostComposition {
     return [new SessionSummaryProjection(), new ToolStatsProjection(), new TelemetryMetricsProjection(), new QualityKpisProjection(), new ToolBanditProjection(), new LearningEvalProjection()];
   }
 
+  // Motivo publicable de un fallo de la clave de telemetría: TelemetryKeyError nunca lleva ruta ni
+  // clave; cualquier otro error (texto crudo del sistema de ficheros, con rutas) no se repite.
+  static keyProblem(e: unknown): string { return e instanceof TelemetryKeyError ? e.message : "unexpected error"; }
+
   // Contexto de L1: el proyecto como id HMAC de O1, con la clave de la instalación (se crea
   // aquí si falta). Sin clave, cada selección responde fallback sin hecho; se avisa una vez.
   static #learningProject(paths: StatePaths, project: Project, log: HostLog): TelemetryInstanceId | null {
     try { return TelemetryInstanceId.derive(new EnsureTelemetryKey(new FsTelemetryKeyRepository(paths.telemetryKeyFile()), new NodeEntropySource()).execute(), project.id); }
-    catch (e) { log.warn("learning disabled: telemetry key unavailable", { reason: message(e) }); return null; }
+    catch (e) { log.warn("learning disabled: telemetry key unavailable", { reason: HostComposition.keyProblem(e) }); return null; }
   }
 
   // Exportador OTLP: sólo con OTEL_EXPORTER_OTLP_ENDPOINT válida. Una configuración
@@ -175,7 +180,7 @@ export class HostComposition {
     if (configuration.settings === null) return null;
     let key: TelemetryKey;
     try { key = new EnsureTelemetryKey(new FsTelemetryKeyRepository(paths.telemetryKeyFile()), new NodeEntropySource()).execute(); }
-    catch (e) { log.warn("otlp exporter disabled: telemetry key unavailable", { reason: message(e) }); return null; }
+    catch (e) { log.warn("otlp exporter disabled: telemetry key unavailable", { reason: HostComposition.keyProblem(e) }); return null; }
     const resource = TelemetryEnvironment.resource(env, project, key);
     const sink = new OtlpHttpTelemetrySink(configuration.settings, new OtlpJsonMapper(PackageInfo.version()));
     const metrics = new MetricsExport(new ReadTelemetryMetrics(events, store), new TelemetryEpochs(new SqliteTelemetryEpochStore(db), clock), sink, resource, clock);

@@ -264,3 +264,11 @@ test("L1 en el host real: select registra tools.selected en shadow y respeta act
   assert.deepEqual(selected.map((p) => [p.mode, (p.context as { project: string }).project, p.k]), [["shadow", instance, 12], ["active", instance, 4]]);
   assert.equal(JSON.stringify(selected).includes(cwd), false);
 });
+
+test("el aviso de clave de telemetría sólo repite el motivo de TelemetryKeyError; cualquier otro error, un texto fijo sin rutas", async () => {
+  const { HostComposition } = await import("../../../src/composition/HostComposition.ts");
+  const { TelemetryKeyError } = await import("../../../src/application/ports/TelemetryKeyError.ts");
+  assert.equal(HostComposition.keyProblem(TelemetryKeyError.because("telemetry key has mode 644; expected 600 or 400")), "telemetry key has mode 644; expected 600 or 400");
+  assert.equal(HostComposition.keyProblem(new Error("EACCES: permission denied, open '/home/someone/.local/state/underpass/telemetry.key'")), "unexpected error");
+  assert.equal(HostComposition.keyProblem("raw /secret/path"), "unexpected error");
+});
