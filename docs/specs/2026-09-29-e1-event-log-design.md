@@ -176,7 +176,7 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - Si la `version` de una proyección no coincide con la del cursor, se borra su estado y se reconstruye reproduciendo desde 0 en una transacción.
 - **Cuarentena:** un evento que hace fallar la proyección 3 veces se aparta con su motivo y la proyección continúa.
 - **Proyecciones de E1:**
-  - `session_summary`: por sesión, fase, duración, turnos, tokens, coste, llamadas por servidor y estado, y fallos.
+  - `session_summary`: por sesión, fase, duración, turnos, tokens, coste, llamadas por servidor y estado, y fallos. **Revisado (versión 2):** un `session.opened` sobre una sesión aún abierta (reapertura implícita tras caerse Pi) o tras `session.closed` (resume) no reinicia nada: `openedAt` conserva la primera apertura, `closedAt` se borra hasta el siguiente cierre y los contadores siguen acumulando sin contar dos veces; el agregado `SessionAggregate` hace lo mismo (sigue abierta y acumula).
   - `tool_stats`: por tool y servidor, `n`, éxitos, fallos, negativas, abortos, duraciones p50 y p95 (reservorio acotado) y la última vez vista. Es el equivalente del `ToolStats` de underpass-runtime y la base común de O1 y L1.
 - **Puntos de extensión para después:** O1 añadirá proyecciones de métricas y un exportador; L1, las proyecciones de posteriores y de decisiones. Las dos leen por su propio cursor, y reentrenar consiste en subir la `version`.
 

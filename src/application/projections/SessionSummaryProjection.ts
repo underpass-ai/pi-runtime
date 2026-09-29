@@ -12,7 +12,8 @@ const obj = (v: unknown): Json => (v !== null && typeof v === "object" && !Array
 export class SessionSummaryProjection implements Projection {
   static readonly NAME = ProjectionName.of("session_summary");
   readonly name = SessionSummaryProjection.NAME;
-  readonly version = 1;
+  // v2: openedAt es la PRIMERA apertura (antes, la última); subirla reconstruye los resúmenes persistidos.
+  readonly version = 2;
 
   apply(state: ProjectionState, e: StoredEvent): void {
     const r = e.record;
@@ -23,7 +24,10 @@ export class SessionSummaryProjection implements Projection {
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, calls: {}, failures: 0, lastEventAt: r.occurredAt.value };
     const p = obj(r.payload.toValue());
     switch (r.type.value) {
-      case "session.opened": s.openedAt = r.occurredAt.value; s.closedAt = null; break;
+      // Un session.opened sobre una sesión ya abierta es la reapertura implícita tras caerse Pi
+      // (y uno tras session.closed, un resume): openedAt conserva la primera apertura, closedAt se
+      // borra y los contadores siguen acumulando, sin reiniciarse ni contar dos veces.
+      case "session.opened": s.openedAt ??= r.occurredAt.value; s.closedAt = null; break;
       case "session.closed": s.closedAt = r.occurredAt.value; break;
       case "phase.changed": s.phase = str(p.to) ?? s.phase; break;
       case "model.selected": s.model = str(p.model) ?? s.model; break;
