@@ -17,6 +17,7 @@ import type { ServerCommandFactory } from "../application/ports/ServerCommandFac
 import type { ServerLifecycleListener } from "../application/ports/ServerLifecycleListener.ts";
 import { SessionSummaryProjection } from "../application/projections/SessionSummaryProjection.ts";
 import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
+import { OrphanSpoolAdoption } from "../application/services/OrphanSpoolAdoption.ts";
 import { HostFactFactory } from "../application/services/HostFactFactory.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { ServerPool } from "../application/services/ServerPool.ts";
@@ -54,14 +55,10 @@ export class HostComposition {
     const serve = new ServeHostRequest(project, pool, record, new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce())));
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
     safeRecord(hostFacts.hostStarted(PackageInfo.version(), process.pid, HostComposition.#catalogs(paths)));
-    // Spools de procesos de Pi muertos: se adoptan al arrancar y en cada tick.
-    const orphans = new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record);
-    const adopt = () => {
-      try {
-        const r = orphans.execute();
-        if (r.files > 0) console.error(`fact spool: adopted ${r.files} orphan spool(s): ${r.recorded} recorded, ${r.invalid} invalid, ${r.retained} retained`);
-      } catch (e) { console.error(`fact spool: ${(e as Error).message}`); }
-    };
+    // Spools de procesos de Pi muertos: se adoptan al arrancar y en cada tick,
+    // con retroceso por fichero para los que fallan (ver OrphanSpoolAdoption).
+    const orphans = new OrphanSpoolAdoption(new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record), clock, (l) => console.error(l));
+    const adopt = () => { try { orphans.tick(); } catch (e) { console.error(`fact spool: ${(e as Error).message}`); } };
     adopt();
 
     const idleMs = Number(env.UNDERPASS_HOST_IDLE_MS ?? 60_000);
