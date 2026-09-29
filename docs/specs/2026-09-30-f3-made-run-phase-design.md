@@ -67,8 +67,13 @@ El recorrido medido para una definición lineal de N pasos: `start` → (`claim`
   ser «propia»: otra escritura vuelve a preguntar.
 - **Cierre de sesión, huérfanos y arranque del host:** como en S3a (`RevokeMadeGrants`), en la
   misma cadena de revocaciones.
-- **Límite conocido:** si la instancia termina por fuera (otro cliente la cancela) y la sesión no
-  vuelve a leerla, sus grants viven hasta el cierre de la sesión (12 h como máximo).
+- **Límite conocido (aceptado):** el terminal se detecta en los resultados, no se sondea. Si la
+  instancia termina por fuera (otro cliente la cancela) y la sesión no vuelve a leerla, sus grants
+  viven hasta el cierre de la sesión (12 h como máximo).
+- **Ids de grant:** al terminal se revoca también la lectura de la instancia, y la siguiente lectura
+  se vuelve a conceder, quizá en el mismo milisegundo. Para que el grant reemitido no repita el id
+  del revocado (MADE trataría el idéntico como no-op), el id lleva la secuencia de grants con la
+  misma sesión, acción y alcance leída del log, a partir del segundo; el primero conserva el id de S3a.
 
 ## 4. Compatibilidad del log
 
@@ -105,5 +110,8 @@ que la sesión no arrancó y un segundo arranque o fin de la misma instancia (ma
 
 - Renovar reclamaciones, sentar participantes, cancelar, pausar o reanudar desde Pi.
 - Leer el `prompt` de un paso de una publicada que no se diseñó en la sesión: ni la instancia, ni
-  la reclamación, ni el transcript de 0.8.0 lo devuelven (ver decisiones abiertas en la PR).
+  la reclamación, ni el transcript de 0.8.0 lo devuelven. **Límite conocido:** con 0.8.0, `run`
+  sólo sirve de verdad para ceremonias diseñadas en la misma sesión (el agente conoce sus pasos).
+  MADE 0.9.0 traerá `made_get_ceremony_definition`; cuando pi-runtime fije `made-mcp` 0.9.0 se
+  añadirá a `run` como lectura (`auto`).
 - Guardas humanas (`approve_ceremony_guard`) y el bucle de integrador.
