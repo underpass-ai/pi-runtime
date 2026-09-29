@@ -18,6 +18,8 @@ import type { TelemetryEpochStore } from "../application/ports/TelemetryEpochSto
 import { QualityKpisProjection } from "../application/projections/QualityKpisProjection.ts";
 import { SessionSummaryProjection } from "../application/projections/SessionSummaryProjection.ts";
 import { TelemetryMetricsProjection } from "../application/projections/TelemetryMetricsProjection.ts";
+import { LearningEvalProjection } from "../application/projections/LearningEvalProjection.ts";
+import { ToolBanditProjection } from "../application/projections/ToolBanditProjection.ts";
 import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { TelemetryEpochs } from "../application/services/TelemetryEpochs.ts";
@@ -98,7 +100,9 @@ export class EventLogComposition {
   }
 
   // Las mismas proyecciones que mantiene el host (HostComposition).
-  #projections(): Projection[] { return [new SessionSummaryProjection(), new ToolStatsProjection(), new TelemetryMetricsProjection(), new QualityKpisProjection()]; }
+  #projections(): Projection[] {
+    return [new SessionSummaryProjection(), new ToolStatsProjection(), new TelemetryMetricsProjection(), new QualityKpisProjection(), new ToolBanditProjection(), new LearningEvalProjection()];
+  }
 
   #epochs(resolve: () => Stores): TelemetryEpochs {
     return new TelemetryEpochs({ read: () => resolve().epochs.read(), write: (e) => resolve().epochs.write(e) }, new SystemClock());

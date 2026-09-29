@@ -5,4 +5,5 @@ export type HostRequestDto =
   | { id: number; method: "catalog"; server: string }
   | { id: number; method: "health" }
   | { id: number; method: "record"; fact: FactDto }
-  | { id: number; method: "summary"; sessionId: string };
+  | { id: number; method: "summary"; sessionId: string }
+  | { id: number; method: "select"; sessionId: string; phase: string };

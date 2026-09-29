@@ -29,9 +29,13 @@ import type { ServerLifecycleListener } from "../application/ports/ServerLifecyc
 import { QualityKpisProjection } from "../application/projections/QualityKpisProjection.ts";
 import { SessionSummaryProjection } from "../application/projections/SessionSummaryProjection.ts";
 import { TelemetryMetricsProjection } from "../application/projections/TelemetryMetricsProjection.ts";
+import { LearningEvalProjection } from "../application/projections/LearningEvalProjection.ts";
+import { ToolBanditProjection } from "../application/projections/ToolBanditProjection.ts";
 import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
 import { ExporterHealth } from "../application/services/ExporterHealth.ts";
 import { HostFactFactory } from "../application/services/HostFactFactory.ts";
+import { KnownCatalogs } from "../application/services/KnownCatalogs.ts";
+import { LearningFactFactory } from "../application/services/LearningFactFactory.ts";
 import { OrphanSpoolAdoption } from "../application/services/OrphanSpoolAdoption.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { ServerPool } from "../application/services/ServerPool.ts";
@@ -45,13 +49,17 @@ import { ReadSessionSummary } from "../application/use-cases/ReadSessionSummary.
 import { ReadSessionStatus } from "../application/use-cases/ReadSessionStatus.ts";
 import { ReadTelemetryMetrics } from "../application/use-cases/ReadTelemetryMetrics.ts";
 import { RecordFact } from "../application/use-cases/RecordFact.ts";
+import { SelectTools } from "../application/use-cases/SelectTools.ts";
 import { ServeHostRequest } from "../application/use-cases/ServeHostRequest.ts";
 import { TraceExport } from "../application/use-cases/TraceExport.ts";
 import { BinaryName } from "../domain/distribution/BinaryName.ts";
+import { Actor } from "../domain/events/Actor.ts";
 import type { Fact } from "../domain/events/Fact.ts";
 import type { CatalogFingerprint } from "../domain/mcp/CatalogFingerprint.ts";
 import type { Project } from "../domain/project/Project.ts";
+import { PhaseToolSelection } from "../domain/session/PhaseToolSelection.ts";
 import type { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts";
+import { TelemetryInstanceId } from "../domain/telemetry/TelemetryInstanceId.ts";
 import type { TelemetryKey } from "../domain/telemetry/TelemetryKey.ts";
 import { TraceId } from "../domain/telemetry/TraceId.ts";
 import { Deadline } from "./Deadline.ts";
@@ -93,7 +101,12 @@ export class HostComposition {
     const telemetry = HostComposition.#exporter(otlp, env, paths, project, events, projectionStore, db, clock, log);
     const status = new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce()), new QualityKpisReport(projectionStore),
       () => telemetry?.status() ?? { state: "disabled", lag: 0, since: null });
-    const serve = new ServeHostRequest(project, pool, record, status);
+    // L1: el host decide con el estado del bandit y registra tools.selected (spec §7).
+    const catalogs = new KnownCatalogs();
+    const hostActor = `host:${process.pid}`;
+    const select = new SelectTools(projectionStore, record, new LearningFactFactory(clock, hostActor, Actor.of("host", hostActor)), PhaseToolSelection.standard(), catalogs,
+      HostComposition.#learningProject(paths, project, log), () => runner.runOnce());
+    const serve = new ServeHostRequest(project, pool, record, status, select, catalogs);
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
     safeRecord(hostFacts.hostStarted(PackageInfo.version(), process.pid, HostComposition.#catalogs(paths)));
     // El inicio del acumulado de métricas se fija con la primera proyección y sobrevive a los reinicios.
@@ -142,7 +155,16 @@ export class HostComposition {
   }
 
   // Las proyecciones del host (EventLogComposition declara la misma lista para el CLI).
-  static projections(): Projection[] { return [new SessionSummaryProjection(), new ToolStatsProjection(), new TelemetryMetricsProjection(), new QualityKpisProjection()]; }
+  static projections(): Projection[] {
+    return [new SessionSummaryProjection(), new ToolStatsProjection(), new TelemetryMetricsProjection(), new QualityKpisProjection(), new ToolBanditProjection(), new LearningEvalProjection()];
+  }
+
+  // Contexto de L1: el proyecto como id HMAC de O1, con la clave de la instalación (se crea
+  // aquí si falta). Sin clave, cada selección responde fallback sin hecho; se avisa una vez.
+  static #learningProject(paths: StatePaths, project: Project, log: HostLog): TelemetryInstanceId | null {
+    try { return TelemetryInstanceId.derive(new EnsureTelemetryKey(new FsTelemetryKeyRepository(paths.telemetryKeyFile()), new NodeEntropySource()).execute(), project.id); }
+    catch (e) { log.warn("learning disabled: telemetry key unavailable", { reason: message(e) }); return null; }
+  }
 
   // Exportador OTLP: sólo con OTEL_EXPORTER_OTLP_ENDPOINT válida. Una configuración
   // inválida lo desactiva y se avisa una vez (sin repetir endpoint ni cabeceras). La clave

@@ -5,6 +5,8 @@ import type { CatalogDto } from "../../../application/dto/CatalogDto.ts";
 import type { ToolCallResultDto } from "../../../application/dto/ToolCallResultDto.ts";
 import type { FactDto } from "../../../application/dto/FactDto.ts";
 import type { SessionStatusDto } from "../../../application/dto/SessionStatusDto.ts";
+import type { SelectionDto } from "../../../application/dto/SelectionDto.ts";
+import type { Phase } from "../../../domain/session/Phase.ts";
 import type { SessionId } from "../../../domain/events/SessionId.ts";
 import { CatalogMapper } from "../../../application/mappers/CatalogMapper.ts";
 import type { ServerName } from "../../../domain/mcp/ServerName.ts";
@@ -61,6 +63,7 @@ export class UnixSocketHostGateway implements HostGateway {
   health(): Promise<{ project: string; started: string[] }> { return this.raw({ method: "health" }); }
   record(fact: FactDto): Promise<void> { return this.raw({ method: "record", fact }).then(() => undefined); }
   summary(id: SessionId): Promise<SessionStatusDto> { return this.raw({ method: "summary", sessionId: id.value }); }
+  select(id: SessionId, phase: Phase): Promise<SelectionDto> { return this.raw({ method: "select", sessionId: id.value, phase: phase.value }); }
   close(): void { this.#sock.end(); }
 
   // Avisa cuando la conexión con el host se cierra (host muerto, error o
