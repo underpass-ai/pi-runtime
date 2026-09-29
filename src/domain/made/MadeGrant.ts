@@ -3,6 +3,7 @@ import type { SessionId } from "../events/SessionId.ts";
 import { Timestamp } from "../events/Timestamp.ts";
 import { MadeAction } from "./MadeAction.ts";
 import { MadeActionClass } from "./MadeActionClass.ts";
+import { GrantSequence } from "./GrantSequence.ts";
 import { MadeGrantId } from "./MadeGrantId.ts";
 import { MadeScope } from "./MadeScope.ts";
 import type { TrustedHostId } from "./TrustedHostId.ts";
@@ -18,8 +19,8 @@ export class MadeGrant {
     this.id = p.id; this.session = p.session; this.action = p.action; this.scope = p.scope; this.actionClass = p.actionClass; this.validFrom = p.validFrom; this.validUntil = p.validUntil;
   }
 
-  static issue(session: SessionId, action: MadeAction, scope: MadeScope, actionClass: MadeActionClass, now: Timestamp): MadeGrant {
-    return new MadeGrant({ id: MadeGrantId.derive(session, action, scope, now), session, action, scope, actionClass, validFrom: now,
+  static issue(session: SessionId, action: MadeAction, scope: MadeScope, actionClass: MadeActionClass, now: Timestamp, sequence: GrantSequence = GrantSequence.FIRST): MadeGrant {
+    return new MadeGrant({ id: MadeGrantId.derive(session, action, scope, now, sequence), session, action, scope, actionClass, validFrom: now,
       validUntil: Timestamp.fromEpochMs(now.epochMs() + actionClass.lifetimeMs()) });
   }
 

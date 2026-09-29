@@ -195,8 +195,23 @@ test("run: el terminal por cancelación también cierra la instancia, y una lect
   await h.uc.execute(t("made_claim_ceremony_step"), CLAIM, run());
   Object.assign(h.made.instances.get("smoke-1")!, { lifecycle: "ended", end_reason: "cancelled" }); // cancelada por fuera
   assert.ok(await h.uc.execute(t("made_get_ceremony_instance"), { ceremony_id: "smoke-1" }, run()) instanceof ToolSuccess);
-  h.clock.ms += 1_000; // la lectura se vuelve a conceder (su grant cayó con el terminal) con otro id
   assert.ok(await h.uc.execute(t("made_get_ceremony_instance"), { ceremony_id: "smoke-1" }, run()) instanceof ToolSuccess);
   assert.equal(sessionTypes(h.events).filter((x) => x === "made.ceremony_ended").length, 1);
   assert.deepEqual(MadeGrantLedger.forSession(h.events, S1).ceremonies(S1).map((c) => c.end?.value), ["cancelled"]);
+});
+
+test("ids de grant: reemitir tras una revocación en el mismo milisegundo no repite el id (secuencia del log)", async () => {
+  const h = host();
+  await started(h);
+  await h.uc.execute(t("made_claim_ceremony_step"), CLAIM, run());
+  // Sin avanzar el reloj: la lectura se concede, el terminal la revoca y la siguiente se vuelve a conceder.
+  assert.ok(await h.uc.execute(t("made_get_ceremony_instance"), { ceremony_id: "smoke-1" }, run()) instanceof ToolSuccess);
+  Object.assign(h.made.instances.get("smoke-1")!, { lifecycle: "ended", end_reason: "completed" });
+  assert.ok(await h.uc.execute(t("made_get_ceremony_instance"), { ceremony_id: "smoke-1" }, run()) instanceof ToolSuccess);
+  const again = await h.uc.execute(t("made_get_ceremony_instance"), { ceremony_id: "smoke-1" }, run());
+  assert.ok(again instanceof ToolSuccess, "antes del arreglo: el grant reemitido tenía el id del revocado y MADE lo trataba como no-op");
+  const reads = [...h.made.grants.values()].filter((g) => g.actions[0] === "get_ceremony_instance").map((g) => g.grant_id);
+  assert.equal(reads.length, 2);
+  assert.equal(new Set(reads).size, 2);
+  assert.equal(new Set(reads.map((id) => h.made.revoked.has(id))).size, 2, "uno revocado, otro vivo");
 });

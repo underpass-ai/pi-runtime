@@ -5,6 +5,8 @@ import { StreamId } from "../../domain/events/StreamId.ts";
 import type { Timestamp } from "../../domain/events/Timestamp.ts";
 import { CeremonyEndReason } from "../../domain/made/CeremonyEndReason.ts";
 import type { CeremonyId } from "../../domain/made/CeremonyId.ts";
+import { GrantSequence } from "../../domain/made/GrantSequence.ts";
+import type { MadeAction } from "../../domain/made/MadeAction.ts";
 import { MadeGrant } from "../../domain/made/MadeGrant.ts";
 import type { MadeScope } from "../../domain/made/MadeScope.ts";
 import { RevocationReason } from "../../domain/made/RevocationReason.ts";
@@ -136,6 +138,11 @@ export class MadeGrantLedger {
 
   // Todas las sesiones con alguna instancia arrancada (para `underpass made ceremonies`).
   sessionsWithCeremonies(): SessionId[] { return [...this.#ceremonies.keys()].sort().map((s) => SessionId.of(s)); }
+
+  // Cuántos grants con esta sesión, acción y alcance registró ya el host: la secuencia del siguiente.
+  sequence(session: SessionId, action: MadeAction, scope: MadeScope): GrantSequence {
+    return GrantSequence.of(this.grants().filter((g) => g.session.equals(session) && g.action.equals(action) && g.scope.equals(scope)).length);
+  }
 
   confirmations(session: SessionId): number { return this.#confirmations.get(session.value) ?? 0; }
 }

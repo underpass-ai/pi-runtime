@@ -7,6 +7,7 @@ import { MadeActionClass } from "../../../../src/domain/made/MadeActionClass.ts"
 import { MadeActionPolicy } from "../../../../src/domain/made/MadeActionPolicy.ts";
 import { MadeDecision } from "../../../../src/domain/made/MadeDecision.ts";
 import { MadeDecisionId } from "../../../../src/domain/made/MadeDecisionId.ts";
+import { GrantSequence } from "../../../../src/domain/made/GrantSequence.ts";
 import { MadeGrant } from "../../../../src/domain/made/MadeGrant.ts";
 import { MadeGrantId } from "../../../../src/domain/made/MadeGrantId.ts";
 import { MadeScope } from "../../../../src/domain/made/MadeScope.ts";
@@ -97,6 +98,11 @@ test("grants: id determinista, vigencia por clase, cobertura exacta y argumentos
   assert.ok(g.id.equals(MadeGrant.issue(s, action, scope, MadeActionClass.AUTO, NOW).id), "mismo instante, mismo id");
   assert.ok(!g.id.equals(MadeGrant.issue(s, action, scope, MadeActionClass.AUTO, Timestamp.fromEpochMs(NOW.epochMs() + 1)).id));
   assert.ok(!g.id.equals(MadeGrant.issue(SessionId.of("s2"), action, scope, MadeActionClass.AUTO, NOW).id));
+  // F3: la secuencia del log distingue el segundo grant igual en el mismo instante; la primera conserva el id de S3a.
+  assert.ok(g.id.equals(MadeGrant.issue(s, action, scope, MadeActionClass.AUTO, NOW, GrantSequence.of(0)).id));
+  const second = MadeGrant.issue(s, action, scope, MadeActionClass.AUTO, NOW, GrantSequence.of(1));
+  assert.ok(!g.id.equals(second.id) && second.id.equals(MadeGrant.issue(s, action, scope, MadeActionClass.AUTO, NOW, GrantSequence.of(1)).id));
+  for (const bad of [-1, 1.5, Number.NaN]) assert.throws(() => GrantSequence.of(bad), DomainError);
   assert.match(g.id.value, /^pi-runtime-[0-9a-f]{32}$/);
   assert.equal(g.validUntil.epochMs() - NOW.epochMs(), 12 * 3_600_000);
   assert.ok(!g.expired(NOW));

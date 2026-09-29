@@ -9,6 +9,7 @@ import type { MadeActionPolicy } from "../../domain/made/MadeActionPolicy.ts";
 import type { MadeCallContext } from "../../domain/made/MadeCallContext.ts";
 import type { MadeDecision } from "../../domain/made/MadeDecision.ts";
 import { MadeDecisionId } from "../../domain/made/MadeDecisionId.ts";
+import { GrantSequence } from "../../domain/made/GrantSequence.ts";
 import { MadeGrant } from "../../domain/made/MadeGrant.ts";
 import type { MadeScope } from "../../domain/made/MadeScope.ts";
 import type { PendingConfirmation } from "../../domain/made/PendingConfirmation.ts";
@@ -176,7 +177,7 @@ export class CallMadeTool {
   // revocación también falla se avisa de que sigue vivo.
   async #issue(session: SessionId, action: MadeAction, scope: MadeScope, actionClass: MadeActionClass): Promise<MadeGrant | null> {
     const d = this.#d;
-    const grant = MadeGrant.issue(session, action, scope, actionClass, d.clock.now());
+    const grant = MadeGrant.issue(session, action, scope, actionClass, d.clock.now(), this.#sequence(session, action, scope));
     try { await d.owner.issue(grant); }
     catch (e) { this.#warn("made grant not issued", action, e); return null; }
     try { d.record.execute(d.facts.grantIssued(grant)); }
@@ -187,6 +188,13 @@ export class CallMadeTool {
       return null;
     }
     return grant;
+  }
+
+  // La secuencia del grant sale del log (sin log, o si no se lee, la primera: el id de S3a).
+  #sequence(session: SessionId, action: MadeAction, scope: MadeScope): GrantSequence {
+    if (this.#d.events == null) return GrantSequence.FIRST;
+    try { return MadeGrantLedger.forSession(this.#d.events, session).sequence(session, action, scope); }
+    catch (e) { this.#warn("made grants not read", action, e); return GrantSequence.FIRST; }
   }
 
   #audit(fn: () => void): void { try { fn(); } catch (e) { this.#warn("made audit fact not recorded", null, e); } }
