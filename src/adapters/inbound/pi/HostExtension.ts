@@ -21,8 +21,9 @@ const wellFormed = (s: SelectionDto | null): s is SelectionDto => s !== null && 
 export class HostExtension {
   readonly #connect: (cwd: string) => Promise<HostGateway>; readonly #select: SelectPhaseTools; readonly #selectTimeoutMs: number;
   #gateway: Promise<HostGateway> | null = null; #cwd: string | null = null;
-  // L1: sesión y fase en curso, última fase decidida y si las tools activas están reducidas.
-  #sessionId: string | null = null; #phase: Phase = Phase.INTERACTIVE; #decidedPhase: string | null = null; #narrowed = false;
+  // L1: sesión y fase en curso, qué se decidió por última vez por cambio de fase (fase y huella
+  // de nuestras tools registradas) y si las tools activas están reducidas.
+  #sessionId: string | null = null; #phase: Phase = Phase.INTERACTIVE; #decided: string | null = null; #narrowed = false;
   // Número de la última decisión pedida: sólo se aplica su respuesta (las viejas llegan desordenadas).
   #requests = 0;
 
@@ -49,7 +50,10 @@ export class HostExtension {
     return opening;
   }
 
+  // Vuelve al conjunto completo de la fase. Si deshace una reducción de L1, la siguiente
+  // emisión de PHASE_CHANGED decide otra vez aunque la fase y lo registrado no cambien.
   applyPhase(pi: PiExtensionApi, phase: Phase): void {
+    if (this.#narrowed) this.#decided = null;
     this.#phase = phase; this.#narrowed = false;
     pi.setActiveTools(this.#phaseTools(pi, phase));
     pi.events.emit(PHASE_CHANGED, { phase: phase.value, activeTools: pi.getActiveTools() });
@@ -57,9 +61,18 @@ export class HostExtension {
 
   // Todas las tools de la fase: las de Pi activas y las nuestras registradas que la fase permite.
   #phaseTools(pi: PiExtensionApi, phase: Phase): string[] {
-    const ours = pi.getAllTools().map((t) => t.name).filter(isOurs).map((n) => ToolName.of(n));
     const foreign = pi.getActiveTools().filter((n) => !isOurs(n));
-    return this.#select.execute(phase, ours, foreign);
+    return this.#select.execute(phase, HostExtension.#registered(pi), foreign);
+  }
+
+  // Nuestras tools (KMP y MADE) que Pi tiene registradas: nombres públicos del catálogo.
+  static #registered(pi: PiExtensionApi): ToolName[] {
+    return pi.getAllTools().map((t) => t.name).filter(isOurs).map((n) => ToolName.of(n));
+  }
+
+  // Lo mismo sin lanzar nunca: si Pi no deja leerlas, null (el host no filtra, como antes).
+  static #registeredOrNull(pi: PiExtensionApi): ToolName[] | null {
+    try { return HostExtension.#registered(pi); } catch { return null; }
   }
 
   // Decisión de L1 en agent_start y en cada cambio de fase. Sólo `active` sin control reduce
@@ -68,14 +81,15 @@ export class HostExtension {
   // host caído o más de 200 ms dejan el conjunto completo de la fase (y lo restauran si una
   // decisión anterior lo había reducido). Si conectar con el host agota el plazo, el select
   // ya no se envía: no queda registrada una decisión que Pi no aplicó. El select lleva el
-  // plazo absoluto para que el host tampoco registre una decisión que llegaría tarde. Nunca lanza.
+  // plazo absoluto para que el host tampoco registre una decisión que llegaría tarde, y las
+  // tools nuestras que Pi tiene registradas para que el host no elija otras (ruling R7). Nunca lanza.
   async learn(pi: PiExtensionApi): Promise<void> {
     const sid = this.#sessionId; const phase = this.#phase;
     if (sid === null) return;
     const ticket = ++this.#requests;
     const deadline = Timestamp.fromEpochMs(Date.now() + this.#selectTimeoutMs);
-    let expired = false;
-    const selection = await this.#bounded(this.gateway().then((g) => (expired ? null : g.select(SessionId.of(sid), phase, deadline))), () => { expired = true; });
+    let expired = false; const registered = HostExtension.#registeredOrNull(pi) ?? undefined;
+    const selection = await this.#bounded(this.gateway().then((g) => (expired ? null : g.select(SessionId.of(sid), phase, deadline, registered))), () => { expired = true; });
     // Phase puede venir de otro realm de jiti (kmp.ts, made.ts): se compara por valor.
     if (ticket !== this.#requests || sid !== this.#sessionId || phase.value !== this.#phase.value) return;
     if (wellFormed(selection) && selection.mode === "active" && !selection.control) {
@@ -104,7 +118,7 @@ export class HostExtension {
     pi.on("session_start", async (_e, ctx) => {
       // applyPhase sólo corre una vez por servidor y vida de la extensión: si la sesión anterior
       // dejó las tools reducidas, la nueva empieza con el conjunto completo de la fase.
-      this.#sessionId = ctx.sessionManager?.getSessionId() ?? null; this.#decidedPhase = null; this.#requests++;
+      this.#sessionId = ctx.sessionManager?.getSessionId() ?? null; this.#decided = null; this.#requests++;
       if (this.#narrowed) this.#restore(pi);
       const previous = this.#gateway;
       this.#gateway = null;
@@ -122,12 +136,15 @@ export class HostExtension {
       if (g) (await g.catch(() => null))?.close();
     });
     // Una decisión por petición del usuario (no por llamada al LLM) y otra por cambio de fase;
-    // applyPhase emite PHASE_CHANGED una vez por servidor al registrar: sólo cuenta si la fase cambia.
+    // applyPhase emite PHASE_CHANGED una vez por servidor al registrar: cuenta si cambia la fase
+    // o el conjunto de nuestras tools registradas (un servidor que registra tarde, ruling R7), o
+    // si applyPhase deshizo una reducción.
     pi.on("agent_start", async () => { await this.learn(pi); });
     pi.events.on(PHASE_CHANGED, (d) => {
-      const phase = String((d as { phase?: unknown } | null)?.phase);
-      if (phase === this.#decidedPhase) return;
-      this.#decidedPhase = phase;
+      const fingerprint = HostExtension.#registeredOrNull(pi)?.map((t) => t.value).sort().join(",") ?? "?";
+      const decided = `${String((d as { phase?: unknown } | null)?.phase)}|${fingerprint}`;
+      if (decided === this.#decided) return;
+      this.#decided = decided;
       void this.learn(pi);
     });
     pi.registerCommand("underpass-status", {

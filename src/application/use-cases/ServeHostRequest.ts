@@ -47,7 +47,8 @@ export class ServeHostRequest {
     if (req.method === "select") {
       const select = this.#select;
       if (select === null) return this.#responses.invalid(req.id, "learning not available");
-      return this.#guarded(req.id, () => select.execute(SessionId.of(req.sessionId), Phase.of(req.phase), req.deadlineMs === undefined ? null : Timestamp.fromEpochMs(req.deadlineMs)));
+      return this.#guarded(req.id, () => select.execute(SessionId.of(req.sessionId), Phase.of(req.phase), req.deadlineMs === undefined ? null : Timestamp.fromEpochMs(req.deadlineMs),
+        ServeHostRequest.#registered(req.registered)));
     }
     if (req.method === "health") return this.#responses.success(req.id, { project: this.#project.root.value, started: this.#pool.started().map(String) });
     let server: ServerName; let tool: ToolName | null = null;
@@ -71,6 +72,13 @@ export class ServeHostRequest {
     } catch (e) {
       return this.#responses.failure(req.id, e);
     }
+  }
+
+  // Nombres de nuestras tools registradas en Pi (ruling R7); ausente, null (extensión anterior).
+  static #registered(raw: unknown): ToolName[] | null {
+    if (raw === undefined) return null;
+    if (!Array.isArray(raw)) throw DomainError.because("registered must be a list of tool names");
+    return raw.map((n) => ToolName.of(n as string));
   }
 
   // Una DomainError es culpa de la petición (invalid); cualquier otra cosa, del host.

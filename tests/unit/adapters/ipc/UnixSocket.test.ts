@@ -216,6 +216,8 @@ test("select viaja por el socket con sesión y fase", async () => {
     assert.deepEqual(seen, [{ method: "select", sessionId: "s1", phase: "design", id: 1 }]);
     await gw.select(SessionId.of("s1"), Phase.INTERACTIVE, Timestamp.fromEpochMs(5_000));
     assert.deepEqual(seen[1], { method: "select", sessionId: "s1", phase: "interactive", deadlineMs: 5_000, id: 2 }, "el plazo viaja en epoch ms");
+    await gw.select(SessionId.of("s1"), Phase.INTERACTIVE, Timestamp.fromEpochMs(6_000), [ToolName.of("kmp_ask"), ToolName.of("kmp_time")]);
+    assert.deepEqual(seen[2], { method: "select", sessionId: "s1", phase: "interactive", deadlineMs: 6_000, registered: ["kmp_ask", "kmp_time"], id: 3 }, "las tools registradas en Pi viajan por nombre");
     gw.close();
   } finally { await server.close(); }
 });

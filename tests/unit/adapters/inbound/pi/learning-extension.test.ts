@@ -7,6 +7,7 @@ import type { HostCallError } from "../../../../../src/application/ports/HostCal
 import { SelectPhaseTools } from "../../../../../src/application/use-cases/SelectPhaseTools.ts";
 import type { SessionId } from "../../../../../src/domain/events/SessionId.ts";
 import type { Timestamp } from "../../../../../src/domain/events/Timestamp.ts";
+import type { ToolName } from "../../../../../src/domain/mcp/ToolName.ts";
 import { Phase } from "../../../../../src/domain/session/Phase.ts";
 import { PhaseToolSelection } from "../../../../../src/domain/session/PhaseToolSelection.ts";
 
@@ -22,11 +23,11 @@ class FakePi {
   handlers = new Map<string, ((e: unknown, ctx: unknown) => unknown)[]>();
   bus = new Map<string, ((d: unknown) => unknown)[]>();
   active = ["read", "bash"];
-  sets = 0; notices: string[] = []; sid = "s1";
+  sets = 0; notices: string[] = []; sid = "s1"; ours = [...OURS];
   on(ev: string, h: (e: unknown, ctx: unknown) => unknown) { (this.handlers.get(ev) ?? this.handlers.set(ev, []).get(ev)!).push(h); }
   registerTool() {}
   registerCommand() {}
-  getAllTools() { return [...["read", "bash"], ...OURS].map((name) => ({ name })); }
+  getAllTools() { return [...["read", "bash"], ...this.ours].map((name) => ({ name })); }
   getActiveTools() { return [...this.active]; }
   setActiveTools(n: string[]) { this.active = n; this.sets++; }
   events = { on: (ev: string, h: (d: unknown) => unknown) => { (this.bus.get(ev) ?? this.bus.set(ev, []).get(ev)!).push(h); }, emit: (ev: string, d: unknown) => { for (const h of this.bus.get(ev) ?? []) h(d); } };
@@ -41,12 +42,12 @@ class Deferred<T> {
 }
 
 type Reply = SelectionDto | Error | Deferred<SelectionDto> | (() => SelectionDto);
-type Call = { session: string; phase: string; deadline: Timestamp | undefined };
+type Call = { session: string; phase: string; deadline: Timestamp | undefined; registered: string[] | undefined };
 function setup(replies: Reply[], opts: { timeoutMs?: number } = {}) {
   const pi = new FakePi(); const calls: Call[] = []; const state = { down: false, closed: null as (() => void) | null };
   const gateway = {
-    select: (id: SessionId, phase: Phase, deadline?: Timestamp): Promise<SelectionDto> => {
-      calls.push({ session: id.value, phase: phase.value, deadline });
+    select: (id: SessionId, phase: Phase, deadline?: Timestamp, registered?: ToolName[]): Promise<SelectionDto> => {
+      calls.push({ session: id.value, phase: phase.value, deadline, registered: registered?.map((t) => t.value) });
       const r = replies.shift() ?? SHADOW;
       if (typeof r === "function") return Promise.resolve().then(r);
       if (r instanceof Error) return Promise.reject(r);
@@ -279,4 +280,44 @@ test("/underpass-status añade la línea learning con modo, seleccionadas/candid
   gateway.summary = async () => ({ summary: null, logPosition: 3, sessionChainIntact: true, learning: { mode: "active", selected: null, candidates: null, missRate: null } });
   await commands.get("underpass-status")!.handler("", { ...pi.ctx, ui: { notify: (m: string) => notes.push(m) } });
   assert.match(notes[1], /\nlearning: active · -\/- tools · miss -$/);
+});
+
+// Ruling R7: el select lleva las tools nuestras que Pi tiene registradas, y un servidor que
+// registra tarde (misma fase, conjunto distinto) provoca una decisión nueva sobre el conjunto real.
+test("registro tardío de un servidor: el select lleva las tools registradas y se vuelve a decidir en la misma fase", async () => {
+  const { pi, host, calls } = setup([active(["kmp_time"]), active(["kmp_time", "made_get_help"])]);
+  pi.ours = OURS.filter((n) => n.startsWith("kmp_"));
+  await pi.fire("session_start");
+  host.applyPhase(pi as never, Phase.INTERACTIVE); // KMP registró
+  await flush();
+  assert.deepEqual(sorted(pi.active), NARROWED);
+  assert.deepEqual(calls[0].registered, ["kmp_ask", "kmp_wake", "kmp_time", "kmp_trace", "kmp_guide"]);
+  pi.ours = [...OURS]; // MADE registra después
+  host.applyPhase(pi as never, Phase.INTERACTIVE);
+  await flush();
+  assert.equal(calls.length, 2, "el conjunto registrado cambió: decisión nueva");
+  assert.deepEqual(calls[1].registered, OURS);
+  assert.deepEqual(sorted(pi.active), NARROWED, "la nueva decisión vuelve a reducir sobre el conjunto real");
+  host.applyPhase(pi as never, Phase.INTERACTIVE); // mismo conjunto, pero la reducción se perdió
+  await flush();
+  assert.equal(calls.length, 3, "/underpass-phase a la misma fase tras reducir vuelve a decidir");
+});
+
+test("la misma fase con el mismo conjunto registrado y sin reducción no decide otra vez", async () => {
+  const { pi, host, calls } = setup([]);
+  await pi.fire("session_start");
+  host.applyPhase(pi as never, Phase.INTERACTIVE);
+  host.applyPhase(pi as never, Phase.INTERACTIVE);
+  await flush();
+  assert.equal(calls.length, 1);
+  await pi.fire("agent_start");
+  assert.deepEqual(calls[1].registered, OURS, "agent_start también manda las registradas");
+});
+
+test("si Pi no deja leer sus tools registradas, el select va sin el campo y el host no filtra", async () => {
+  const { pi, host, calls } = setup([]);
+  await pi.fire("session_start");
+  pi.ours = ["kmp_Bad Name"];
+  await host.learn(pi as never);
+  assert.equal(calls[0].registered, undefined);
 });

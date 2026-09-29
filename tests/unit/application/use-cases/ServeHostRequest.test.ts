@@ -135,6 +135,13 @@ test("select: decide con SelectTools, recuerda los catálogos servidos y rechaza
       assert.ok(!bad.ok && bad.error.kind === "invalid", String(deadlineMs));
     }
     assert.equal(events.readStream(StreamId.session(SessionId.of("s1"))).filter((r) => r.type.value === "tools.selected").length, 4, "el select fuera de plazo no registra");
+    const fresh = new ServeHostRequest(project, emptyPool(), record, null, select, null);
+    const narrowed = await fresh.execute({ id: 13, method: "select", sessionId: "s1", phase: "interactive", registered: ["kmp_ask", "kmp_time"] });
+    assert.ok(narrowed.ok, JSON.stringify(narrowed));
+    for (const registered of ["kmp_ask", [1], ["../x"]] as unknown as string[][]) {
+      const bad = await fresh.execute({ id: 14, method: "select", sessionId: "s1", phase: "interactive", registered });
+      assert.ok(!bad.ok && bad.error.kind === "invalid", JSON.stringify(registered));
+    }
   } finally { await pool.close(); }
 });
 

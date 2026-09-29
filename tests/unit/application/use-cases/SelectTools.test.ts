@@ -22,6 +22,7 @@ import { ControlGroup } from "../../../../src/domain/learning/ControlGroup.ts";
 import { ServerIdentity } from "../../../../src/domain/mcp/ServerIdentity.ts";
 import { ServerName } from "../../../../src/domain/mcp/ServerName.ts";
 import { ToolCatalog } from "../../../../src/domain/mcp/ToolCatalog.ts";
+import { ToolName } from "../../../../src/domain/mcp/ToolName.ts";
 import { Phase } from "../../../../src/domain/session/Phase.ts";
 import { PhaseToolSelection } from "../../../../src/domain/session/PhaseToolSelection.ts";
 import { TelemetryInstanceId } from "../../../../src/domain/telemetry/TelemetryInstanceId.ts";
@@ -198,4 +199,20 @@ test("prior de tool_stats: 5 éxitos en otra sesión suben α a 6 y esas tools s
   for (const tool of PRIOR) assert.deepEqual([arms.get(tool)?.alpha, arms.get(tool)?.beta, arms.get(tool)?.n], [6, 1, 0], tool);
   assert.equal(arms.get("kmp_trace")?.alpha, 1);
   assert.equal(ToolStatsProjection.key("kmp", "kmp_time"), "tool:kmp:kmp_time");
+});
+
+// Ruling R7: la extensión manda los nombres de nuestras tools que Pi tiene registradas; la
+// decisión nunca elige (ni cuenta en el mínimo) una tool que Pi no expone. Sin el campo, como antes.
+test("registered: candidatas y mínimo se limitan a las tools que Pi tiene registradas", () => {
+  const h = host();
+  h.record.execute(fact("session.opened", "o"));
+  const kmpOnly = ["kmp_ask", "kmp_wake", "kmp_guide", "kmp_time", "kmp_trace", "made_nonexistent"].map((n) => ToolName.of(n));
+  const d = h.select.execute(S1, Phase.DESIGN, null, kmpOnly);
+  assert.deepEqual(d.floor, ["kmp_ask", "kmp_wake"]);
+  assert.deepEqual([...d.selected].sort(), ["kmp_guide", "kmp_time", "kmp_trace"]);
+  const p = h.decisions()[0].p;
+  assert.deepEqual([...(p.candidates as string[])].sort(), ["kmp_guide", "kmp_time", "kmp_trace"], "el hecho sólo lleva lo que Pi podía exponer");
+  const none = h.select.execute(S1, Phase.DESIGN, null, []);
+  assert.deepEqual([none.floor, none.selected], [[], []]);
+  assert.equal(h.select.execute(S1, Phase.DESIGN, null, null).selected.length, 12, "sin el campo, el comportamiento anterior");
 });

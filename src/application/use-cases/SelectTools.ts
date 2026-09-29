@@ -29,7 +29,7 @@ import type { RecordFact } from "./RecordFact.ts";
 const names = (xs: readonly ToolName[]) => xs.map((x) => x.value);
 
 // Decisión de L1 (spec §1–§4, §7): candidatas = lo que la fase permite (y el catálogo
-// conocido ofrece) menos el mínimo fijo; Thompson con el event_id de tools.selected como
+// conocido ofrece y Pi tiene registrado) menos el mínimo fijo; Thompson con el event_id de tools.selected como
 // semilla; control determinista en active. Registra tools.selected y responde. Si no puede
 // decidir, registra y responde fallback; si ni siquiera puede registrar, responde fallback
 // sin hecho. off no decide ni registra. Nunca lanza por el estado del bandit.
@@ -48,8 +48,13 @@ export class SelectTools {
   // hecho (tras poner al día las proyecciones, lo caro), Pi no aplicará la respuesta: fallback
   // con el conjunto completo y sin hecho. Carrera residual: una respuesta a tiempo aquí puede
   // llegar tarde a la extensión (transporte); ese hecho queda registrado y Pi no lo aplica.
-  execute(session: SessionId, phase: Phase, deadline: Timestamp | null = null): SelectionDto {
-    const allowed = this.#catalogs.available(this.#phases.allowed(phase));
+  // registered: nuestras tools que Pi tiene registradas (ruling R7). La decisión nunca elige ni
+  // cuenta en el mínimo una tool que Pi no expone (un servidor aún sin catálogo conocido, o que
+  // registró después). null (una extensión anterior que no lo manda): sin ese filtro.
+  execute(session: SessionId, phase: Phase, deadline: Timestamp | null = null, registered: ToolName[] | null = null): SelectionDto {
+    const known = this.#catalogs.available(this.#phases.allowed(phase));
+    const exposed = registered === null ? null : new Set(registered.map((t) => t.value));
+    const allowed = exposed === null ? known : known.filter((t) => exposed.has(t.value));
     const floor = SelectionFloor.STANDARD.within(allowed); const candidates = SelectionFloor.STANDARD.candidates(allowed);
     const fallback: SelectionDto = { mode: "fallback", control: false, selected: names(candidates), floor: names(floor) };
     let bandit: Map<string, unknown>;

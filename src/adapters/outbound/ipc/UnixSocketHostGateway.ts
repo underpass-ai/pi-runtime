@@ -64,7 +64,9 @@ export class UnixSocketHostGateway implements HostGateway {
   health(): Promise<{ project: string; started: string[] }> { return this.raw({ method: "health" }); }
   record(fact: FactDto): Promise<void> { return this.raw({ method: "record", fact }).then(() => undefined); }
   summary(id: SessionId): Promise<SessionStatusDto> { return this.raw({ method: "summary", sessionId: id.value }); }
-  select(id: SessionId, phase: Phase, deadline?: Timestamp): Promise<SelectionDto> { return this.raw({ method: "select", sessionId: id.value, phase: phase.value, deadlineMs: deadline?.epochMs() }); }
+  select(id: SessionId, phase: Phase, deadline?: Timestamp, registered?: ToolName[]): Promise<SelectionDto> {
+    return this.raw({ method: "select", sessionId: id.value, phase: phase.value, deadlineMs: deadline?.epochMs(), registered: registered?.map((t) => t.value) });
+  }
   close(): void { this.#sock.end(); }
 
   // Avisa cuando la conexión con el host se cierra (host muerto, error o

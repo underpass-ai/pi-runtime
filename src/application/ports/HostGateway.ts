@@ -16,7 +16,7 @@ export interface HostGateway {
   record(fact: FactDto): Promise<void>;
   summary(id: SessionId): Promise<SessionStatusDto>;
   // deadline: instante a partir del cual la extensión ya no aplicará la respuesta (spec §7).
-  select(id: SessionId, phase: Phase, deadline?: Timestamp): Promise<SelectionDto>;
+  select(id: SessionId, phase: Phase, deadline?: Timestamp, registered?: ToolName[]): Promise<SelectionDto>;
   close(): void;
   onClose(listener: () => void): void;
 }
