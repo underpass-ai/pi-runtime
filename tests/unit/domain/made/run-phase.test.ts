@@ -42,6 +42,8 @@ test("clases en run: arrancar y las escrituras de ejecución son confirm; leer l
   assert.ok(!p.startsCeremony(tool("made_start_ceremony")));
   for (const a of ["claim_ceremony_step", "complete_ceremony_step", "apply_ceremony_transition"]) assert.ok(p.executesInstance(MadeAction.of(a)), a);
   for (const a of ["start_published_ceremony", "cancel_ceremony", "get_ceremony_instance", "publish_ceremony_definition"]) assert.ok(!p.executesInstance(MadeAction.of(a)), a);
+  assert.ok(p.executesInstanceTool(tool("made_claim_ceremony_step")));
+  assert.ok(!p.executesInstanceTool(tool("made_start_published_ceremony")) && !p.executesInstanceTool(tool("kmp_claim_ceremony_step")));
 });
 
 test("retenidas: las escrituras de ejecución fuera de una fase que las exponga, o sin fase conocida", () => {

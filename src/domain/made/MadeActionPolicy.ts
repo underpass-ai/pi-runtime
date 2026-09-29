@@ -49,13 +49,17 @@ export class MadeActionPolicy {
   // Si la acción es una escritura de ejecución sobre una instancia (F3).
   executesInstance(action: MadeAction): boolean { return INSTANCE_EXECUTION.has(action.value); }
 
+  // Si la tool es una escritura de ejecución sobre una instancia (lo que la fase run concede sola
+  // sobre una instancia propia): la tool llamada y la acción decidida tienen que serlo las dos.
+  executesInstanceTool(tool: ToolName): boolean { return tool.hasPrefix("made_") && INSTANCE_EXECUTION.has(tool.value.slice("made_".length)); }
+
   // Si la tool arranca una ceremonia publicada: la única confirmación de la fase run.
   startsCeremony(tool: ToolName): boolean { return tool.value === START; }
 
   // Si el host debe retener la llamada sin llevarla a MADE: una escritura de ejecución fuera de
   // una fase que la exponga. Así un grant de instancia vivo nunca se usa fuera de run.
   withheld(tool: ToolName, phase: Phase | null): boolean {
-    if (!tool.hasPrefix("made_") || !INSTANCE_EXECUTION.has(tool.value.slice("made_".length))) return false;
+    if (!this.executesInstanceTool(tool)) return false;
     return phase === null || !this.#phases.exposes(phase, tool);
   }
 

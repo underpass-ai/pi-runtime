@@ -112,6 +112,14 @@ test("run: sobre una instancia que no arrancó esta sesión, las escrituras sigu
   assert.ok(await h.uc.execute(t("made_claim_ceremony_step"), CLAIM, run(null, S2)) instanceof ToolSuccess, "la sesión que la arrancó, sin preguntar");
 });
 
+test("run: la acción decidida y la tool llamada tienen que ser las dos de ejecución para concederse sola", async () => {
+  const h = host();
+  await started(h);
+  h.made.decisionAction = "claim_ceremony_step"; // MADE decide claim para una tool que no es de ejecución
+  const out = await h.uc.execute(t("made_start_published_ceremony"), { ...START }, run());
+  assert.ok(out instanceof PendingConfirmation, "sigue preguntando");
+});
+
 test("run: la fase manda; fuera de run las escrituras de ejecución ni llegan a MADE, aunque haya grant de instancia", async () => {
   const h = host();
   await started(h);

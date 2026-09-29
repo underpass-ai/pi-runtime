@@ -87,7 +87,7 @@ export class CallMadeTool {
     if (denied === null || actionClass === null) return outcome;
     const decision = await d.owner.decision(denied);
     if (decision === null || !decision.denied() || !this.#withinClass(decision.action, actionClass) || !d.policy.grantable(decision.action, decision.scope)) return outcome;
-    if (actionClass.equals(MadeActionClass.CONFIRM) && this.#ownInstance(context.session, decision)) {
+    if (actionClass.equals(MadeActionClass.CONFIRM) && this.#ownInstance(context.session, tool, decision)) {
       return (await this.#shared(context.session, decision.action, decision.scope)) === null ? outcome : this.#observed(context.session, await this.#call(tool, args));
     }
     if (actionClass.equals(MadeActionClass.CONFIRM)) return d.confirmations.open(context.session, tool, digest!, decision.action, decision.scope);
@@ -114,9 +114,9 @@ export class CallMadeTool {
   }
 
   // Una escritura de ejecución sobre una instancia que arrancó esta sesión y sigue viva.
-  #ownInstance(session: SessionId, decision: MadeDecision): boolean {
+  #ownInstance(session: SessionId, tool: ToolName, decision: MadeDecision): boolean {
     const ceremony = decision.scope.ceremonyId();
-    if (this.#d.events == null || ceremony === null || !this.#d.policy.executesInstance(decision.action)) return false;
+    if (this.#d.events == null || ceremony === null || !this.#d.policy.executesInstanceTool(tool) || !this.#d.policy.executesInstance(decision.action)) return false;
     try { return MadeGrantLedger.forSession(this.#d.events, session).running(session, ceremony) !== null; }
     catch (e) { this.#warn("made ceremonies not read", decision.action, e); return false; }
   }
