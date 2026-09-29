@@ -40,43 +40,61 @@ function log(close: boolean) {
   return { clock, events };
 }
 
-test("[made-auth] en verde: el host lee la política, sin huérfanos, store propio", async () => {
+const census = (policies: number, foreignGrants = 0) => ({ census: () => ({ policies, foreignGrants }) });
+const unknown = { census: () => null };
+
+test("[made-auth] en verde: el host lee la política, sin huérfanos, nadie más emite grants en el store", async () => {
   const { clock, events } = log(false);
-  const checks = await new DiagnoseMadeAuthorization(events, { policies: () => 1 }, STORE, clock).execute(new FakeMade());
+  const checks = await new DiagnoseMadeAuthorization(events, census(1), STORE, clock).execute(new FakeMade());
   assert.deepEqual(lines(checks), [
     "made-auth OK host authorization — the host owns the MADE policy and can grant exact actions",
     "made-auth OK orphan grants — none",
-    "made-auth OK shared store — only pi-runtime's policy",
+    "made-auth OK shared store — no other MADE client has issued grants in this store; any client that opens it (e.g. the Claude Code plugin) acts as the same principal",
   ]);
+});
+
+test("[made-auth] store compartido: grants que no emitió pi-runtime (el caso habitual, misma política), varias políticas o ninguna", async () => {
+  const { clock, events } = log(false);
+  const shared = async (c: { census: () => { policies: number; foreignGrants: number } | null }) => lines(await new DiagnoseMadeAuthorization(events, c, STORE, clock).execute(null)).filter((l) => l.includes("shared store"));
+  assert.deepEqual(await shared(census(1, 3)), ["made-auth WARN shared store — 3 MADE grants in this store were not issued by pi-runtime: another MADE client (e.g. the Claude Code plugin) acts as the same principal"]);
+  assert.deepEqual(await shared(census(2, 1)), ["made-auth WARN shared store — 1 MADE grants in this store were not issued by pi-runtime: another MADE client (e.g. the Claude Code plugin) acts as the same principal"]);
+  assert.deepEqual(await shared(census(2)), ["made-auth WARN shared store — the MADE store holds 2 authorization policies; another installation (e.g. the Claude Code plugin) shares it"]);
+  assert.deepEqual(await shared(census(0)), ["made-auth WARN shared store — the MADE store has no authorization policy yet; run underpass setup"]);
+  assert.deepEqual(await shared(unknown), []);
 });
 
 test("[made-auth] avisa de huérfanos vigentes y del store compartido; FAIL si la política no se lee", async () => {
   const { clock, events } = log(true);
   const refusing = { call: async () => ToolRefusal.of(RefusalCode.of("refused"), "nope", false) };
-  const checks = await new DiagnoseMadeAuthorization(events, { policies: () => 2 }, STORE, clock).execute(refusing as never);
+  const checks = await new DiagnoseMadeAuthorization(events, census(2), STORE, clock).execute(refusing as never);
   assert.deepEqual(lines(checks), [
     "made-auth FAIL host authorization — cannot read the MADE policy as its owner (refused); run underpass setup",
     "made-auth WARN orphan grants — 1 host grants still valid after their session ended; run underpass made revoke-orphans",
     "made-auth WARN shared store — the MADE store holds 2 authorization policies; another installation (e.g. the Claude Code plugin) shares it",
   ]);
   clock.ms += 12 * 3_600_000; // caducado: ya no autoriza nada, no es un aviso
-  assert.equal(lines(await new DiagnoseMadeAuthorization(events, { policies: () => null }, STORE, clock).execute(null)).join("\n"), "made-auth OK orphan grants — none");
+  assert.equal(lines(await new DiagnoseMadeAuthorization(events, unknown, STORE, clock).execute(null)).join("\n"), "made-auth OK orphan grants — none");
   const broken = { readAll: () => { throw new Error("disk"); } } as unknown as EventStore;
-  assert.deepEqual(lines(await new DiagnoseMadeAuthorization(broken, { policies: () => null }, STORE, clock).execute(null)), ["made-auth WARN orphan grants — event log unreadable (Error)"]);
+  assert.deepEqual(lines(await new DiagnoseMadeAuthorization(broken, unknown, STORE, clock).execute(null)), ["made-auth WARN orphan grants — event log unreadable (Error)"]);
 });
 
-test("el censo lee el store de MADE en sólo lectura y nunca lo crea", () => {
+test("el censo lee el store de MADE en sólo lectura y nunca lo crea: políticas y grants que no son de pi-runtime", () => {
   const dir = mkdtempSync(join(tmpdir(), "made-store-"));
-  const census = new SqliteMadePolicyCensus();
-  assert.equal(census.policies(StorePath.of(join(dir, "missing.sqlite3"))), null);
+  const sqlite = new SqliteMadePolicyCensus();
+  assert.equal(sqlite.census(StorePath.of(join(dir, "missing.sqlite3"))), null);
   const path = join(dir, "ceremonies.sqlite3");
   const db = new DatabaseSync(path);
   db.exec("CREATE TABLE authorization_policy_state (policy_id TEXT PRIMARY KEY, version INTEGER NOT NULL, payload BLOB NOT NULL)");
-  db.exec("INSERT INTO authorization_policy_state VALUES ('p1', 1, x''), ('p2', 1, x'')");
+  const grant = (id: unknown) => ({ type: "grant_issued", policy_id: "p1", grant: { id, actions: ["list_contracts"] }, issued_at: "2026-09-30T10:00:00Z" });
+  const p1 = { events: [{ type: "opened", policy_id: "p1" }, grant(`pi-runtime-${"a".repeat(32)}`), grant("claude-review"), grant("claude-review"), grant(7), { type: "grant_revoked" }] };
+  const insert = db.prepare("INSERT INTO authorization_policy_state VALUES (?, 1, ?)");
+  insert.run("p1", new TextEncoder().encode(JSON.stringify(p1)));
+  insert.run("p2", new TextEncoder().encode(JSON.stringify({ events: [grant("other-grant")] })));
+  insert.run("p3", new Uint8Array([0xff, 0x00]));
   db.close();
-  assert.equal(census.policies(StorePath.of(path)), 2);
+  assert.deepEqual(sqlite.census(StorePath.of(path)), { policies: 3, foreignGrants: 2 }, "ids distintos que no son pi-runtime-*; un payload ilegible no rompe la cuenta");
   writeFileSync(join(dir, "other.sqlite3"), "not sqlite");
-  assert.equal(census.policies(StorePath.of(join(dir, "other.sqlite3"))), null);
+  assert.equal(sqlite.census(StorePath.of(join(dir, "other.sqlite3"))), null);
 });
 
 test("estado de MADE de una sesión: grants vigentes y confirmaciones", () => {

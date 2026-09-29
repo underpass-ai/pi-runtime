@@ -95,7 +95,11 @@ Reglas del ciclo de vida:
 - **`doctor`, sección `[made-auth]`:**
   - `OK`: el host puede autorizarse. Lo comprueba con una operación de solo lectura de la política; no emite nada.
   - `WARN`: grants del host vigentes cuya sesión ya cerró (huérfanos), con el remedio `underpass made revoke-orphans`.
-  - `WARN` informativo: el store de MADE es compartido con otra instalación, por ejemplo el plugin de Claude Code. Se detecta cuando hay más de una política en el store.
+  - `shared store`, informativo y siempre en sólo lectura sobre el store (`authorization_policy_state`). Con los valores por defecto, pi-runtime y el plugin de Claude Code usan el mismo store y la misma configuración, así que derivan la misma política y el mismo trusted host: contar políticas no lo detecta. Por eso:
+    - `WARN` si el store guarda grants que no emitió pi-runtime (ids que no empiezan por `pi-runtime-`): otro cliente de MADE actúa como el mismo principal. Sólo se muestra la cuenta, nunca los ids.
+    - `WARN` si guarda más de una política (otra instalación con otra configuración).
+    - `WARN` si todavía no guarda ninguna política, con el remedio `underpass setup`.
+    - `OK` en otro caso, diciendo lo que no se puede ver: ningún otro cliente ha emitido grants, pero cualquiera que abra ese store (por ejemplo, el plugin de Claude Code) actúa como el mismo principal.
 - **`underpass made grants`:** lista los grants emitidos por el host (id, sesión, acción, alcance, clase, caducidad y estado).
 - **`underpass made revoke-orphans`:** revoca los huérfanos y registra los hechos.
 - **`/underpass-status`:** añade la línea `made: <n> grants activos · <m> confirmaciones`.

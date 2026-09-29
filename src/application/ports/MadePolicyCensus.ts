@@ -1,5 +1,7 @@
 import type { StorePath } from "../../domain/made/StorePath.ts";
+import type { MadeStoreCensusDto } from "../dto/MadeStoreCensusDto.ts";
 
-// Cuántas políticas de autorización guarda el store de MADE (más de una: lo comparte otra
-// instalación, p. ej. el plugin de Claude Code). null si no existe o no se puede leer.
-export interface MadePolicyCensus { policies(store: StorePath): number | null; }
+// El censo del store de MADE: políticas y grants que no emitió pi-runtime (otro cliente de MADE,
+// p. ej. el plugin de Claude Code, que con la misma configuración actúa como el mismo principal).
+// null si no existe o no se puede leer.
+export interface MadePolicyCensus { census(store: StorePath): MadeStoreCensusDto | null; }

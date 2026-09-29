@@ -72,7 +72,7 @@ test("made con un grant huérfano: grants lo lista, revoke-orphans lo revoca en 
 
 test("madeAuthorization sin log: sin huérfanos y sin crear nada; el censo decide la línea del store", async () => {
   const { home, composition } = setup();
-  const checks = await composition.madeAuthorization({ policies: () => null }, StorePath.of("/nowhere/ceremonies.sqlite3")).execute(null);
+  const checks = await composition.madeAuthorization({ census: () => null }, StorePath.of("/nowhere/ceremonies.sqlite3")).execute(null);
   assert.deepEqual(checks.map((c) => `${c.status.value} ${c.name.value}`), ["OK orphan grants"]);
   assert.equal(existsSync(join(home, "state")), false);
 });

@@ -3669,6 +3669,7 @@ git -c user.name="Tirso" -c user.email="tgarciaib@gmail.com" commit -m "feat(s3a
 - `host authorization`: OK si el host lee la política como dueño (`made_get_authorization_policy`, sólo lectura) con la misma conexión de MADE que usa el resto de `doctor`; FAIL si no (el host no podría conceder nada).
 - `orphan grants`: WARN con los grants del host **vigentes** cuya sesión cerró o se abandonó, y el remedio `underpass made revoke-orphans`; los ya caducados no autorizan nada y no avisan.
 - `shared store`: WARN informativo si el store de MADE guarda más de una política (otra instalación, p. ej. el plugin de Claude Code, lo comparte). Lo cuenta `SqliteMadePolicyCensus` leyendo `authorization_policy_state` en sólo lectura; si el store no existe o no se lee, no hay línea.
+  - *Enmienda de la revisión final (spec §5):* con los valores por defecto el plugin de Claude Code comparte store y política, así que el censo también cuenta los grants cuyo id no empieza por `pi-runtime-` (WARN). Con 0 políticas la línea ya no dice «only pi-runtime's policy»: es WARN con el remedio `underpass setup`. El OK dice que ningún otro cliente ha emitido grants y que cualquiera que abra el store actúa como el mismo principal.
 
 `/underpass-status` añade `made: <n> active grants · <m> confirmations` (grants vigentes emitidos en la sesión y confirmaciones pedidas en ella) si el host lo envía (`SessionStatusDto.made`, opcional como el resto).
 

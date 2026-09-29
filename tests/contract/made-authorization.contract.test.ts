@@ -10,6 +10,7 @@ import { MadeServerCommandFactory } from "../../src/adapters/outbound/process/Ma
 import { Project } from "../../src/domain/project/Project.ts";
 import { ProjectRoot } from "../../src/domain/project/ProjectRoot.ts";
 import { ToolSuccess } from "../../src/domain/mcp/ToolSuccess.ts";
+import { SqliteMadePolicyCensus } from "../../src/adapters/outbound/sqlite/SqliteMadePolicyCensus.ts";
 import { NodeEntropySource } from "../../src/adapters/outbound/crypto/NodeEntropySource.ts";
 import { FsMadeConfigurationRepository } from "../../src/adapters/outbound/fs/FsMadeConfigurationRepository.ts";
 import { GitProjectLocator } from "../../src/adapters/outbound/git/GitProjectLocator.ts";
@@ -54,15 +55,16 @@ function install() {
   const project = new GitProjectLocator().locate(cwd);
   // La política se lee directamente como dueño, con otro made-mcp sobre el mismo store: por el
   // host, las tools never ya no llegan a MADE.
-  const policy = async () => {
+  const direct = async <T>(tool: string, args: Record<string, unknown>): Promise<T> => {
     const conn = await new StdioMcpConnector(60_000).open(ServerName.MADE, new MadeServerCommandFactory(MADE_BIN!, store, configuration, env).commandFor(Project.of(ProjectRoot.of(cwd))));
     try {
-      const out = await conn.call(t("made_get_authorization_policy"), {});
-      assert.ok(out instanceof ToolSuccess, "el dueño lee la política");
-      return (out.structured as { policy: { grants: { grant_id: string; actions: string[] }[]; revocations: string[] } }).policy;
+      const out = await conn.call(t(tool), args);
+      assert.ok(out instanceof ToolSuccess, `el dueño llama a ${tool}`);
+      return out.structured as T;
     } finally { await conn.close(); }
   };
-  return { home, cwd, env, policy, socket: paths.socketOf(project), log: paths.eventLogOf(project), cleanup: () => { rmSync(home, { recursive: true, force: true }); rmSync(cwd, { recursive: true, force: true }); } };
+  const policy = async () => (await direct<{ policy: { owner: { principal_id: string }; grants: { grant_id: string; actions: string[] }[]; revocations: string[] } }>("made_get_authorization_policy", {})).policy;
+  return { home, cwd, env, store, policy, direct, socket: paths.socketOf(project), log: paths.eventLogOf(project), cleanup: () => { rmSync(home, { recursive: true, force: true }); rmSync(cwd, { recursive: true, force: true }); } };
 }
 
 async function start(i: ReturnType<typeof install>): Promise<{ child: ChildProcess; gw: UnixSocketHostGateway }> {
@@ -149,12 +151,23 @@ test("made-mcp 0.8.0 por el host real: lecturas automáticas, publicar con confi
     assert.equal(live.grants.length, 5);
     assert.deepEqual(live.revocations, [confirmGrant]);
 
+    // doctor: el censo de sólo lectura sobre el store real de made-mcp. Con los grants de pi-runtime
+    // no hay nadie más; un grant emitido por otro cliente del mismo principal (como haría el plugin
+    // de Claude Code, con la misma configuración) se detecta aunque sólo haya una política.
+    const census = new SqliteMadePolicyCensus();
+    assert.deepEqual(census.census(i.store), { policies: 1, foreignGrants: 0 });
+    const now = Date.now();
+    await i.direct("made_issue_authorization_grant", { grant_id: "claude-plugin-contract", grantee_id: live.owner.principal_id, actions: ["get_status"], scope: { kind: "global" },
+      valid_from: new Date(now).toISOString(), valid_until: new Date(now + 60_000).toISOString(), delegation_depth: 0 });
+    assert.deepEqual(census.census(i.store), { policies: 1, foreignGrants: 1 });
+    await i.direct("made_revoke_authorization_grant", { grant_id: "claude-plugin-contract", reason: "contract" });
+
     // Cierre de la sesión: el host revoca los que quedan vivos y lo registra.
     await record(h.gw, "s1", "session.closed", "c");
     await waitFor(() => madeFacts(i.log).filter((f) => f.type === "made.grant_revoked").length === 5);
     assert.deepEqual(madeFacts(i.log).filter((f) => f.type === "made.grant_revoked").map((f) => `${f.stream} ${f.payload.session} ${f.payload.reason}`).sort(),
       ["host s1 consumed", "host s1 session_closed", "host s1 session_closed", "host s1 session_closed", "host s1 session_closed"]);
-    assert.deepEqual((await i.policy()).revocations.sort(), live.grants.map((g) => g.grant_id).sort());
+    assert.deepEqual((await i.policy()).revocations.sort(), [...live.grants.map((g) => g.grant_id), "claude-plugin-contract"].sort());
   } finally { await stop(h); i.cleanup(); }
 });
 
