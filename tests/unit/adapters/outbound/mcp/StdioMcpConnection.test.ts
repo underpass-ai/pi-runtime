@@ -14,8 +14,8 @@ import { ToolSuccess } from "../../../../../src/domain/mcp/ToolSuccess.ts";
 import { ToolRefusal } from "../../../../../src/domain/mcp/ToolRefusal.ts";
 
 const fake = new URL("../../../../fixtures/fake-mcp-server.ts", import.meta.url).pathname;
-const open = (flavor = "kmp", timeout = 2000) =>
-  new StdioMcpConnector(timeout).open(ServerName.of(flavor), { command: process.execPath, args: [fake], cwd: process.cwd(), env: { ...process.env, FAKE_FLAVOR: flavor } });
+const open = (flavor = "kmp", timeout = 2000, extraEnv: Record<string, string> = {}) =>
+  new StdioMcpConnector(timeout).open(ServerName.of(flavor), { command: process.execPath, args: [fake], cwd: process.cwd(), env: { ...process.env, FAKE_FLAVOR: flavor, ...extraEnv } });
 
 test("handshake y catálogo", async () => {
   const c = await open();
@@ -45,7 +45,10 @@ test("correlación por id con peticiones en vuelo", async () => {
 });
 
 test("timeout y muerte del proceso son McpTransportError", async () => {
-  const slow = await open("kmp", 100);
+  // El timeout también cubre el handshake: con 100 ms, un runner cargado no
+  // llegaba a completar initialize. La tool lenta tarda mucho más que el
+  // timeout para que el caso siga siendo determinista.
+  const slow = await open("kmp", 1000, { FAKE_SLOW_MS: "5000" });
   try { await assert.rejects(slow.call(ToolName.of("kmp_slow"), {}), (e) => e instanceof McpTransportError && /outcome unknown/.test(e.message)); }
   finally { await slow.close(); }
   const dying = await open();
