@@ -92,3 +92,15 @@ test("sin autorización de MADE cableada, confirmation es invalid y MADE va dire
   const res = await uc.execute({ id: 2, method: "call", server: "made", tool: "made_list_contracts", args: {}, sessionId: "s1", phase: "design" });
   assert.ok(!res.ok && res.error.kind === "transport");
 });
+
+test("el contexto sólo se valida en llamadas a MADE: una fase desconocida o un token mal formado no invalidan una llamada a KMP", async () => {
+  const h = host();
+  try {
+    for (const [id, extra] of [[1, { phase: "cooking" }], [2, { confirmation: "not-a-token" }], [3, { sessionId: "" }]] as const) {
+      const echo = await h.uc.execute({ id, method: "call", server: "kmp", tool: "kmp_echo", args: { a: 1 }, sessionId: "s1", phase: "design", ...extra } as never);
+      assert.ok(echo.ok, JSON.stringify(echo));
+    }
+    const bad = await h.uc.execute({ id: 4, method: "call", server: "made", tool: "made_list_contracts", args: {}, sessionId: "s1", phase: "cooking" });
+    assert.ok(!bad.ok && bad.error.kind === "invalid");
+  } finally { await h.pool.close(); }
+});

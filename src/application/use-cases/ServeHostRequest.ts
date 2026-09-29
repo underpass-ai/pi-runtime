@@ -69,7 +69,8 @@ export class ServeHostRequest {
     let server: ServerName; let tool: ToolName | null = null; let context: MadeCallContext | null = null;
     try {
       server = ServerName.of(req.server);
-      if (req.method === "call") { tool = ToolName.of(req.tool); context = ServeHostRequest.#context(req); }
+      // El contexto sólo lo consume la autorización de MADE: una llamada a otro servidor no lo valida.
+      if (req.method === "call") { tool = ToolName.of(req.tool); if (this.#authorizes(server)) context = ServeHostRequest.#context(req); }
     } catch (e) {
       return this.#responses.invalid(req.id, (e as Error).message);
     }
@@ -82,8 +83,8 @@ export class ServeHostRequest {
         return this.#responses.success(req.id, new CatalogMapper().toDto(catalog));
       }
       const args = (req as { args: Record<string, unknown> }).args ?? {};
-      const outcome = server.equals(ServerName.MADE) && this.#made !== null
-        ? await this.#made.call.execute(tool!, args, context)
+      const outcome = this.#authorizes(server)
+        ? await this.#made!.call.execute(tool!, args, context)
         : await new CallServerTool(this.#pool).execute(server, tool!, args);
       if (outcome instanceof PendingConfirmation) return this.#responses.needsConfirmation(req.id, outcome);
       if (outcome instanceof ToolRefusal) return this.#responses.refusal(req.id, outcome);
@@ -92,6 +93,9 @@ export class ServeHostRequest {
       return this.#responses.failure(req.id, e);
     }
   }
+
+  // La llamada pasa por la autorización de MADE del host (S3a).
+  #authorizes(server: ServerName): boolean { return server.equals(ServerName.MADE) && this.#made !== null; }
 
   // Sesión, fase y token de la llamada (S3a); sin sesión (extensión anterior), null: el host no autoriza nada.
   static #context(req: { sessionId?: string; phase?: string | null; confirmation?: string }): MadeCallContext | null {

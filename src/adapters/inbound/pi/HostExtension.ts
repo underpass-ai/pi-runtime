@@ -1,3 +1,4 @@
+import type { CallContextDto } from "../../../application/dto/CallContextDto.ts";
 import type { SelectionDto } from "../../../application/dto/SelectionDto.ts";
 import type { HostGateway } from "../../../application/ports/HostGateway.ts";
 import type { SelectPhaseTools } from "../../../application/use-cases/SelectPhaseTools.ts";
@@ -48,6 +49,11 @@ export class HostExtension {
     opening.catch(() => { if (this.#gateway === opening) this.#gateway = null; });
     this.#gateway = opening;
     return opening;
+  }
+
+  // Sesión y fase en curso para cada llamada a una tool (S3a); sin sesión, null.
+  callContext(): CallContextDto | null {
+    return this.#sessionId === null ? null : { sessionId: this.#sessionId, phase: this.#phase.value };
   }
 
   // Vuelve al conjunto completo de la fase. Si deshace una reducción de L1, la siguiente

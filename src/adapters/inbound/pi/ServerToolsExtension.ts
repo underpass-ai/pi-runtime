@@ -15,7 +15,7 @@ export class ServerToolsExtension {
       this.#registering = (async () => {
         try {
           const catalog = await (await this.#host.gateway()).catalog(this.#server);
-          for (const t of catalog.tools()) pi.registerTool(this.#tools.create(this.#server, t, () => this.#host.gateway()));
+          for (const t of catalog.tools()) pi.registerTool(this.#tools.create(this.#server, t, () => this.#host.gateway(), () => this.#host.callContext()));
           this.#host.applyPhase(pi, Phase.INTERACTIVE);
           this.#registered = true;
         } catch (e) {
