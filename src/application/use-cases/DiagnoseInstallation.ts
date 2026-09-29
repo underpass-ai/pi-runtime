@@ -24,14 +24,15 @@ export class DiagnoseInstallation {
   readonly #verify: VerifyPinnedBinaries; readonly #runtime: PiRuntimeInspector; readonly #pi: PiPackageManager; readonly #kmp: KmpLifecycle;
   readonly #fingerprints: FingerprintRepository; readonly #connect: (s: ServerName) => Promise<McpConnection>;
   readonly #profiles: VerifyServerProfiles; readonly #capabilities: DiscoverMadeCapabilities; readonly #piVersion: SemVer;
-  readonly #eventLog: { execute(): Check[] } | null;
+  readonly #eventLog: { execute(): Check[] } | null; readonly #madeAuth: { execute(conn: McpConnection | null): Promise<Check[]> } | null;
 
+  // madeAuth (S3a): la sección [made-auth], con la conexión de MADE ya abierta para el resto de checks.
   constructor(verify: VerifyPinnedBinaries, runtime: PiRuntimeInspector, pi: PiPackageManager, kmp: KmpLifecycle, fingerprints: FingerprintRepository,
     connect: (s: ServerName) => Promise<McpConnection>, profiles: VerifyServerProfiles, capabilities: DiscoverMadeCapabilities, piVersion: SemVer,
-    eventLog: { execute(): Check[] } | null = null) {
+    eventLog: { execute(): Check[] } | null = null, madeAuth: { execute(conn: McpConnection | null): Promise<Check[]> } | null = null) {
     this.#verify = verify; this.#runtime = runtime; this.#pi = pi; this.#kmp = kmp; this.#fingerprints = fingerprints;
     this.#connect = connect; this.#profiles = profiles; this.#capabilities = capabilities; this.#piVersion = piVersion;
-    this.#eventLog = eventLog;
+    this.#eventLog = eventLog; this.#madeAuth = madeAuth;
   }
 
   // Los checks del log de eventos van siempre al final, también cuando la instalación corta antes (binarios sin verificar).
@@ -76,6 +77,7 @@ export class DiagnoseInstallation {
           const caps = await this.#capabilities.execute(conn);
           const x = c(CheckSection.MADE, "capabilities", `groups ${caps.groups.length}; limits ${caps.limits.join(", ")}`);
           report = report.add(caps.declares(DeclaredLimitId.ROSTER_PROCESS_LOCAL) ? Check.ok(x.s, x.n, x.d) : Check.warn(x.s, x.n, x.d));
+          if (this.#madeAuth !== null) report = report.add(...(await this.#madeAuth.execute(conn)));
         }
       } catch (e) {
         report = report.add(Check.fail(CheckSection.of(server.value), CheckName.of("server contract"), CheckDetail.of((e as Error).message)));

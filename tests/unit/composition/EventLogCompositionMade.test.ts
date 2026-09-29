@@ -17,6 +17,7 @@ import { MadeAction } from "../../../src/domain/made/MadeAction.ts";
 import { MadeActionClass } from "../../../src/domain/made/MadeActionClass.ts";
 import { MadeGrant } from "../../../src/domain/made/MadeGrant.ts";
 import { MadeScope } from "../../../src/domain/made/MadeScope.ts";
+import { StorePath } from "../../../src/domain/made/StorePath.ts";
 import { Project } from "../../../src/domain/project/Project.ts";
 import { ProjectRoot } from "../../../src/domain/project/ProjectRoot.ts";
 import { FakeMade } from "../../support/FakeMade.ts";
@@ -67,4 +68,11 @@ test("made con un grant huérfano: grants lo lista, revoke-orphans lo revoca en 
   assert.deepEqual(revoked.actor, Actor.of("human", "underpass-cli"));
   assert.equal(await verb.run(["revoke-orphans"]), 0);
   assert.equal(out.at(-1), "no orphan MADE grants");
+});
+
+test("madeAuthorization sin log: sin huérfanos y sin crear nada; el censo decide la línea del store", async () => {
+  const { home, composition } = setup();
+  const checks = await composition.madeAuthorization({ policies: () => null }, StorePath.of("/nowhere/ceremonies.sqlite3")).execute(null);
+  assert.deepEqual(checks.map((c) => `${c.status.value} ${c.name.value}`), ["OK orphan grants"]);
+  assert.equal(existsSync(join(home, "state")), false);
 });

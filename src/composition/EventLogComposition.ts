@@ -14,6 +14,7 @@ import { SqliteEventStore } from "../adapters/outbound/sqlite/SqliteEventStore.t
 import { SqliteProjectionStore } from "../adapters/outbound/sqlite/SqliteProjectionStore.ts";
 import { SqliteTelemetryEpochStore } from "../adapters/outbound/sqlite/SqliteTelemetryEpochStore.ts";
 import type { EventStore } from "../application/ports/EventStore.ts";
+import type { MadePolicyCensus } from "../application/ports/MadePolicyCensus.ts";
 import type { McpConnection } from "../application/ports/McpConnection.ts";
 import type { Projection } from "../application/ports/Projection.ts";
 import type { ProjectionStore } from "../application/ports/ProjectionStore.ts";
@@ -33,6 +34,7 @@ import { AcknowledgeSpoolGaps } from "../application/use-cases/AcknowledgeSpoolG
 import { ChangeLearningMode } from "../application/use-cases/ChangeLearningMode.ts";
 import { DiagnoseEventLog } from "../application/use-cases/DiagnoseEventLog.ts";
 import { DiagnoseLearning } from "../application/use-cases/DiagnoseLearning.ts";
+import { DiagnoseMadeAuthorization } from "../application/use-cases/DiagnoseMadeAuthorization.ts";
 import { DiagnoseTelemetry } from "../application/use-cases/DiagnoseTelemetry.ts";
 import { ExportEventLog } from "../application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../application/use-cases/ImportEventLog.ts";
@@ -50,6 +52,7 @@ import { ShowSession } from "../application/use-cases/ShowSession.ts";
 import { ToolStatsReport } from "../application/use-cases/ToolStatsReport.ts";
 import { VerifyEventLog } from "../application/use-cases/VerifyEventLog.ts";
 import type { Check } from "../domain/diagnosis/Check.ts";
+import type { StorePath } from "../domain/made/StorePath.ts";
 import { Actor } from "../domain/events/Actor.ts";
 import type { Project } from "../domain/project/Project.ts";
 import { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts";
@@ -79,6 +82,16 @@ export class EventLogComposition {
           ...new DiagnoseTelemetry(s.events, s.projections, this.#telemetry, new SystemClock()).execute(),
           ...new DiagnoseLearning(s.events, s.projections).execute(),
         ];
+      },
+    };
+  }
+
+  // Sección [made-auth] de doctor (S3a §5): el log en sólo lectura, abierto al primer uso.
+  madeAuthorization(census: MadePolicyCensus, store: StorePath): { execute(conn: McpConnection | null): Promise<Check[]> } {
+    return {
+      execute: (conn) => {
+        let events: EventStore | null = null;
+        return new DiagnoseMadeAuthorization(new LazyEventStore(() => (events ??= this.#open("read").events)), census, store, new SystemClock()).execute(conn);
       },
     };
   }

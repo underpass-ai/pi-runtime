@@ -175,6 +175,8 @@ export class HostExtension {
             if (x) lines.push(x.state === "disabled" ? "otlp: disabled" : x.state === "ok" ? `otlp: ok, lag ${x.lag}` : `otlp: failing since ${x.since}`);
             const l = status.learning;
             if (l) lines.push(`learning: ${l.mode} · ${l.selected ?? "-"}/${l.candidates ?? "-"} tools · miss ${pct(l.missRate)}`);
+            const m = status.made;
+            if (m) lines.push(`made: ${m.activeGrants} active grants · ${m.confirmations} confirmations`);
           } catch { lines.push("session: summary unavailable"); }
         }
         ctx.ui.notify(lines.join("\n"), "info");

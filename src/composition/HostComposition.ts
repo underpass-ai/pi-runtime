@@ -55,6 +55,7 @@ import { AdoptOrphanSpools } from "../application/use-cases/AdoptOrphanSpools.ts
 import { MetricsExport } from "../application/use-cases/MetricsExport.ts";
 import { QualityKpisReport } from "../application/use-cases/QualityKpisReport.ts";
 import { ReadLearningStatus } from "../application/use-cases/ReadLearningStatus.ts";
+import { ReadMadeStatus } from "../application/use-cases/ReadMadeStatus.ts";
 import { ReadSessionSummary } from "../application/use-cases/ReadSessionSummary.ts";
 import { ReadSessionStatus } from "../application/use-cases/ReadSessionStatus.ts";
 import { ReadTelemetryMetrics } from "../application/use-cases/ReadTelemetryMetrics.ts";
@@ -113,7 +114,7 @@ export class HostComposition {
     const otlp = TelemetryEnvironment.configuration(env);
     const telemetry = HostComposition.#exporter(otlp, env, paths, project, events, projectionStore, db, clock, log);
     const status = new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce()), new QualityKpisReport(projectionStore),
-      () => telemetry?.status() ?? { state: "disabled", lag: 0, since: null }, new ReadLearningStatus(projectionStore));
+      () => telemetry?.status() ?? { state: "disabled", lag: 0, since: null }, new ReadLearningStatus(projectionStore), new ReadMadeStatus(events, clock));
     // L1: el host decide con el estado del bandit y registra tools.selected (spec §7).
     const catalogs = new KnownCatalogs();
     const hostActor = `host:${process.pid}`;

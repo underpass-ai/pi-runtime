@@ -6,6 +6,7 @@ import type { SessionStatusDto } from "../dto/SessionStatusDto.ts";
 import type { EventStore } from "../ports/EventStore.ts";
 import type { QualityKpisReport } from "./QualityKpisReport.ts";
 import type { ReadLearningStatus } from "./ReadLearningStatus.ts";
+import type { ReadMadeStatus } from "./ReadMadeStatus.ts";
 import type { ReadSessionSummary } from "./ReadSessionSummary.ts";
 
 // Sólo verifica el stream de la sesión pedida, no el log entero: es barato y es lo que
@@ -13,9 +14,10 @@ import type { ReadSessionSummary } from "./ReadSessionSummary.ts";
 export class ReadSessionStatus {
   readonly #events: EventStore; readonly #summaries: ReadSessionSummary;
   readonly #kpis: QualityKpisReport | null; readonly #exporter: (() => ExporterStatusDto) | null; readonly #learning: ReadLearningStatus | null;
+  readonly #made: ReadMadeStatus | null;
   constructor(events: EventStore, summaries: ReadSessionSummary, kpis: QualityKpisReport | null = null, exporter: (() => ExporterStatusDto) | null = null,
-    learning: ReadLearningStatus | null = null) {
-    this.#events = events; this.#summaries = summaries; this.#kpis = kpis; this.#exporter = exporter; this.#learning = learning;
+    learning: ReadLearningStatus | null = null, made: ReadMadeStatus | null = null) {
+    this.#events = events; this.#summaries = summaries; this.#kpis = kpis; this.#exporter = exporter; this.#learning = learning; this.#made = made;
   }
 
   execute(id: SessionId): SessionStatusDto {
@@ -25,6 +27,7 @@ export class ReadSessionStatus {
     if (this.#kpis !== null) status.kpis = this.#kpis.execute(id);
     if (this.#exporter !== null) status.exporter = this.#exporter();
     if (this.#learning !== null) status.learning = this.#learning.execute(id);
+    if (this.#made !== null) status.made = this.#made.execute(id);
     return status;
   }
 }
