@@ -143,7 +143,7 @@ test("si otro escritor reinicia el cursor mientras se envía, el commit no escri
   assert.equal(store.cursor(TraceExport.NAME)?.position.value, 2);
   events.append(SESSION, StreamVersion.of(2), [fact("tool.completed", "c1", { tool: "t", server: "pi", callId: "c1", status: "succeeded" }, SESSION, 2500), fact("session.closed", "x", {}, SESSION, 3000)], AT);
   race = true;
-  await exporter.execute(NOW);
+  assert.deepEqual(await exporter.execute(NOW), ExportResult.stale(), "un compare-and-set perdido es stale, no ok");
   assert.equal(store.cursor(TraceExport.NAME)?.position.value, 0, "el rebuild gana: el cursor no avanza");
   assert.equal(store.load(TraceExport.NAME).size, 0, "ni se escribe el estado del ensamblador");
   await exporter.execute(NOW);
@@ -180,4 +180,16 @@ test("con atraso, lo que lleva 10 min sin cierre según el propio log sí expira
   assert.ok(exporter.lag() > 0);
   const trace = TraceId.forStream(other).value;
   assert.deepEqual(sink.batches.flat().filter((s) => s.traceId.value === trace).map((s) => [s.name, s.attributes.get("pi_runtime.incomplete")]), [["tool", true]]);
+});
+
+test("un lote descartado (4xx) cuyo compare-and-set pierde también es stale, no rejected", async () => {
+  const { events, store, sink } = setup();
+  const racing = new FakeTelemetrySink();
+  racing.sendSpans = async (resource, spans) => { store.reset(TraceExport.NAME, TraceExport.VERSION); await sink.sendSpans(resource, spans); return ExportResult.rejected("http 400"); };
+  session(events);
+  assert.equal((await new TraceExport(events, store, sink, RESOURCE).execute(NOW)).kind, "ok");
+  const s2 = StreamId.session(SessionId.of("s2"));
+  events.append(s2, StreamVersion.NONE, [fact("session.opened", "o", {}, s2, 1000), fact("session.closed", "x", {}, s2, 1500)], AT);
+  assert.deepEqual(await new TraceExport(events, store, racing, RESOURCE).execute(NOW), ExportResult.stale());
+  assert.equal(store.cursor(TraceExport.NAME)?.position.value, 0, "el rebuild gana");
 });

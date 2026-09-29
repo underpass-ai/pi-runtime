@@ -21,7 +21,7 @@ const STATE_KEY = "assembler";
 // de pared sólo si no queda atraso) y envía. Sólo
 // tras un 2xx (o un 4xx, que descarta el lote) confirma estado y cursor con el
 // compare-and-set de E1. Si otro escritor (un rebuild) movió el cursor, la pasada no
-// cuenta y la siguiente parte de la instantánea nueva: los ids son los mismos.
+// cuenta (devuelve `stale`) y la siguiente parte de la instantánea nueva: los ids son los mismos.
 export class TraceExport {
   static readonly NAME = ProjectionName.of("otlp_traces");
   static readonly VERSION = 1;
@@ -60,8 +60,8 @@ export class TraceExport {
       if (result.kind === "retryable") return result;
       if (result.kind === "rejected") outcome = result;
     }
-    this.#store.commit(TraceExport.NAME, cursor, ProjectionCursor.of(TraceExport.VERSION, position), new Map([[STATE_KEY, assembler.state()]]));
-    return outcome;
+    const committed = this.#store.commit(TraceExport.NAME, cursor, ProjectionCursor.of(TraceExport.VERSION, position), new Map([[STATE_KEY, assembler.state()]]));
+    return committed ? outcome : ExportResult.stale();
   }
 
   // Eventos del log que el exportador aún no ha procesado (sin cursor válido, desde el principio).

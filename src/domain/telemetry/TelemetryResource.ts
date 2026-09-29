@@ -3,8 +3,9 @@ import { OtelKeyValueList } from "./OtelKeyValueList.ts";
 import { SpanAttributes } from "./SpanAttributes.ts";
 
 const KEY = /^[a-z][a-z0-9_.]*$/;
-// Claves que identificarían la máquina, la persona o el proceso: nunca salen, aunque vengan en OTEL_RESOURCE_ATTRIBUTES.
-const FORBIDDEN = /^(host|os|process|user|enduser|device|container)\./;
+// Claves que identificarían la máquina, la persona o el proceso (también el pod, la cuenta
+// o la instancia en la nube): nunca salen, aunque vengan en OTEL_RESOURCE_ATTRIBUTES.
+const FORBIDDEN = /^(?:(?:host|os|process|user|enduser|device|container|k8s|cloud|faas)\.|service\.instance\.id$)/;
 
 // Recurso OTLP: service.name=pi-runtime, service.version y pi_runtime.project (el id con
 // hash, nunca la ruta). Respeta OTEL_RESOURCE_ATTRIBUTES salvo claves prohibidas, claves

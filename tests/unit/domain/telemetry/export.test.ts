@@ -39,3 +39,16 @@ test("recurso: service.name, versión y proyecto con hash; OTEL_RESOURCE_ATTRIBU
     "pi_runtime.project": "0123456789abcdef", "service.name": "pi-runtime", "service.version": "0.1.0",
   });
 });
+
+// R2 (a): una pasada cuyo compare-and-set perdió contra otro escritor.
+test("resultado obsoleto (stale): ni éxito ni fallo", () => {
+  assert.deepEqual([ExportResult.stale().kind, ExportResult.stale().reason], ["stale", "stale"]);
+});
+
+// R2 (c): k8s.*, cloud.*, faas.* y service.instance.id pueden identificar la máquina.
+test("recurso: tampoco salen k8s.*, cloud.*, faas.* ni service.instance.id", () => {
+  const extra = OtelKeyValueList.parse("k8s.pod.name=p,k8s.node.name=n,cloud.account.id=123,cloud.region=eu,faas.instance=i,service.instance.id=box-1,service.instance.idx=ok,service.namespace=underpass,cloudy.x=y");
+  assert.deepEqual(TelemetryResource.of("0.1.0", ProjectId.of("0123456789abcdef"), extra).attributes().toRecord(), {
+    "cloudy.x": "y", "pi_runtime.project": "0123456789abcdef", "service.instance.idx": "ok", "service.name": "pi-runtime", "service.namespace": "underpass", "service.version": "0.1.0",
+  });
+});
