@@ -64,6 +64,9 @@ const extensionErrors: string[] = [];
 await session.bindExtensions({ ...(noUi ? {} : { uiContext }), onError: (e: { error: string; event: string }) => extensionErrors.push(`${e.event}: ${e.error}`) });
 const deadline = Date.now() + 20_000;
 while (Date.now() < deadline && !session.getAllTools().some((t: { name: string }) => t.name === "made_publish_ceremony_definition")) await new Promise((r) => setTimeout(r, 200));
+// Las tools de administración de la autorización (never) no llegan a Pi: ni registradas ni activas.
+const NEVER = ["made_issue_authorization_grant", "made_revoke_authorization_grant", "made_approve_authorization_operation", "made_get_authorization_policy", "made_list_authorization_decisions"];
+const adminTools = session.getAllTools().map((t: { name: string }) => t.name).filter((n: string) => NEVER.includes(n));
 
 await session.prompt("/underpass-phase design");
 faux.setResponses([
@@ -94,6 +97,7 @@ const checks = {
   // Sin UI, /underpass-status no tiene dónde notificar: la línea sólo se comprueba con UI.
   statusMadeLine: noUi || made !== null,
   noExtensionErrors: extensionErrors.length === 0,
+  noAdminTools: adminTools.length === 0,
 };
-console.log(JSON.stringify({ sessionId: sid, confirm: mode, asked, outcomes, made, extensionErrors, checks }, null, 2));
+console.log(JSON.stringify({ sessionId: sid, confirm: mode, asked, outcomes, made, extensionErrors, adminTools, checks }, null, 2));
 process.exit(Object.values(checks).every(Boolean) ? 0 : 1);
