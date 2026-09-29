@@ -77,7 +77,10 @@ export class PiToolFactory {
       throw new HostCallError("refused", `${what} needs human confirmation and this Pi session has no UI`, "needs_confirmation_no_ui");
     }
     let accepted = false;
-    try { accepted = await ctx.ui.confirm(`MADE: ${request.action}`, `${request.scopeSummary}. Allow this call?`, signal ? { signal } : undefined); } catch { accepted = false; }
+    // El alcance, citado y en su propia línea, separado de la pregunta: un nombre elegido por el
+    // modelo nunca se lee como parte del veredicto.
+    const scope = typeof request.scopeLabel === "string" ? request.scopeLabel : `Scope ${JSON.stringify(request.scopeSummary)}`;
+    try { accepted = await ctx.ui.confirm(`MADE: ${request.action}`, `${scope}\nAllow this call?`, signal ? { signal } : undefined); } catch { accepted = false; }
     // Pi resuelve el diálogo a false cuando la llamada se aborta: eso no es un rechazo del usuario.
     if (signal?.aborted) throw new Error(`${name} aborted; outcome unknown`);
     if (!accepted) {

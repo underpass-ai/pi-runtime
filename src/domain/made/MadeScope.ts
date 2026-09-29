@@ -6,6 +6,8 @@ const FIELDS: Record<string, string[]> = {
   global: [], ceremony: ["ceremony_id"], ceremony_tree: ["root_id"], definition: ["name"], artifact: ["artifact_id"], council: ["council_id"], budget: ["account_id"],
 };
 const LABEL: Record<string, string> = { ceremony_tree: "ceremony tree" };
+// Citado como JSON y sin marcas de dirección (bidi), que podrían reordenar el texto en la TUI.
+const quote = (v: string | null): string => JSON.stringify(v).replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 const identity = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\u0000-\u001f\u007f]/.test(v);
 
 // Alcance de una decisión o de un grant de MADE, con su forma exacta: tipo y nombre, versión o
@@ -42,5 +44,16 @@ export class MadeScope {
     if (this.kind === "global") return "global";
     if (this.kind === "definition") return `definition ${this.#fields.name}${this.#fields.version === null ? "" : ` v${this.#fields.version}`}`;
     return `${LABEL[this.kind] ?? this.kind} ${Object.values(this.#fields)[0]}`;
+  }
+
+  // Para la pregunta de la TUI: lo que eligió el modelo (nombre, versión, id) va citado, así nunca
+  // se lee como parte del texto de la pregunta.
+  label(): string {
+    if (this.kind === "global") return "Global scope (every resource)";
+    const kind = LABEL[this.kind] ?? this.kind;
+    const head = `${kind[0].toUpperCase()}${kind.slice(1)} ${quote(Object.values(this.#fields)[0])}`;
+    const version = this.#fields.version;
+    if (this.kind !== "definition" || version === null) return head;
+    return /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/.test(version) ? `${head} v${version}` : `${head} version ${quote(version)}`;
   }
 }

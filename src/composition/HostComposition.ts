@@ -87,6 +87,9 @@ const flushDeadline = (timeoutMs: number) => Math.min(2 * timeoutMs + 1_000, 30_
 const REVOKE_DEADLINE_MS = 5_000;
 
 export class HostComposition {
+  // Adopta los spools huérfanos y, si adoptó alguno, barre los grants de MADE huérfanos.
+  static adoptionTick(adopt: () => number, sweep: () => void): void { if (adopt() > 0) sweep(); }
+
   static async run(projectCwd: string, env: Record<string, string | undefined>, commands?: Map<string, ServerCommandFactory>): Promise<void> {
     const project = new GitProjectLocator().locate(projectCwd);
     const paths = new StatePaths(env);
@@ -138,7 +141,7 @@ export class HostComposition {
     // Spools de procesos de Pi muertos: se adoptan al arrancar y en cada tick,
     // con retroceso por fichero para los que fallan (ver OrphanSpoolAdoption).
     const orphans = new OrphanSpoolAdoption(new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record), clock, (level, line) => (level === "warn" ? log.warn(line) : log.info(line)));
-    const adopt = () => { try { orphans.tick(); } catch (e) { log.error("fact spool adoption failed", { error: message(e) }); } };
+    const adopt = () => { try { return orphans.tick(); } catch (e) { log.error("fact spool adoption failed", { error: message(e) }); return 0; } };
     adopt();
     // S3a §4: los grants que un host anterior dejó vivos (sesión cerrada o abandonada) se revocan al
     // arrancar, después de adoptar los spools: un session.closed que esperaba en uno ya cuenta.
@@ -148,7 +151,9 @@ export class HostComposition {
     const idleMs = Number(env.UNDERPASS_HOST_IDLE_MS ?? 60_000);
     let idleSince = Date.now();
     const projectionTimer = setInterval(() => {
-      adopt();
+      // Un spool adoptado puede traer el session.closed de una sesión con grants vivos (su Pi murió
+      // con el host caído): sólo entonces se vuelve a barrer, nunca en cada tick.
+      HostComposition.adoptionTick(adopt, () => void made.revoke.execute());
       try { runner.runOnce(); } catch (e) { log.error("projections failed", { error: message(e) }); }
       void telemetry?.tickTraces();
     }, 5_000);

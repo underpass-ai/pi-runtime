@@ -29,4 +29,5 @@ export class PendingConfirmation {
     return this.session.equals(session) && this.tool.equals(tool) && this.digest.equals(digest) && !this.expired(now);
   }
   scopeSummary(): string { return this.scope.summary(); }
+  scopeLabel(): string { return this.scope.label(); }
 }

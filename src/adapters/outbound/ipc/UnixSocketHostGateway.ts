@@ -62,7 +62,9 @@ export class UnixSocketHostGateway implements HostGateway {
 
   async catalog(server: ServerName): Promise<ToolCatalog> { return new CatalogMapper().toDomain(await this.raw<CatalogDto>({ method: "catalog", server: server.value })); }
   call(server: ServerName, tool: ToolName, args: Record<string, unknown>, context?: CallContextDto): Promise<ToolCallResultDto> {
-    return this.raw({ method: "call", server: server.value, tool: tool.value, args, ...(context ?? {}) });
+    // Las claves del contexto, una a una: nada más puede colarse en la petición ni pisar sus campos.
+    const ctx = context === undefined ? {} : { sessionId: context.sessionId, phase: context.phase, ...(context.confirmation === undefined ? {} : { confirmation: context.confirmation }) };
+    return this.raw({ method: "call", server: server.value, tool: tool.value, args, ...ctx });
   }
   confirmation(id: SessionId, token: string, outcome: "declined" | "no_ui"): Promise<{ recorded: boolean }> {
     return this.raw({ method: "confirmation", sessionId: id.value, token, outcome });

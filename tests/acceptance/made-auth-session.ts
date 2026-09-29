@@ -89,7 +89,7 @@ const checks = {
   designed: by("made_design_ceremony")?.error === false,
   validated: by("made_validate_ceremony_draft")?.error === false,
   explained: by("made_explain_ceremony_draft")?.error === false,
-  askedOnce: noUi ? asked.length === 0 : asked.length === 1 && asked[0].startsWith("MADE: publish_ceremony_definition | definition "),
+  askedOnce: noUi ? asked.length === 0 : asked.length === 1 && asked[0].startsWith('MADE: publish_ceremony_definition | Definition "'),
   publish: accept ? publish?.error === false : publish?.error === true && (noUi ? /needs_confirmation_no_ui/ : /needs_confirmation_declined/).test(publish.head),
   // Sin UI, /underpass-status no tiene dónde notificar: la línea sólo se comprueba con UI.
   statusMadeLine: noUi || made !== null,

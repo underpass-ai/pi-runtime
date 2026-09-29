@@ -124,7 +124,8 @@ test("made-mcp 0.8.0 por el host real: lecturas automáticas, publicar con confi
     let token = "";
     await assert.rejects(h.gw.call(ServerName.MADE, t("made_publish_ceremony_definition"), publish, ctx), (e) => {
       if (!HostCallError.is(e) || e.code !== "needs_confirmation") return false;
-      assert.deepEqual({ ...e.confirmation, token: "-" }, { token: "-", action: "publish_ceremony_definition", scopeSummary: "definition s3a_contract v1.0" });
+      assert.deepEqual({ ...e.confirmation, token: "-" }, { token: "-", action: "publish_ceremony_definition", scopeSummary: "definition s3a_contract v1.0",
+        scopeLabel: 'Definition "s3a_contract" v1.0' });
       token = e.confirmation!.token; return true;
     });
     const published = (await h.gw.call(ServerName.MADE, t("made_publish_ceremony_definition"), publish, { ...ctx, confirmation: token })).structured as { outcome: string };

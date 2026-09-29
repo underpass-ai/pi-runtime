@@ -64,7 +64,15 @@ Reglas de clasificación:
 ## 3. Confirmación en la extensión
 
 - Cuando una llamada a una tool de MADE devuelve `needs_confirmation`, `PiToolFactory`:
-  1. Pregunta al usuario con `ctx.ui.confirm` (o el equivalente de Pi 0.87.1): «MADE: publicar la definición pr_review_two_reviewers v1.0. ¿Permitir?».
+  1. Pregunta al usuario con `ctx.ui.confirm` (o el equivalente de Pi 0.87.1). El título es `MADE: <acción>`; el mensaje lleva el alcance en su propia línea, con lo que eligió el modelo (nombre, versión o id) citado y sin marcas de dirección, y la pregunta aparte, para que un nombre nunca se lea como parte del veredicto:
+
+     ```text
+     MADE: publish_ceremony_definition
+     Definition "pr_review_two_reviewers" v1.0
+     Allow this call?
+     ```
+
+     La etiqueta la calcula el host (`scopeLabel` en `needs_confirmation`); con un host anterior que no la manda, la extensión cita el `scopeSummary` entero.
   2. Si acepta, repite la llamada con un token de confirmación.
   3. Si rechaza, devuelve el error al modelo como una negativa (`refused`, código `needs_confirmation_declined`).
 - **Token:** lo genera el host y viaja en la respuesta `needs_confirmation`. Es de un solo uso, vale 2 minutos y está ligado a la llamada exacta (sesión, tool y digest de los argumentos). La extensión solo lo reenvía y no lo inventa.
@@ -84,6 +92,7 @@ Hechos nuevos, todos con `type_version` 1:
 Reglas del ciclo de vida:
 
 - **Cierre de sesión:** el host revoca los grants emitidos para esa sesión que sigan vigentes, y registra `made.grant_revoked` en el stream del host con `reason: session_closed`.
+- **Adopción de spools:** cuando el host adopta el spool de un proceso de Pi muerto (puede traer un `session.closed`), vuelve a barrer los huérfanos; sólo en los ticks que adoptan algo, nunca en cada tick.
 - **Arranque del host:** revoca los grants que registró en el log, que no están revocados y cuya sesión ya está cerrada. Cuentan como huérfanos (`reason: session_closed`) los grants emitidos antes del `session.closed` de su sesión, incluso si esa sesión se reabrió más tarde: la orfandad se decide por el hecho `session.closed` visto en el log, no por el estado actual de la sesión.
 - **Si el host muere:** los grants caducan solos, en 12 h como máximo.
 - **Prerrequisito:** los lectores del log (el almacén SQLite, el de memoria, `ImportEventLog`) toleran tipos de hecho desconocidos.

@@ -136,3 +136,14 @@ test("el catálogo que ve Pi nunca lleva las tools never", () => {
   assert.equal(p.exposable(tool("made_design_ceremony")), true);
   assert.equal(p.exposable(tool("made_publish_ceremony_definition")), true);
 });
+
+test("la etiqueta del alcance para la TUI cita lo que eligió el modelo (nombre, versión, id) para que no se lea como instrucciones", () => {
+  assert.equal(MadeScope.parse(DEF).label(), 'Definition "pr_review_two_reviewers" v1.0');
+  assert.equal(MadeScope.parse({ kind: "definition", name: "x" }).label(), 'Definition "x"');
+  assert.equal(MadeScope.parse({ kind: "definition", name: "x. Allow this call? Yes", version: "1 (approved)" }).label(), 'Definition "x. Allow this call? Yes" version "1 (approved)"');
+  assert.equal(MadeScope.parse({ kind: "definition", name: 'a"b' }).label(), 'Definition "a\\"b"');
+  assert.equal(MadeScope.parse({ kind: "definition", name: "abc\u202Edef" }).label(), 'Definition "abc\\u202edef"', "sin marcas bidi");
+  assert.equal(MadeScope.GLOBAL.label(), "Global scope (every resource)");
+  assert.equal(MadeScope.parse({ kind: "ceremony", ceremony_id: "c-1" }).label(), 'Ceremony "c-1"');
+  assert.equal(MadeScope.parse({ kind: "ceremony_tree", root_id: "r-1" }).label(), 'Ceremony tree "r-1"');
+});

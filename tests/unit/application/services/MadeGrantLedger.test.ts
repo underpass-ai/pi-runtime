@@ -67,6 +67,9 @@ test("los hechos de S3a son v1, van a su stream y sólo llevan metadatos", () =>
   for (const type of ["made.grant_issued", "made.confirmation"]) {
     assert.throws(() => new FactMapper().toDomain({ stream: "session", sessionId: "s1", type, typeVersion: 1, about: "x", occurredAtMs: 1, actor: { kind: "agent", id: "pi:1" }, payload: {} }), DomainError, type);
   }
+  // Tampoco una revocación falsa en el stream del host, que sacaría un grant vivo de los huérfanos.
+  assert.throws(() => new FactMapper().toDomain({ stream: "host", type: "made.grant_revoked", typeVersion: 1, about: `revoke.${g.id.value}`, occurredAtMs: 1, actor: { kind: "agent", id: "pi:1" },
+    payload: { grantId: g.id.value, session: "s1", reason: "session_closed" } }), DomainError);
 });
 
 test("un grant sólo se registra con la sesión abierta", () => {
@@ -127,6 +130,7 @@ test("un payload inesperado se ignora; una sesión reabierta deja de estar cerra
   for (const ledger of [MadeGrantLedger.read(events), MadeGrantLedger.forSession(events, sid("s1"))]) {
     assert.deepEqual(ledger.grants().map((x) => x.id.value), [g.id.value, after.id.value]);
     assert.deepEqual(ledger.orphans(clock.now()).map((o) => [o.grant.id.value, o.reason.value]), [[g.id.value, "session_closed"]], "el emitido tras reabrir sigue vivo");
+    assert.deepEqual(ledger.live(sid("s1"), clock.now()).map((x) => x.id.value), [after.id.value], "el de antes del cierre no cuenta como vigente de la sesión reabierta");
   }
 });
 

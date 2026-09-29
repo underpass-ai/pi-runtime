@@ -29,8 +29,14 @@ test("S3a por el socket: la llamada lleva sesión, fase y token; needs_confirmat
     assert.deepEqual(await gw.call(ServerName.MADE, publish, { y: 1 }, { sessionId: "s1", phase: "design", confirmation: confirmation.token }), { structured: null, text: "published" });
     assert.deepEqual(await gw.confirmation(SessionId.of("s1"), confirmation.token, "declined"), { recorded: true });
     assert.deepEqual(await gw.call(ServerName.KMP, ToolName.of("kmp_ask"), {}), { structured: null, text: "published" });
+    // Sólo las claves del contexto viajan: nada ajeno (tool, server, method…) puede pisar la petición.
+    const smuggled = { sessionId: "s1", phase: "design", tool: "made_get_authorization_policy", server: "kmp", method: "health", args: { z: 1 } } as never;
+    await gw.call(ServerName.MADE, publish, { y: 1 }, smuggled).catch(() => {});
     assert.deepEqual(seen.map((r) => r.method === "call" ? [r.sessionId ?? null, r.phase ?? null, r.confirmation ?? null] : [r.method]),
-      [["s1", "design", null], ["s1", "design", confirmation.token], ["confirmation"], [null, null, null]]);
+      [["s1", "design", null], ["s1", "design", confirmation.token], ["confirmation"], [null, null, null], ["s1", "design", null]]);
+    const last = seen.at(-1) as Record<string, unknown>;
+    assert.deepEqual([last.server, last.tool, last.args], ["made", "made_publish_ceremony_definition", { y: 1 }]);
+    assert.deepEqual(Object.keys(last).sort(), ["args", "id", "method", "phase", "server", "sessionId", "tool"]);
     gw.close();
   } finally { await server.close(); }
 });

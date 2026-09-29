@@ -8,7 +8,7 @@ export class HostResponseMapper {
   // S3a §2.2.3: la acción escribe y hace falta una persona. El mensaje sólo nombra acción y alcance.
   needsConfirmation(id: number, p: PendingConfirmation): HostResponseDto {
     return { id, ok: false, error: { kind: "refused", code: "needs_confirmation", message: `${p.action.value} on ${p.scopeSummary()} needs human confirmation`,
-      confirmation: { token: p.token.value, action: p.action.value, scopeSummary: p.scopeSummary() } } };
+      confirmation: { token: p.token.value, action: p.action.value, scopeSummary: p.scopeSummary(), scopeLabel: p.scopeLabel() } } };
   }
   invalid(id: number, message: string): HostResponseDto { return { id, ok: false, error: { kind: "invalid", message } }; }
   failure(id: number, error: unknown): HostResponseDto {

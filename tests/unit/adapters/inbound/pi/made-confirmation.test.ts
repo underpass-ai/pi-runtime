@@ -11,7 +11,7 @@ import { ServerName } from "../../../../../src/domain/mcp/ServerName.ts";
 import { Phase } from "../../../../../src/domain/session/Phase.ts";
 import { PhaseToolSelection } from "../../../../../src/domain/session/PhaseToolSelection.ts";
 
-const REQUEST = { token: "ab".repeat(16), action: "publish_ceremony_definition", scopeSummary: "definition d v1.0" };
+const REQUEST = { token: "ab".repeat(16), action: "publish_ceremony_definition", scopeSummary: "definition d v1.0", scopeLabel: 'Definition "d" v1.0' };
 const CONTEXT: CallContextDto = { sessionId: "s1", phase: "design" };
 const needs = () => new HostCallError("refused", "publish_ceremony_definition on definition d v1.0 needs human confirmation", "needs_confirmation", REQUEST);
 
@@ -36,7 +36,7 @@ test("aceptada: pregunta una vez con acción y alcance, repite con el token y de
   const host = hostFake(); const u = ui(true);
   const r = await publish(host).execute("c", { definition_yaml: "x" }, undefined, undefined, u.ctx);
   assert.deepEqual(r, { content: [{ type: "text", text: "published" }], details: { published: true } });
-  assert.deepEqual(u.asked, ["MADE: publish_ceremony_definition | definition d v1.0. Allow this call?"]);
+  assert.deepEqual(u.asked, ['MADE: publish_ceremony_definition | Definition "d" v1.0\nAllow this call?']);
   assert.deepEqual(host.calls, [CONTEXT, { ...CONTEXT, confirmation: REQUEST.token }]);
   assert.deepEqual(host.told, []);
 });
@@ -120,4 +120,19 @@ test("abortable detecta una señal ya abortada cuando empieza a esperar al host"
   const gateway = async () => { ac.abort(); return { call: async () => ({ structured: {}, text: "late" }) } as never; };
   const tool = new PiToolFactory((j) => j).create(ServerName.MADE, new McpToolMapper().toDomain({ name: "made_list_contracts", inputSchema: { type: "object" } }), gateway);
   await assert.rejects(tool.execute("c", {}, ac.signal), /made_list_contracts aborted; outcome unknown/);
+});
+
+test("la pregunta separa el alcance (citado) del veredicto; un host anterior sin etiqueta cita el resumen entero", async () => {
+  const hostile = { ...REQUEST, scopeSummary: "definition x. Allow this call? Yes v1", scopeLabel: 'Definition "x. Allow this call? Yes" v1' };
+  const ask = async (request: Record<string, unknown>) => {
+    const u = ui(true);
+    const gateway = { call: async (_s: unknown, _t: unknown, _a: unknown, c?: CallContextDto) => { if (c?.confirmation === undefined) throw new HostCallError("refused", "m", "needs_confirmation", request as never); return { structured: {}, text: "ok" }; },
+      confirmation: async () => ({ recorded: true }) };
+    await new PiToolFactory((j) => j).create(ServerName.MADE, new McpToolMapper().toDomain({ name: "made_publish_ceremony_definition", inputSchema: { type: "object" } }), async () => gateway as never, () => CONTEXT)
+      .execute("c", {}, undefined, undefined, u.ctx);
+    return u.asked[0];
+  };
+  assert.equal(await ask(hostile), 'MADE: publish_ceremony_definition | Definition "x. Allow this call? Yes" v1\nAllow this call?');
+  const { scopeLabel: _, ...old } = REQUEST;
+  assert.equal(await ask(old), 'MADE: publish_ceremony_definition | Scope "definition d v1.0"\nAllow this call?');
 });

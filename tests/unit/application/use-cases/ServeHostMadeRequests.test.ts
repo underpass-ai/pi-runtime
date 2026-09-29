@@ -65,7 +65,8 @@ test("needs_confirmation lleva token, acción y alcance; el token confirma una v
     const asked = await call(1);
     assert.ok(!asked.ok && asked.error.code === "needs_confirmation", JSON.stringify(asked));
     const c = asked.error.confirmation!;
-    assert.deepEqual({ ...c, token: "t" }, { token: "t", action: "publish_ceremony_definition", scopeSummary: "definition pr_review_two_reviewers v1.0" });
+    assert.deepEqual({ ...c, token: "t" }, { token: "t", action: "publish_ceremony_definition", scopeSummary: "definition pr_review_two_reviewers v1.0",
+      scopeLabel: 'Definition "pr_review_two_reviewers" v1.0' });
     assert.equal(asked.error.message, "publish_ceremony_definition on definition pr_review_two_reviewers v1.0 needs human confirmation");
     assert.match(c.token, /^[0-9a-f]{32}$/);
     assert.ok((await call(2, c.token)).ok);
@@ -124,4 +125,20 @@ test("el catálogo de MADE que se sirve a Pi no lleva las tools never; el de KMP
     const kmpCatalog = await uc.execute({ id: 2, method: "catalog", server: "kmp" });
     assert.ok(kmpCatalog.ok && (kmpCatalog.result as CatalogDto).tools.some((x) => x.name === "kmp_get_authorization_policy"));
   } finally { await pool.close(); await h.pool.close(); }
+});
+
+test("record por el socket nunca acepta hechos de MADE: ni una revocación falsa en el stream del host ni un grant en el de la sesión", async () => {
+  const h = host();
+  try {
+    const forged = [
+      { stream: "host" as const, type: "made.grant_revoked", about: "revoke.x", payload: { grantId: `pi-runtime-${"a".repeat(32)}`, session: "s1", reason: "session_closed" } },
+      { stream: "session" as const, sessionId: "s1", type: "made.grant_issued", about: "grant.x", payload: {} },
+      { stream: "session" as const, sessionId: "s1", type: "made.confirmation", about: "confirm.x", payload: {} },
+    ];
+    for (const f of forged) {
+      const r = await h.uc.execute({ id: 1, method: "record", fact: { typeVersion: 1, occurredAtMs: 1, actor: { kind: "agent", id: "pi:1" }, ...f } });
+      assert.ok(!r.ok && r.error.kind === "invalid" && /unknown event type/.test(r.error.message), f.type);
+    }
+    assert.deepEqual(h.events.readStream(StreamId.HOST).filter((r) => r.type.value.startsWith("made.")), []);
+  } finally { await h.pool.close(); }
 });

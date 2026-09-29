@@ -80,8 +80,11 @@ export class MadeGrantLedger {
   // Todos los grants del host, por instante de emisión.
   grants(): MadeGrant[] { return [...this.#grants.values()].sort((a, b) => a.validFrom.epochMs() - b.validFrom.epochMs() || a.id.value.localeCompare(b.id.value)); }
 
-  // Los vigentes de una sesión: los que el cierre debe revocar.
-  live(session: SessionId, now: Timestamp): MadeGrant[] { return this.grants().filter((g) => g.session.equals(session) && this.state(g, now) === "active"); }
+  // Los vigentes de la sesión actual: sin los emitidos antes de un cierre suyo (huérfanos aunque la
+  // sesión se reabriera), que el barrido revoca y el estado de la sesión no cuenta.
+  live(session: SessionId, now: Timestamp): MadeGrant[] {
+    return this.grants().filter((g) => g.session.equals(session) && !this.#closedOver.has(g.id.value) && this.state(g, now) === "active");
+  }
 
   // Sin revocar y con la sesión cerrada o emitidos antes de un cierre suyo, aunque luego se reabriera
   // (session_closed), o con la sesión abandonada o el grant caducado (expired_cleanup).
