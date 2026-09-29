@@ -4,9 +4,12 @@
 // Aceptación de F1, prueba diferencial contra el validador real de Pi 0.87.1 (`validateToolArguments`
 // de pi-ai, con su coacción y su poda de nulls): genera argumentos a partir de cada inputSchema
 // (el catálogo vivo de made-mcp/kmp-mcp si se dan los binarios, los fixtures si no), los muta
-// (coacciones, nulls, claves que faltan o sobran) y comprueba la invariante que importa:
-// si Pi acepta unos argumentos, prepareArguments nunca los rechaza. Informa además de cuántos
-// rechazos de Pi diagnostica F1 y cuántos deja a Pi.
+// (coacciones, nulls, claves que faltan o sobran) y comprueba que el diagnóstico por sí solo no
+// rechaza lo que Pi acepta. En producción prepareArguments sólo lanza si Pi también rechaza, así
+// que un falso rechazo es imposible por construcción; aquí se mide el diagnóstico SIN esa
+// condición (validador inyectado que rechaza siempre) para que siga siendo fiel a Pi y no
+// esconda lo que diagnostica. Se reejecuta al subir Pi, made-mcp o kmp-mcp. Informa además de
+// cuántos rechazos de Pi diagnostica F1 y cuántos deja a Pi.
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readdirSync, readFileSync } from "node:fs";
@@ -85,7 +88,7 @@ const n = Number(process.env.N ?? 300);
 const tally = { tools: schemas.length, piAccepted: 0, piRejected: 0, diagnosed: 0, leftToPi: 0, falsePositives: 0 };
 const falsePositives: string[] = [];
 for (const [name, schema] of schemas) {
-  const tool = new PiToolFactory((j) => Type.Unsafe(j)).create(ServerName.KMP, new McpToolMapper().toDomain({ name, inputSchema: schema }), async () => { throw new Error("not called"); });
+  const tool = new PiToolFactory((j) => Type.Unsafe(j), undefined, () => false).create(ServerName.KMP, new McpToolMapper().toDomain({ name, inputSchema: schema }), async () => { throw new Error("not called"); });
   for (let i = 0; i < n; i++) {
     let args = gen(schema, 0); if (rnd() < 0.6) args = mutate(args);
     let piAccepts = true; try { validateToolArguments(tool, { name, arguments: structuredClone(args) }); } catch { piAccepts = false; }

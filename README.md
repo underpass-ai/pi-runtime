@@ -92,9 +92,9 @@ made_design_ceremony: the arguments do not match its input schema. Fix these and
   - stages[0].group.repeat: unknown fields "step", "output_field", "equals"; allowed: max_iterations, until; missing required field "until" — Optional bounded repeat-until policy for the whole group state. — expected {max_iterations, until: {equals, output_field, step}}
 ```
 
-Arguments that match go through untouched and Pi still validates them. The check
-tolerates what Pi coerces (numeric strings, optional nulls…) and skips the schema
-keywords it does not evaluate, so it never refuses a call Pi would accept.
+Arguments that match go through untouched and Pi still validates them. The
+diagnostic is only raised when Pi's own validator rejects the arguments too, so it
+never refuses a call Pi would accept.
 
 ### Tool learning
 

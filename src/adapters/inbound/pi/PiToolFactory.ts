@@ -7,6 +7,7 @@ import type { ServerName } from "../../../domain/mcp/ServerName.ts";
 import type { ToolDescriptor } from "../../../domain/mcp/ToolDescriptor.ts";
 import { HostCallError } from "../../../application/ports/HostCallError.ts";
 import { ArgumentDiagnostician } from "../../../domain/arguments/ArgumentDiagnostician.ts";
+import type { PiArgumentValidator } from "./PiArgumentValidator.ts";
 
 // Lo que Pi 0.87.1 pasa como quinto argumento a execute: sólo lo que S3a usa.
 type ToolContext = { hasUI?: boolean; ui?: { confirm(title: string, message: string, opts?: { signal?: AbortSignal }): Promise<boolean> } };
@@ -32,28 +33,34 @@ function abortable<T>(work: () => Promise<T>, signal: AbortSignal | undefined, t
 }
 
 export class PiToolFactory {
-  readonly #toSchema: (json: Record<string, unknown>) => unknown; readonly #maxText: number;
-  constructor(toSchema: (json: Record<string, unknown>) => unknown, maxText = 16_000) { this.#toSchema = toSchema; this.#maxText = maxText; }
+  readonly #toSchema: (json: Record<string, unknown>) => unknown; readonly #maxText: number; readonly #piAccepts: PiArgumentValidator;
+  // piAccepts: el validador de Pi. Sin él, se supone que Pi acepta y el diagnóstico nunca lanza.
+  constructor(toSchema: (json: Record<string, unknown>) => unknown, maxText = 16_000, piAccepts: PiArgumentValidator = () => true) {
+    this.#toSchema = toSchema; this.#maxText = maxText; this.#piAccepts = piAccepts;
+  }
 
   // context: sesión y fase de Pi para cada llamada (S3a); sin él, la llamada va como antes.
   create(server: ServerName, tool: ToolDescriptor, gateway: () => Promise<HostGateway>, context: () => CallContextDto | null = () => null) {
     const max = this.#maxText;
     const name = tool.name.value;
     const diagnostician = ArgumentDiagnostician.for(tool.schema);
+    const parameters = this.#toSchema(tool.schema.toJson());
+    const piAccepts = this.#piAccepts;
     return {
       name,
       label: name,
       description: tool.description.value,
-      parameters: this.#toSchema(tool.schema.toJson()),
+      parameters,
       // F1: Pi 0.87.1 llama a esto antes de validar contra `parameters`, y lo que lance le llega
       // al modelo como resultado de error. Si los argumentos no casan con el esquema, en vez de la
-      // cascada de TypeBox el modelo recibe un diagnóstico con ruta de la rama que quería. Si
-      // casan (o el diagnóstico falla), pasan sin tocar: Pi valida después igual que antes.
+      // cascada de TypeBox el modelo recibe un diagnóstico con ruta de la rama que quería. Sólo
+      // se lanza si el validador de Pi también los rechaza: lo que Pi acepta pasa siempre sin
+      // tocar, aunque el diagnóstico vea algo (o falle), y Pi valida después igual que antes.
       prepareArguments(args: unknown): unknown {
         let message: string | null = null;
         try {
           const diagnosis = diagnostician.diagnose(args);
-          if (!diagnosis.clean()) message = diagnosis.render(tool.name);
+          if (!diagnosis.clean() && !piAccepts({ name, parameters }, args)) message = diagnosis.render(tool.name);
         } catch { message = null; }
         if (message !== null) throw new Error(message);
         return args;
