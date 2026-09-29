@@ -1,4 +1,5 @@
 import { SessionId } from "../../domain/events/SessionId.ts";
+import { Timestamp } from "../../domain/events/Timestamp.ts";
 import { ServerName } from "../../domain/mcp/ServerName.ts";
 import type { ToolCatalog } from "../../domain/mcp/ToolCatalog.ts";
 import { ToolName } from "../../domain/mcp/ToolName.ts";
@@ -46,7 +47,7 @@ export class ServeHostRequest {
     if (req.method === "select") {
       const select = this.#select;
       if (select === null) return this.#responses.invalid(req.id, "learning not available");
-      return this.#guarded(req.id, () => select.execute(SessionId.of(req.sessionId), Phase.of(req.phase)));
+      return this.#guarded(req.id, () => select.execute(SessionId.of(req.sessionId), Phase.of(req.phase), req.deadlineMs === undefined ? null : Timestamp.fromEpochMs(req.deadlineMs)));
     }
     if (req.method === "health") return this.#responses.success(req.id, { project: this.#project.root.value, started: this.#pool.started().map(String) });
     let server: ServerName; let tool: ToolName | null = null;

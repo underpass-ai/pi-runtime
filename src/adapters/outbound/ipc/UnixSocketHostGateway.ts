@@ -8,6 +8,7 @@ import type { SessionStatusDto } from "../../../application/dto/SessionStatusDto
 import type { SelectionDto } from "../../../application/dto/SelectionDto.ts";
 import type { Phase } from "../../../domain/session/Phase.ts";
 import type { SessionId } from "../../../domain/events/SessionId.ts";
+import type { Timestamp } from "../../../domain/events/Timestamp.ts";
 import { CatalogMapper } from "../../../application/mappers/CatalogMapper.ts";
 import type { ServerName } from "../../../domain/mcp/ServerName.ts";
 import type { ToolCatalog } from "../../../domain/mcp/ToolCatalog.ts";
@@ -63,7 +64,7 @@ export class UnixSocketHostGateway implements HostGateway {
   health(): Promise<{ project: string; started: string[] }> { return this.raw({ method: "health" }); }
   record(fact: FactDto): Promise<void> { return this.raw({ method: "record", fact }).then(() => undefined); }
   summary(id: SessionId): Promise<SessionStatusDto> { return this.raw({ method: "summary", sessionId: id.value }); }
-  select(id: SessionId, phase: Phase): Promise<SelectionDto> { return this.raw({ method: "select", sessionId: id.value, phase: phase.value }); }
+  select(id: SessionId, phase: Phase, deadline?: Timestamp): Promise<SelectionDto> { return this.raw({ method: "select", sessionId: id.value, phase: phase.value, deadlineMs: deadline?.epochMs() }); }
   close(): void { this.#sock.end(); }
 
   // Avisa cuando la conexión con el host se cierra (host muerto, error o

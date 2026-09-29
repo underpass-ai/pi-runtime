@@ -100,6 +100,9 @@ Estos hechos se añaden a la lista de pares `(type, type_version)` que acepta `F
   - En `active` sin control, aplica `setActiveTools(floor ∪ selected ∪ tools de Pi)`.
   - En cualquier otro caso, no toca nada.
 - **Si el host no responde:** timeout, error u host caído dejan el conjunto completo sin registrar nada, y Pi nunca espera más de 200 ms.
+- **Plazo en la petición:** `select` lleva `deadlineMs` (epoch ms absoluto: ahora + 200 ms). Si el reloj del host ya lo pasó al fijar el hecho (tras poner al día las proyecciones), responde `fallback` con el conjunto completo y no registra `tools.selected`.
+  - Carrera residual: una decisión fijada dentro de plazo puede llegar tarde a la extensión (transporte, planificación). Ese hecho queda registrado aunque Pi no lo aplique; el coste es acotado (una observación de más) y los relojes son del mismo equipo.
+- **Orden:** la extensión sólo aplica la respuesta de la última decisión pedida en la sesión y fase en curso; una sesión nueva empieza con el conjunto completo de la fase aunque la anterior lo hubiera reducido.
 
 ## 8. Superficies
 

@@ -126,6 +126,15 @@ test("select: decide con SelectTools, recuerda los catálogos servidos y rechaza
     assert.ok(!(await uc.execute({ id: 8, method: "catalog", server: "made" })).ok, "sin comando para made el catálogo falla");
     const design = await uc.execute({ id: 9, method: "select", sessionId: "s1", phase: "design" });
     assert.deepEqual(design.ok && (design.result as { selected: string[] }).selected, [], "ni KMP (catálogo falso) ni MADE (caído) aportan candidatas");
+    const stale = await uc.execute({ id: 10, method: "select", sessionId: "s1", phase: "interactive", deadlineMs: 1 });
+    assert.ok(stale.ok && (stale.result as { mode: string }).mode === "fallback", JSON.stringify(stale));
+    const onTime = await uc.execute({ id: 11, method: "select", sessionId: "s1", phase: "interactive", deadlineMs: clock.ms + 60_000 });
+    assert.ok(onTime.ok && (onTime.result as { mode: string }).mode === "shadow", JSON.stringify(onTime));
+    for (const deadlineMs of ["soon", -1, 1.5] as unknown as number[]) {
+      const bad = await uc.execute({ id: 12, method: "select", sessionId: "s1", phase: "interactive", deadlineMs });
+      assert.ok(!bad.ok && bad.error.kind === "invalid", String(deadlineMs));
+    }
+    assert.equal(events.readStream(StreamId.session(SessionId.of("s1"))).filter((r) => r.type.value === "tools.selected").length, 4, "el select fuera de plazo no registra");
   } finally { await pool.close(); }
 });
 

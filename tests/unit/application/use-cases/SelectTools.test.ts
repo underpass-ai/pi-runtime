@@ -17,6 +17,7 @@ import { Actor } from "../../../../src/domain/events/Actor.ts";
 import { EventId } from "../../../../src/domain/events/EventId.ts";
 import { SessionId } from "../../../../src/domain/events/SessionId.ts";
 import { StreamId } from "../../../../src/domain/events/StreamId.ts";
+import { Timestamp } from "../../../../src/domain/events/Timestamp.ts";
 import { ControlGroup } from "../../../../src/domain/learning/ControlGroup.ts";
 import { ServerIdentity } from "../../../../src/domain/mcp/ServerIdentity.ts";
 import { ServerName } from "../../../../src/domain/mcp/ServerName.ts";
@@ -31,13 +32,13 @@ import { PROJECT, turn, used } from "../../../support/learningFixtures.ts";
 const S1 = SessionId.of("s1");
 const DESIGN_ALLOWED = PhaseToolSelection.standard().allowed(Phase.DESIGN).map(String);
 
-function host(opts: { project?: TelemetryInstanceId | null; store?: ProjectionStore; catalogs?: KnownCatalogs } = {}) {
+function host(opts: { project?: TelemetryInstanceId | null; store?: ProjectionStore; catalogs?: KnownCatalogs; slowRefreshMs?: number } = {}) {
   const events = new InMemoryEventStore(); const store = opts.store ?? new InMemoryProjectionStore();
   const runner = new ProjectionRunner(events, store, [new ToolStatsProjection(), new ToolBanditProjection(), new LearningEvalProjection()]);
   const clock = new FixedClock(1_000);
   const record = new RecordFact(events, clock, () => runner.runOnce());
   const select = new SelectTools(store, record, new LearningFactFactory(clock, "host:1", Actor.of("host", "host:1")), PhaseToolSelection.standard(),
-    opts.catalogs ?? new KnownCatalogs(), opts.project === undefined ? TelemetryInstanceId.of(PROJECT) : opts.project, () => runner.runOnce());
+    opts.catalogs ?? new KnownCatalogs(), opts.project === undefined ? TelemetryInstanceId.of(PROJECT) : opts.project, () => { runner.runOnce(); clock.ms += opts.slowRefreshMs ?? 0; });
   return { events, store, record, select, clock, decisions: () => events.readStream(StreamId.session(S1)).filter((r) => r.type.value === "tools.selected").map((r) => ({ id: r.id, p: r.payload.toValue() as Record<string, unknown> })) };
 }
 
@@ -151,4 +152,18 @@ test("un servidor cuyo catálogo falló no aporta candidatas; si luego responde,
   assert.equal(d.selected.length, 11);
   catalogs.remember(ToolCatalog.of(ServerName.MADE, ServerIdentity.of("made", SemVer.of("1.0.0")), [new McpToolMapper().toDomain({ name: "made_get_help", inputSchema: { type: "object" } })]));
   assert.ok(h.select.execute(S1, Phase.DESIGN).selected.includes("made_get_help"));
+});
+
+test("plazo de la extensión (spec §7): si el reloj del host ya lo pasó antes de muestrear, fallback con el conjunto completo y sin hecho", () => {
+  const h = host({ slowRefreshMs: 500 });
+  h.record.execute(fact("session.opened", "o"));
+  const late = h.select.execute(S1, Phase.INTERACTIVE, Timestamp.fromEpochMs(h.clock.ms + 100));
+  assert.equal(late.mode, "fallback");
+  assert.deepEqual(late.floor, ["kmp_ask", "kmp_wake"]);
+  assert.equal(late.selected.length, 11, "todas las candidatas: la extensión no reduce");
+  assert.equal(h.decisions().length, 0, "Pi ya no espera: no se registra una decisión que no aplicará");
+  const onTime = h.select.execute(S1, Phase.INTERACTIVE, Timestamp.fromEpochMs(h.clock.ms + 10_000));
+  assert.equal(onTime.mode, "shadow");
+  assert.equal(h.decisions().length, 1);
+  assert.equal(h.select.execute(S1, Phase.INTERACTIVE).mode, "shadow", "sin plazo, como antes");
 });

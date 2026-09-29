@@ -2,6 +2,7 @@ import type { SelectionDto } from "../../../application/dto/SelectionDto.ts";
 import type { HostGateway } from "../../../application/ports/HostGateway.ts";
 import type { SelectPhaseTools } from "../../../application/use-cases/SelectPhaseTools.ts";
 import { SessionId } from "../../../domain/events/SessionId.ts";
+import { Timestamp } from "../../../domain/events/Timestamp.ts";
 import { ServerName } from "../../../domain/mcp/ServerName.ts";
 import { ToolName } from "../../../domain/mcp/ToolName.ts";
 import { Phase } from "../../../domain/session/Phase.ts";
@@ -13,12 +14,17 @@ const isOurs = (n: string) => n.startsWith("kmp_") || n.startsWith("made_");
 const pct = (v: number | null) => (v === null ? "-" : `${(v * 100).toFixed(0)}%`);
 // L1 (spec §7): Pi nunca espera más de esto a la decisión del host.
 const SELECT_TIMEOUT_MS = 200;
+const names = (x: unknown) => Array.isArray(x) && x.every((n) => typeof n === "string");
+// Una respuesta sólo reduce si tiene la forma del contrato; si no, cuenta como fallo.
+const wellFormed = (s: SelectionDto | null): s is SelectionDto => s !== null && typeof s === "object" && names(s.selected) && names(s.floor);
 
 export class HostExtension {
   readonly #connect: (cwd: string) => Promise<HostGateway>; readonly #select: SelectPhaseTools; readonly #selectTimeoutMs: number;
   #gateway: Promise<HostGateway> | null = null; #cwd: string | null = null;
   // L1: sesión y fase en curso, última fase decidida y si las tools activas están reducidas.
   #sessionId: string | null = null; #phase: Phase = Phase.INTERACTIVE; #decidedPhase: string | null = null; #narrowed = false;
+  // Número de la última decisión pedida: sólo se aplica su respuesta (las viejas llegan desordenadas).
+  #requests = 0;
 
   constructor(connect: (cwd: string) => Promise<HostGateway>, select: SelectPhaseTools, selectTimeoutMs = SELECT_TIMEOUT_MS) {
     this.#connect = connect; this.#select = select; this.#selectTimeoutMs = selectTimeoutMs;
@@ -61,24 +67,30 @@ export class HostExtension {
   // error (también una negativa `ok:false`, que llega como HostCallError de otro realm), un
   // host caído o más de 200 ms dejan el conjunto completo de la fase (y lo restauran si una
   // decisión anterior lo había reducido). Si conectar con el host agota el plazo, el select
-  // ya no se envía: no queda registrada una decisión que Pi no aplicó. Nunca lanza.
+  // ya no se envía: no queda registrada una decisión que Pi no aplicó. El select lleva el
+  // plazo absoluto para que el host tampoco registre una decisión que llegaría tarde. Nunca lanza.
   async learn(pi: PiExtensionApi): Promise<void> {
     const sid = this.#sessionId; const phase = this.#phase;
     if (sid === null) return;
+    const ticket = ++this.#requests;
+    const deadline = Timestamp.fromEpochMs(Date.now() + this.#selectTimeoutMs);
     let expired = false;
-    const selection = await this.#bounded(this.gateway().then((g) => (expired ? null : g.select(SessionId.of(sid), phase))), () => { expired = true; });
+    const selection = await this.#bounded(this.gateway().then((g) => (expired ? null : g.select(SessionId.of(sid), phase, deadline))), () => { expired = true; });
     // Phase puede venir de otro realm de jiti (kmp.ts, made.ts): se compara por valor.
-    if (sid !== this.#sessionId || phase.value !== this.#phase.value) return;
-    try {
-      if (selection !== null && selection.mode === "active" && !selection.control) {
+    if (ticket !== this.#requests || sid !== this.#sessionId || phase.value !== this.#phase.value) return;
+    if (wellFormed(selection) && selection.mode === "active" && !selection.control) {
+      try {
         const keep = new Set([...selection.floor, ...selection.selected]);
         pi.setActiveTools(this.#phaseTools(pi, phase).filter((n) => !isOurs(n) || keep.has(n)));
         this.#narrowed = true;
-      } else if (this.#narrowed) {
-        pi.setActiveTools(this.#phaseTools(pi, phase));
-        this.#narrowed = false;
-      }
-    } catch { /* L1 nunca rompe Pi */ }
+      } catch { this.#restore(pi); }
+    } else if (this.#narrowed) this.#restore(pi);
+  }
+
+  // Vuelve al conjunto completo de la fase en curso. L1 nunca rompe Pi: si Pi rechaza el
+  // cambio, se sigue considerando reducido y se reintenta en la próxima decisión.
+  #restore(pi: PiExtensionApi): void {
+    try { pi.setActiveTools(this.#phaseTools(pi, this.#phase)); this.#narrowed = false; } catch { /* L1 nunca rompe Pi */ }
   }
 
   async #bounded(selection: Promise<SelectionDto | null>, expire: () => void): Promise<SelectionDto | null> {
@@ -90,7 +102,10 @@ export class HostExtension {
 
   register(pi: PiExtensionApi): void {
     pi.on("session_start", async (_e, ctx) => {
-      this.#sessionId = ctx.sessionManager?.getSessionId() ?? null; this.#decidedPhase = null; this.#narrowed = false;
+      // applyPhase sólo corre una vez por servidor y vida de la extensión: si la sesión anterior
+      // dejó las tools reducidas, la nueva empieza con el conjunto completo de la fase.
+      this.#sessionId = ctx.sessionManager?.getSessionId() ?? null; this.#decidedPhase = null; this.#requests++;
+      if (this.#narrowed) this.#restore(pi);
       const previous = this.#gateway;
       this.#gateway = null;
       if (previous) (await previous.catch(() => null))?.close();

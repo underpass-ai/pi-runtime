@@ -1,4 +1,5 @@
 import type { SessionId } from "../../domain/events/SessionId.ts";
+import type { Timestamp } from "../../domain/events/Timestamp.ts";
 import type { ServerName } from "../../domain/mcp/ServerName.ts";
 import type { ToolCatalog } from "../../domain/mcp/ToolCatalog.ts";
 import type { ToolName } from "../../domain/mcp/ToolName.ts";
@@ -14,7 +15,8 @@ export interface HostGateway {
   health(): Promise<{ project: string; started: string[] }>;
   record(fact: FactDto): Promise<void>;
   summary(id: SessionId): Promise<SessionStatusDto>;
-  select(id: SessionId, phase: Phase): Promise<SelectionDto>;
+  // deadline: instante a partir del cual la extensión ya no aplicará la respuesta (spec §7).
+  select(id: SessionId, phase: Phase, deadline?: Timestamp): Promise<SelectionDto>;
   close(): void;
   onClose(listener: () => void): void;
 }

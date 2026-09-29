@@ -204,6 +204,7 @@ test("record rechaza con el error tipado del host", async () => {
 });
 
 import { Phase } from "../../../../src/domain/session/Phase.ts";
+import { Timestamp } from "../../../../src/domain/events/Timestamp.ts";
 
 test("select viaja por el socket con sesión y fase", async () => {
   const path = sock();
@@ -213,6 +214,8 @@ test("select viaja por el socket con sesión y fase", async () => {
     const gw = await UnixSocketHostGateway.connect(path);
     assert.deepEqual(await gw.select(SessionId.of("s1"), Phase.DESIGN), { mode: "active", control: false, selected: ["kmp_time"], floor: ["kmp_ask"] });
     assert.deepEqual(seen, [{ method: "select", sessionId: "s1", phase: "design", id: 1 }]);
+    await gw.select(SessionId.of("s1"), Phase.INTERACTIVE, Timestamp.fromEpochMs(5_000));
+    assert.deepEqual(seen[1], { method: "select", sessionId: "s1", phase: "interactive", deadlineMs: 5_000, id: 2 }, "el plazo viaja en epoch ms");
     gw.close();
   } finally { await server.close(); }
 });

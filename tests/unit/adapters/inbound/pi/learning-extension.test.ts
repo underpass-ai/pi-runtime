@@ -6,16 +6,23 @@ import type { SelectionDto } from "../../../../../src/application/dto/SelectionD
 import type { HostCallError } from "../../../../../src/application/ports/HostCallError.ts";
 import { SelectPhaseTools } from "../../../../../src/application/use-cases/SelectPhaseTools.ts";
 import type { SessionId } from "../../../../../src/domain/events/SessionId.ts";
+import type { Timestamp } from "../../../../../src/domain/events/Timestamp.ts";
 import { Phase } from "../../../../../src/domain/session/Phase.ts";
 import { PhaseToolSelection } from "../../../../../src/domain/session/PhaseToolSelection.ts";
 
+// Sin márgenes de reloj: las respuestas lentas son promesas que el test resuelve a mano, el
+// plazo se inyecta (SHORT en los tests de plazo, LONG en el resto, que nunca lo alcanzan) y se
+// comprueba el orden de los hechos, no cuánto tardan. La única cota de tiempo es holgada (1 s).
+const SHORT = 30; const LONG = 10_000; const LENIENT_MS = 1_000;
 const OURS = ["kmp_ask", "kmp_wake", "kmp_time", "kmp_trace", "kmp_guide", "made_get_help", "made_design_ceremony", "made_claim_ceremony_step"];
+const FULL_INTERACTIVE = ["bash", "kmp_ask", "kmp_guide", "kmp_time", "kmp_trace", "kmp_wake", "read"];
+const NARROWED = ["bash", "kmp_ask", "kmp_time", "kmp_wake", "read"];
 
 class FakePi {
   handlers = new Map<string, ((e: unknown, ctx: unknown) => unknown)[]>();
   bus = new Map<string, ((d: unknown) => unknown)[]>();
   active = ["read", "bash"];
-  sets = 0;
+  sets = 0; notices: string[] = []; sid = "s1";
   on(ev: string, h: (e: unknown, ctx: unknown) => unknown) { (this.handlers.get(ev) ?? this.handlers.set(ev, []).get(ev)!).push(h); }
   registerTool() {}
   registerCommand() {}
@@ -23,40 +30,60 @@ class FakePi {
   getActiveTools() { return [...this.active]; }
   setActiveTools(n: string[]) { this.active = n; this.sets++; }
   events = { on: (ev: string, h: (d: unknown) => unknown) => { (this.bus.get(ev) ?? this.bus.set(ev, []).get(ev)!).push(h); }, emit: (ev: string, d: unknown) => { for (const h of this.bus.get(ev) ?? []) h(d); } };
-  ctx = { cwd: "/repo", hasUI: false, ui: { notify: () => {} }, sessionManager: { getSessionId: () => "s1" } };
+  // hasUI: el aviso de host caído va a notify (silencioso), no a console.error.
+  ctx = { cwd: "/repo", hasUI: true, ui: { notify: (m: string) => { this.notices.push(m); } }, sessionManager: { getSessionId: () => this.sid } };
   async fire(ev: string) { for (const h of this.handlers.get(ev) ?? []) await h({ type: ev }, this.ctx); }
 }
 
-type Reply = SelectionDto | Error | { delayMs: number; reply: SelectionDto };
-function setup(replies: Reply[], opts: { down?: boolean } = {}) {
-  const pi = new FakePi(); const calls: { session: string; phase: string }[] = [];
+class Deferred<T> {
+  resolve!: (v: T) => void; reject!: (e: unknown) => void;
+  readonly promise = new Promise<T>((res, rej) => { this.resolve = res; this.reject = rej; });
+}
+
+type Reply = SelectionDto | Error | Deferred<SelectionDto> | (() => SelectionDto);
+type Call = { session: string; phase: string; deadline: Timestamp | undefined };
+function setup(replies: Reply[], opts: { timeoutMs?: number } = {}) {
+  const pi = new FakePi(); const calls: Call[] = []; const state = { down: false, closed: null as (() => void) | null };
   const gateway = {
-    select: async (id: SessionId, phase: Phase) => {
-      calls.push({ session: id.value, phase: phase.value });
-      const r = replies.shift() ?? { mode: "shadow", control: false, selected: [], floor: [] };
-      if (r instanceof Error) throw r;
-      if ("delayMs" in r) { await new Promise((res) => setTimeout(res, r.delayMs)); return r.reply; }
-      return r;
+    select: (id: SessionId, phase: Phase, deadline?: Timestamp): Promise<SelectionDto> => {
+      calls.push({ session: id.value, phase: phase.value, deadline });
+      const r = replies.shift() ?? SHADOW;
+      if (typeof r === "function") return Promise.resolve().then(r);
+      if (r instanceof Error) return Promise.reject(r);
+      if (r instanceof Deferred) return r.promise;
+      return Promise.resolve(r);
     },
-    onClose: () => {}, close: () => {},
+    onClose: (l: () => void) => { state.closed = l; }, close: () => {},
   };
-  const host = new HostExtension(async () => { if (opts.down) throw new Error("host down"); return gateway as never; }, new SelectPhaseTools(PhaseToolSelection.standard()));
+  const host = new HostExtension(async () => { if (state.down) throw new Error("host down"); return gateway as never; }, new SelectPhaseTools(PhaseToolSelection.standard()), opts.timeoutMs ?? LONG);
   host.register(pi as never);
-  return { pi, host, calls };
+  return { pi, host, calls, gateway, state };
 }
 const active = (selected: string[], control = false): SelectionDto => ({ mode: "active", control, selected, floor: ["kmp_ask", "kmp_wake"] });
 const sorted = (xs: string[]) => [...xs].sort();
 const SHADOW: SelectionDto = { mode: "shadow", control: false, selected: [], floor: [] };
-const settle = () => new Promise((r) => setTimeout(r, 10));
-const FULL_INTERACTIVE = ["bash", "kmp_ask", "kmp_guide", "kmp_time", "kmp_trace", "kmp_wake", "read"];
-const NARROWED = ["bash", "kmp_ask", "kmp_time", "kmp_wake", "read"];
+// Deja correr las microtareas y los callbacks de E/S pendientes (sin esperar a ningún plazo).
+const flush = () => new Promise((r) => setImmediate(r));
+async function started(replies: Reply[], opts: { timeoutMs?: number } = {}) {
+  const s = setup([SHADOW, ...replies], opts);
+  await s.pi.fire("session_start");
+  s.host.applyPhase(s.pi as never, Phase.INTERACTIVE); // primera decisión (SHADOW), en segundo plano
+  await flush();
+  return s;
+}
+async function narrowed(replies: Reply[], opts: { timeoutMs?: number } = {}) {
+  const s = await started([active(["kmp_time"]), ...replies], opts);
+  await s.pi.fire("agent_start");
+  assert.deepEqual(sorted(s.pi.active), NARROWED, "precondición: una decisión redujo las tools");
+  return s;
+}
 
 test("active sin control aplica floor ∪ selected ∪ tools de Pi, dentro de la fase; control y shadow restauran el conjunto completo", async () => {
   const { pi, host, calls } = setup([active(["kmp_time", "made_get_help"]), active(["kmp_trace"], true), active(["kmp_trace"]), { mode: "shadow", control: false, selected: ["kmp_time"], floor: [] }]);
   await pi.fire("session_start");
   host.applyPhase(pi as never, Phase.DESIGN);
-  await settle();
-  assert.deepEqual(calls, [{ session: "s1", phase: "design" }], "el cambio de fase decide");
+  await flush();
+  assert.deepEqual(calls.map((c) => [c.session, c.phase]), [["s1", "design"]], "el cambio de fase decide");
   assert.deepEqual(sorted(pi.active), ["bash", "kmp_ask", "kmp_time", "kmp_wake", "made_get_help", "read"]);
   await pi.fire("agent_start");
   assert.deepEqual(sorted(pi.active), ["bash", "kmp_ask", "kmp_guide", "kmp_time", "kmp_trace", "kmp_wake", "made_design_ceremony", "made_get_help", "read"], "control: conjunto completo de la fase");
@@ -76,127 +103,148 @@ test("una fase repetida no decide dos veces; sin sesión no se decide", async ()
   await pi.fire("session_start");
   host.applyPhase(pi as never, Phase.INTERACTIVE); host.applyPhase(pi as never, Phase.INTERACTIVE);
   pi.events.emit(PHASE_CHANGED, null);
-  await settle();
+  await flush();
   assert.deepEqual(calls.map((c) => c.phase), ["interactive", "interactive"], "la primera emisión y la de fase desconocida; la repetida no");
 });
 
-test("timeout de 200 ms: Pi no espera más, sigue con el conjunto completo y la respuesta tardía se ignora", async () => {
-  const { pi, host } = setup([SHADOW, { delayMs: 600, reply: active(["kmp_time"]) }]);
+test("el select lleva el plazo absoluto (ahora + tope) para que el host no registre lo que Pi ya no aplicará", async () => {
+  const { calls, pi, host } = setup([], { timeoutMs: 200 });
   await pi.fire("session_start");
-  host.applyPhase(pi as never, Phase.INTERACTIVE);
-  await settle();
-  const before = sorted(pi.active);
-  const sets = pi.sets;
   const t0 = Date.now();
   await host.learn(pi as never);
-  const waited = Date.now() - t0;
-  assert.ok(waited >= 190 && waited < 400, String(waited));
-  await new Promise((r) => setTimeout(r, 700));
+  const t1 = Date.now();
+  const deadline = calls[0].deadline!.epochMs();
+  assert.ok(deadline >= t0 + 200 && deadline <= t1 + 200, `${t0} ${deadline} ${t1}`);
+});
+
+test("plazo agotado: Pi no espera a la respuesta lenta, sigue con el conjunto completo y la respuesta tardía se ignora", async () => {
+  const slow = new Deferred<SelectionDto>();
+  const { pi, host } = await started([slow], { timeoutMs: SHORT });
+  const before = sorted(pi.active); const sets = pi.sets;
+  const t0 = Date.now();
+  await host.learn(pi as never);
+  assert.ok(Date.now() - t0 < LENIENT_MS);
+  slow.resolve(active(["kmp_time"])); // llega después de que learn volviera
+  await flush();
   assert.deepEqual(sorted(pi.active), before);
   assert.equal(pi.sets, sets);
 });
 
-test("si conectar con el host agota los 200 ms, select ni se envía: ninguna decisión queda registrada", async () => {
-  const pi = new FakePi(); let selects = 0;
+test("si conectar con el host agota el plazo, select ni se envía: ninguna decisión queda registrada", async () => {
+  const pi = new FakePi(); let selects = 0; const connecting = new Deferred<void>();
   const gateway = { select: async () => { selects++; return SHADOW; }, onClose: () => {}, close: () => {} };
-  const host = new HostExtension(async () => { await new Promise((r) => setTimeout(r, 400)); return gateway as never; }, new SelectPhaseTools(PhaseToolSelection.standard()));
+  const host = new HostExtension(async () => { await connecting.promise; return gateway as never; }, new SelectPhaseTools(PhaseToolSelection.standard()), SHORT);
   host.register(pi as never);
   const starting = pi.fire("session_start");
-  await new Promise((r) => setTimeout(r, 10));
-  const t0 = Date.now();
-  await host.learn(pi as never);
-  assert.ok(Date.now() - t0 < 300);
-  await starting;
-  await new Promise((r) => setTimeout(r, 300));
+  await host.learn(pi as never); // vuelve por el plazo, con la conexión aún pendiente
+  connecting.resolve();
+  await starting; await flush();
   assert.equal(selects, 0);
 });
 
 test("un error o el host caído dejan el conjunto completo, también tras una decisión que redujo", async () => {
-  const { pi, host } = setup([SHADOW, active(["kmp_time"]), new Error("boom")]);
-  await pi.fire("session_start");
-  host.applyPhase(pi as never, Phase.INTERACTIVE);
-  await settle();
-  await pi.fire("agent_start");
-  assert.deepEqual(sorted(pi.active), NARROWED);
+  const { pi } = await narrowed([new Error("boom")]);
   await pi.fire("agent_start");
   assert.deepEqual(sorted(pi.active), FULL_INTERACTIVE);
-  const down = setup([], { down: true });
+  const down = setup([]);
+  down.state.down = true;
   await down.pi.fire("session_start");
+  assert.equal(down.pi.notices.length, 1, "el aviso va a la UI, no a la consola del test");
   down.host.applyPhase(down.pi as never, Phase.INTERACTIVE);
-  await settle();
-  const t0 = Date.now();
   await down.pi.fire("agent_start");
-  assert.ok(Date.now() - t0 < 250);
   assert.deepEqual(sorted(down.pi.active), FULL_INTERACTIVE);
   assert.equal(down.calls.length, 0);
 });
 
 test("una respuesta que llega tras cambiar de fase o de sesión no se aplica", async () => {
-  const { pi, host } = setup([{ delayMs: 50, reply: active(["kmp_time"]) }]);
+  const slow = new Deferred<SelectionDto>();
+  const { pi, host } = setup([slow]);
   await pi.fire("session_start");
   const pending = host.learn(pi as never);
   host.applyPhase(pi as never, Phase.DESIGN);
+  slow.resolve(active(["kmp_time"]));
   await pending;
   assert.ok(pi.active.includes("made_design_ceremony"));
   await pi.fire("session_shutdown");
   assert.equal(await host.learn(pi as never), undefined);
 });
 
-// Casos de fallo de la extensión (carry-over de Task 7): una negativa `ok:false` del host llega
-// como HostCallError, que bajo Pi viene de otro realm de jiti; todos restauran el conjunto completo.
-async function narrowedThen(failure: (g: { select: () => Promise<SelectionDto> }) => void) {
-  const { pi, host } = setup([SHADOW, active(["kmp_time"])]);
-  await pi.fire("session_start");
-  host.applyPhase(pi as never, Phase.INTERACTIVE);
-  await settle();
-  await pi.fire("agent_start");
-  assert.deepEqual(sorted(pi.active), NARROWED, "precondición: una decisión redujo las tools");
-  const g = await host.gateway() as unknown as { select: () => Promise<SelectionDto> };
-  failure(g);
-  const t0 = Date.now();
+test("respuestas desordenadas: sólo se aplica la de la última decisión pedida", async () => {
+  const first = new Deferred<SelectionDto>(); const second = new Deferred<SelectionDto>();
+  const { pi, host } = await started([first, second]);
+  const a = host.learn(pi as never); const b = host.learn(pi as never);
+  second.resolve(active(["kmp_time"]));
+  await b;
+  assert.deepEqual(sorted(pi.active), NARROWED);
+  first.resolve(active(["kmp_trace"]));
+  await a;
+  assert.deepEqual(sorted(pi.active), NARROWED, "la respuesta vieja no pisa a la nueva");
+});
+
+test("una sesión nueva no hereda la reducción de la anterior: se restaura el conjunto completo", async () => {
+  for (const next of ["shadow", "timeout", "down"] as const) {
+    const slow = new Deferred<SelectionDto>();
+    const s = await narrowed(next === "timeout" ? [slow] : [], { timeoutMs: next === "timeout" ? SHORT : LONG });
+    await s.pi.fire("session_shutdown");
+    if (next === "down") s.state.down = true;
+    s.pi.sid = "s2";
+    await s.pi.fire("session_start");
+    assert.deepEqual(sorted(s.pi.active), FULL_INTERACTIVE, `${next}: al empezar la sesión`);
+    await s.pi.fire("agent_start");
+    assert.deepEqual(sorted(s.pi.active), FULL_INTERACTIVE, `${next}: tras la decisión de la sesión nueva`);
+    slow.resolve(active(["kmp_time"]));
+    await flush();
+    assert.deepEqual(sorted(s.pi.active), FULL_INTERACTIVE, next);
+  }
+});
+
+// Casos de fallo tras una reducción (carry-over de Task 7): una negativa `ok:false` llega como
+// HostCallError, que bajo Pi viene de otro realm de jiti; todos restauran el conjunto completo.
+async function restoresAfter(failure: Reply, opts: { timeoutMs?: number } = {}) {
+  const { pi } = await narrowed([failure], opts);
   await assert.doesNotReject(pi.fire("agent_start"));
-  assert.ok(Date.now() - t0 < 250);
   assert.deepEqual(sorted(pi.active), FULL_INTERACTIVE);
-  return { pi, host };
+  return pi;
 }
 
 test("una negativa del host (ok:false → HostCallError de otro realm) restaura el conjunto completo sin lanzar", async () => {
   const url = pathToFileURL(new URL("../../../../../src/application/ports/HostCallError.ts", import.meta.url).pathname).href;
   const foreign = (await import(`${url}?realm=host`)).HostCallError as typeof HostCallError;
-  await narrowedThen((g) => { g.select = async () => { throw new foreign("invalid", "unknown session", "bad_request"); }; });
+  await restoresAfter(new foreign("invalid", "unknown session", "bad_request"));
 });
 
 test("un gateway que lanza en síncrono al llamar a select restaura el conjunto completo sin lanzar", async () => {
-  await narrowedThen((g) => { g.select = () => { throw new Error("sync boom"); }; });
+  const s = await narrowed([]);
+  s.gateway.select = () => { throw new Error("sync boom"); };
+  await assert.doesNotReject(s.pi.fire("agent_start"));
+  assert.deepEqual(sorted(s.pi.active), FULL_INTERACTIVE);
 });
 
-test("el timeout tras una decisión que redujo restaura el conjunto completo en 200 ms", async () => {
-  await narrowedThen((g) => { g.select = () => new Promise((r) => setTimeout(() => r(active(["kmp_time"])), 400)); });
-  await new Promise((r) => setTimeout(r, 450));
+test("el plazo agotado tras una decisión que redujo restaura el conjunto completo", async () => {
+  const slow = new Deferred<SelectionDto>();
+  const pi = await restoresAfter(slow, { timeoutMs: SHORT });
+  slow.resolve(active(["kmp_time"]));
+  await flush();
+  assert.deepEqual(sorted(pi.active), FULL_INTERACTIVE, "la respuesta tardía no vuelve a reducir");
 });
 
 test("sin gateway (host caído tras reducir y reconexión fallida) restaura el conjunto completo", async () => {
-  const pi = new FakePi(); let closed: (() => void) | null = null; let down = false;
-  const gateway = { select: async () => active(["kmp_time"]), onClose: (l: () => void) => { closed = l; }, close: () => {} };
-  const host = new HostExtension(async () => { if (down) throw new Error("host down"); return gateway as never; }, new SelectPhaseTools(PhaseToolSelection.standard()));
-  host.register(pi as never);
-  await pi.fire("session_start");
-  host.applyPhase(pi as never, Phase.INTERACTIVE);
-  await settle();
-  assert.deepEqual(sorted(pi.active), NARROWED);
-  down = true; closed!();
-  await assert.doesNotReject(pi.fire("agent_start"));
-  assert.deepEqual(sorted(pi.active), FULL_INTERACTIVE);
+  const s = await narrowed([]);
+  s.state.down = true; s.state.closed!();
+  await assert.doesNotReject(s.pi.fire("agent_start"));
+  assert.deepEqual(sorted(s.pi.active), FULL_INTERACTIVE);
 });
 
-test("una respuesta malformada o un setActiveTools que lanza no rompen Pi", async () => {
-  const { pi, host } = setup([SHADOW, { mode: "active", control: false, selected: null, floor: null } as unknown as SelectionDto, active(["kmp_time"])]);
-  await pi.fire("session_start");
-  host.applyPhase(pi as never, Phase.INTERACTIVE);
-  await settle();
-  await assert.doesNotReject(pi.fire("agent_start"));
-  assert.deepEqual(sorted(pi.active), FULL_INTERACTIVE);
+test("una respuesta active malformada tras una reducción restaura el conjunto completo", async () => {
+  for (const bad of [{ mode: "active", control: false, selected: null, floor: null }, { mode: "active", control: false, selected: [1], floor: [] }, null]) {
+    await restoresAfter(() => bad as unknown as SelectionDto);
+  }
+});
+
+test("un setActiveTools que lanza no rompe Pi", async () => {
+  const { pi } = await started([active(["kmp_time"]), SHADOW]);
   pi.setActiveTools = () => { throw new Error("pi refused"); };
+  await assert.doesNotReject(pi.fire("agent_start"));
   await assert.doesNotReject(pi.fire("agent_start"));
 });
 
@@ -204,10 +252,12 @@ test("fases iguales de realms distintos (Phase de otra copia del módulo) no des
   const url = pathToFileURL(new URL("../../../../../src/domain/session/Phase.ts", import.meta.url).pathname).href;
   const ForeignPhase = (await import(`${url}?realm=kmp`)).Phase as typeof Phase;
   assert.notEqual(ForeignPhase, Phase);
-  const { pi, host } = setup([{ delayMs: 30, reply: active(["kmp_time"]) }]);
+  const slow = new Deferred<SelectionDto>();
+  const { pi, host } = setup([slow]);
   await pi.fire("session_start");
-  host.applyPhase(pi as never, ForeignPhase.INTERACTIVE); // decide en segundo plano (30 ms)
+  host.applyPhase(pi as never, ForeignPhase.INTERACTIVE); // decide en segundo plano
   host.applyPhase(pi as never, Phase.INTERACTIVE); // el otro servidor: misma fase, no decide otra vez
-  await new Promise((r) => setTimeout(r, 60));
+  slow.resolve(active(["kmp_time"]));
+  await flush();
   assert.deepEqual(sorted(pi.active), NARROWED);
 });

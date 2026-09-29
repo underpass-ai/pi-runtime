@@ -44,7 +44,11 @@ export class SelectTools {
     this.#store = store; this.#record = record; this.#facts = facts; this.#phases = phases; this.#catalogs = catalogs; this.#project = project; this.#refresh = refresh;
   }
 
-  execute(session: SessionId, phase: Phase): SelectionDto {
+  // deadline: el plazo de la extensión (spec §7). Si el reloj del host ya lo pasó al fijar el
+  // hecho (tras poner al día las proyecciones, lo caro), Pi no aplicará la respuesta: fallback
+  // con el conjunto completo y sin hecho. Carrera residual: una respuesta a tiempo aquí puede
+  // llegar tarde a la extensión (transporte); ese hecho queda registrado y Pi no lo aplica.
+  execute(session: SessionId, phase: Phase, deadline: Timestamp | null = null): SelectionDto {
     const allowed = this.#catalogs.available(this.#phases.allowed(phase));
     const floor = SelectionFloor.STANDARD.within(allowed); const candidates = SelectionFloor.STANDARD.candidates(allowed);
     const fallback: SelectionDto = { mode: "fallback", control: false, selected: names(candidates), floor: names(floor) };
@@ -57,6 +61,7 @@ export class SelectTools {
     // El id del hecho se fija antes de muestrear: es la semilla del PRNG y del control.
     let slot: { id: EventId; at: Timestamp };
     try { slot = this.#facts.slot(session); } catch { return fallback; }
+    if (deadline !== null && slot.at.epochMs() > deadline.epochMs()) return fallback;
     let selection: ToolSelection;
     try { selection = this.#decide(context, setting, bandit, candidates, floor, slot); }
     catch { selection = ToolSelection.of({ context, mode: LearningMode.FALLBACK, control: false, size: setting.size, candidates, selected: candidates, floor, seed: slot.id, schemaBytes: this.#bytes(floor, candidates, candidates) }); }
