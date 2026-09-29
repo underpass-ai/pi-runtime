@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryEventStore } from "../../../../src/adapters/outbound/memory/InMemoryEventStore.ts";
-import type { EventRecord } from "../../../../src/domain/events/EventRecord.ts";
+import { EventRecord } from "../../../../src/domain/events/EventRecord.ts";
+import { EventType } from "../../../../src/domain/events/EventType.ts";
 import type { Fact } from "../../../../src/domain/events/Fact.ts";
 import { StreamId } from "../../../../src/domain/events/StreamId.ts";
 import { StreamVersion } from "../../../../src/domain/events/StreamVersion.ts";
@@ -260,4 +261,21 @@ test("un estado guardado antes del seguimiento de actividad expira desde el inic
   const restored = new SpanAssembler(legacy);
   assert.deepEqual(restored.expire(Timestamp.fromEpochMs(1000 + DAY - 1)), []);
   assert.deepEqual(restored.expire(Timestamp.fromEpochMs(1000 + DAY)).map((s) => [s.name, s.end.epochMs()]), [["session", 1000]]);
+});
+
+// La auditoría de MADE y los tipos opacos los registra el host (o una versión futura): no son
+// actividad de Pi, así que ni alargan la vida de la sesión ni mueven su fin.
+test("un hecho made.* o de tipo opaco no cuenta como actividad de la sesión para el abandono", () => {
+  const rs = timed([
+    [RECORDED, [fact("session.opened", "o", {}, SESSION, 1000)]],
+    [RECORDED + 3_600_000, [fact("made.grant_issued", "grant.x", { grantId: "x" }, SESSION, 3_601_000)]],
+    [RECORDED + 7_200_000, [fact("made.confirmation", "confirm.x", { outcome: "accepted" }, SESSION, 7_201_000)]],
+  ]);
+  const last = rs.at(-1)!;
+  const opaque = EventRecord.restore({ ...last, id: last.id, type: EventType.stored("future.thing"), recordedAt: Timestamp.fromEpochMs(RECORDED + 10_800_000), occurredAt: Timestamp.fromEpochMs(10_801_000) });
+  const a = fresh();
+  assert.deepEqual(feedAll(a, [...rs, opaque]), [], "ni eventos ni spans");
+  const expired = a.expire(Timestamp.fromEpochMs(RECORDED + DAY));
+  assert.deepEqual(expired.map((s) => [s.name, s.end.epochMs(), s.attributes.get("pi_runtime.incomplete")]), [["session", 1000, true]], "abandonada a las 24 h del último hecho de Pi");
+  assert.deepEqual(expired[0].events, []);
 });
