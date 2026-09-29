@@ -125,6 +125,8 @@ Los KPIs de aceptación de recomendaciones del runtime se dejan para L1.
   - nunca aparecen en logs, errores ni `doctor`, que solo muestra sus nombres;
   - `OTEL_EXPORTER_OTLP_TIMEOUT` (ms, por defecto 10000).
 - **Idempotencia:** reexportar, por ejemplo después de un rebuild, produce los mismos ids.
+- **Entrega al menos una vez:** una pasada que reúne más de 512 spans sale en varios POST; si uno posterior falla, el reintento reenvía también los trozos ya aceptados, con los mismos ids. El colector puede ver un span repetido, nunca uno distinto.
+- **Relleno del histórico:** las trazas salen del log de eventos, así que activar OTLP en un proyecto con historia exporta el log entero desde el principio (y lo mismo tras `underpass events rebuild otlp_traces`). Algunos backends descartan spans más antiguos que su ventana de ingesta: se pierden allí, no en el log.
 
 ## 6. Superficies locales
 
