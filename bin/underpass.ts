@@ -13,6 +13,8 @@ const { CliComposition } = await import("../src/composition/CliComposition.ts");
 try {
   process.exit(await CliComposition.build(process.env, (s) => console.log(s)).run(process.argv.slice(2)));
 } catch (e) {
-  console.error(`underpass: ${(e as Error).message}`);
+  // UNDERPASS_DEBUG muestra la pila completa; por defecto, una línea limpia.
+  const detail = e instanceof Error ? (process.env.UNDERPASS_DEBUG ? e.stack ?? e.message : e.message) : String(e);
+  console.error(`underpass: ${detail}`);
   process.exit(1);
 }

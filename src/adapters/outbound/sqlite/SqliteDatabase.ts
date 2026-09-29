@@ -27,6 +27,13 @@ export class SqliteDatabase {
     return new SqliteDatabase(db);
   }
 
+  // Lectura sin efectos: ni crea el fichero, ni ejecuta el DDL, ni cambia el modo de journal (doctor y verbos de consulta).
+  static openReadOnly(path: string): SqliteDatabase {
+    const db = new DatabaseSync(path, { readOnly: true });
+    db.exec("PRAGMA busy_timeout=10000;");
+    return new SqliteDatabase(db);
+  }
+
   get handle(): DatabaseSync { return this.#db; }
 
   transaction<T>(fn: () => T): T {

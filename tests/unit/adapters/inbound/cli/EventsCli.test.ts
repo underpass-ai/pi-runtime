@@ -6,6 +6,7 @@ import { InMemoryProjectionStore } from "../../../../../src/adapters/outbound/me
 import { SessionSummaryProjection } from "../../../../../src/application/projections/SessionSummaryProjection.ts";
 import { ToolStatsProjection } from "../../../../../src/application/projections/ToolStatsProjection.ts";
 import type { EventStore } from "../../../../../src/application/ports/EventStore.ts";
+import { ProjectionLag } from "../../../../../src/application/use-cases/ProjectionLag.ts";
 import { ProjectionRunner } from "../../../../../src/application/services/ProjectionRunner.ts";
 import { ExportEventLog } from "../../../../../src/application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../../../../../src/application/use-cases/ImportEventLog.ts";
@@ -16,21 +17,22 @@ import { ToolStatsReport } from "../../../../../src/application/use-cases/ToolSt
 import { VerifyEventLog } from "../../../../../src/application/use-cases/VerifyEventLog.ts";
 import { ProjectId } from "../../../../../src/domain/project/ProjectId.ts";
 import { EventRecord } from "../../../../../src/domain/events/EventRecord.ts";
-import type { StreamId } from "../../../../../src/domain/events/StreamId.ts";
+import { StreamId } from "../../../../../src/domain/events/StreamId.ts";
 import { CanonicalJson } from "../../../../../src/domain/shared/CanonicalJson.ts";
 import { StreamVersion } from "../../../../../src/domain/events/StreamVersion.ts";
 import { AT, SESSION, fact } from "../../../../support/recordFixtures.ts";
 
 const PROJECT = ProjectId.of("0123456789abcdef");
 
-function cli(events: EventStore = new InMemoryEventStore(), files: Record<string, string> = {}, verifyFrom: EventStore = events) {
+function cli(events: EventStore = new InMemoryEventStore(), files: Record<string, string> = {}, verifyFrom: EventStore = events, project = true) {
   const store = new InMemoryProjectionStore();
-  const runner = new ProjectionRunner(events, store, [new SessionSummaryProjection(), new ToolStatsProjection()]);
-  runner.runOnce();
+  const list = [new SessionSummaryProjection(), new ToolStatsProjection()];
+  const runner = new ProjectionRunner(events, store, list);
+  if (project) runner.runOnce();
   const out: string[] = [];
   const c = new EventsCli({
     sessions: new ListSessions(store), show: new ShowSession(events), tools: new ToolStatsReport(store), verify: new VerifyEventLog(verifyFrom),
-    exportLog: new ExportEventLog(events, PROJECT), importLog: new ImportEventLog(events), rebuild: new RebuildProjection(runner),
+    exportLog: new ExportEventLog(events, PROJECT), importLog: new ImportEventLog(events), rebuild: new RebuildProjection(runner), lag: new ProjectionLag(events, store, list),
     readFile: (p) => { if (!(p in files)) throw new Error(`ENOENT: ${p}`); return files[p]; }, print: (s) => out.push(s),
   });
   return { c, out, text: () => out.join("\n"), events };
@@ -75,7 +77,10 @@ test("verify: intact sale 0, --stream acota; un stream roto sale 1", () => {
   assert.equal(c.run(["verify"]), 0);
   assert.deepEqual(out, ["session:s1  intact"]);
   out.length = 0;
-  assert.equal(c.run(["verify", "--stream", "host"]), 0);
+  assert.equal(c.run(["verify", "--stream", "session:s1"]), 0);
+  assert.deepEqual(out, ["session:s1  intact"]);
+  out.length = 0;
+  assert.equal(c.run(["verify", "--stream", "host"]), 1, "un stream pedido que no existe es un fallo");
   assert.deepEqual(out, ["host  notFound"]);
   const src = seeded();
   const tampered = Object.assign(Object.create(null) as EventStore, {
@@ -95,7 +100,14 @@ test("export → import en otro almacén imprime 'imported 3 events'; --since ac
   const bundle = out.join("\n");
   const dst = cli(new InMemoryEventStore(), { "/b.jsonl": bundle });
   assert.equal(dst.c.run(["import", "/b.jsonl"]), 0);
-  assert.deepEqual(dst.out, ["imported 3 events"]);
+  assert.deepEqual(dst.out, [
+    "imported 3 events",
+    "projections behind (0/3): start pi in this project or run underpass events rebuild session_summary",
+    "projections behind (0/3): start pi in this project or run underpass events rebuild tool_stats",
+  ]);
+  dst.out.length = 0;
+  assert.equal(dst.c.run(["import", "/b.jsonl"]), 0);
+  assert.deepEqual(dst.out, ["imported 0 events"], "reimportar no añade nada y no avisa");
   assert.equal(dst.events.lastPosition().value, 3);
   out.length = 0;
   assert.equal(c.run(["export", "--since", "2"]), 0);
@@ -113,10 +125,46 @@ test("rebuild reconstruye la proyección; errores salen con 1 y un mensaje limpi
 
 test("uso incorrecto sale con 2 y muestra el uso", () => {
   const { c, out } = cli(seeded());
-  const usage = "usage: underpass events sessions|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>";
-  for (const args of [["nope"], [], ["show"], ["import"], ["rebuild"], ["export", "--since", "x"]]) {
+  const usage = "usage: underpass events sessions [--since t]|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>";
+  for (const args of [["nope"], [], ["show"], ["import"], ["rebuild"], ["export", "--since", "x"], ["sessions", "--since", "ayer"], ["sessions", "--since"], ["verify", "--stream"]]) {
     out.length = 0;
     assert.equal(c.run(args), 2, JSON.stringify(args));
     assert.deepEqual(out, [usage]);
   }
+});
+
+test("sessions --since filtra por apertura (ISO-8601)", () => {
+  const events = seeded();
+  const other = StreamId.of("session:s2");
+  events.append(other, StreamVersion.NONE, [fact("session.opened", "o", {}, other, 10_000)], AT);
+  const { c, out } = cli(events);
+  assert.equal(c.run(["sessions"]), 0);
+  assert.deepEqual(out.map((l) => l.split("  ")[0]), ["s2", "s1"]);
+  out.length = 0;
+  assert.equal(c.run(["sessions", "--since", "1970-01-01T00:00:05.000Z"]), 0);
+  assert.deepEqual(out.map((l) => l.split("  ")[0]), ["s2"]);
+  out.length = 0;
+  assert.equal(c.run(["sessions", "--since", "2000-01-01T00:00:00.000Z"]), 0);
+  assert.deepEqual(out, ["no sessions recorded yet"]);
+});
+
+test("proyecciones atrasadas: sessions y tools avisan en vez de decir que no hay nada", () => {
+  const { c, out } = cli(seeded(), {}, undefined, false);
+  assert.equal(c.run(["sessions"]), 0);
+  assert.deepEqual(out, ["projections behind (0/3): start pi in this project or run underpass events rebuild session_summary"]);
+  out.length = 0;
+  assert.equal(c.run(["tools"]), 0);
+  assert.deepEqual(out, ["projections behind (0/3): start pi in this project or run underpass events rebuild tool_stats"]);
+  out.length = 0;
+  assert.equal(c.run(["rebuild", "session_summary"]), 0);
+  out.length = 0;
+  assert.equal(c.run(["sessions"]), 0);
+  assert.equal(out.length, 1);
+  assert.match(out[0], /^s1  /);
+});
+
+test("show de una sesión desconocida lo dice y sale con 0", () => {
+  const { c, out } = cli(seeded());
+  assert.equal(c.run(["show", "nadie"]), 0);
+  assert.deepEqual(out, ["no events for session nadie"]);
 });

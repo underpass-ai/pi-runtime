@@ -1,0 +1,76 @@
+import { existsSync, readFileSync } from "node:fs";
+import { EventsCli } from "../adapters/inbound/cli/EventsCli.ts";
+import { FsSpoolInspector } from "../adapters/outbound/fs/FsSpoolInspector.ts";
+import { InMemoryEventStore } from "../adapters/outbound/memory/InMemoryEventStore.ts";
+import { InMemoryProjectionStore } from "../adapters/outbound/memory/InMemoryProjectionStore.ts";
+import { SqliteDatabase } from "../adapters/outbound/sqlite/SqliteDatabase.ts";
+import { SqliteEventStore } from "../adapters/outbound/sqlite/SqliteEventStore.ts";
+import { SqliteProjectionStore } from "../adapters/outbound/sqlite/SqliteProjectionStore.ts";
+import type { EventStore } from "../application/ports/EventStore.ts";
+import type { Projection } from "../application/ports/Projection.ts";
+import type { ProjectionStore } from "../application/ports/ProjectionStore.ts";
+import { SessionSummaryProjection } from "../application/projections/SessionSummaryProjection.ts";
+import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
+import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
+import { DiagnoseEventLog } from "../application/use-cases/DiagnoseEventLog.ts";
+import { ExportEventLog } from "../application/use-cases/ExportEventLog.ts";
+import { ImportEventLog } from "../application/use-cases/ImportEventLog.ts";
+import { ListSessions } from "../application/use-cases/ListSessions.ts";
+import { ProjectionLag } from "../application/use-cases/ProjectionLag.ts";
+import { RebuildProjection } from "../application/use-cases/RebuildProjection.ts";
+import { ShowSession } from "../application/use-cases/ShowSession.ts";
+import { ToolStatsReport } from "../application/use-cases/ToolStatsReport.ts";
+import { VerifyEventLog } from "../application/use-cases/VerifyEventLog.ts";
+import type { Check } from "../domain/diagnosis/Check.ts";
+import type { Project } from "../domain/project/Project.ts";
+import { LazyEventStore } from "./LazyEventStore.ts";
+import { LazyProjectionStore } from "./LazyProjectionStore.ts";
+import type { StatePaths } from "./StatePaths.ts";
+
+// read: sólo lectura (doctor y consultas); write: lectura-escritura si el log existe (rebuild); create: lo crea (import).
+type Mode = "read" | "write" | "create";
+type Stores = { events: EventStore; projections: ProjectionStore; persisted: boolean };
+
+// Cableado del log de eventos para el CLI. Sin log, lectura y rebuild trabajan sobre almacenes vacíos en memoria:
+// nada se crea salvo con `events import`, y aun entonces sólo tras validar el bundle.
+export class EventLogComposition {
+  readonly #log: string; readonly #spool: string; readonly #project: Project; readonly #print: (s: string) => void;
+  constructor(paths: StatePaths, project: Project, print: (s: string) => void) {
+    this.#log = paths.eventLogOf(project); this.#spool = paths.spoolDirOf(project); this.#project = project; this.#print = print;
+  }
+
+  diagnosis(): { execute(): Check[] } {
+    return {
+      execute: () => {
+        const s = this.#open("read");
+        // Sin log no hay cursores que comparar: la lista vacía evita un falso "version mismatch".
+        return new DiagnoseEventLog(s.events, s.projections, s.persisted ? this.#projections() : [], new FsSpoolInspector(this.#spool)).execute();
+      },
+    };
+  }
+
+  cli(): { run(args: string[]): number } {
+    return {
+      run: (args: string[]) => {
+        const mode: Mode = args[0] === "import" ? "create" : args[0] === "rebuild" ? "write" : "read";
+        let stores: Stores | null = null;
+        const resolve = () => (stores ??= this.#open(mode));
+        const events = new LazyEventStore(() => resolve().events); const projections = new LazyProjectionStore(() => resolve().projections);
+        return new EventsCli({
+          sessions: new ListSessions(projections), show: new ShowSession(events), tools: new ToolStatsReport(projections), verify: new VerifyEventLog(events),
+          exportLog: new ExportEventLog(events, this.#project.id), importLog: new ImportEventLog(events),
+          rebuild: new RebuildProjection(new ProjectionRunner(events, projections, this.#projections())),
+          lag: new ProjectionLag(events, projections, this.#projections()), readFile: (p) => readFileSync(p, "utf8"), print: this.#print,
+        }).run(args);
+      },
+    };
+  }
+
+  #projections(): Projection[] { return [new SessionSummaryProjection(), new ToolStatsProjection()]; }
+
+  #open(mode: Mode): Stores {
+    if (mode !== "create" && !existsSync(this.#log)) return { events: new InMemoryEventStore(), projections: new InMemoryProjectionStore(), persisted: false };
+    const db = mode === "read" ? SqliteDatabase.openReadOnly(this.#log) : SqliteDatabase.open(this.#log);
+    return { events: new SqliteEventStore(db), projections: new SqliteProjectionStore(db), persisted: true };
+  }
+}

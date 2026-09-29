@@ -1,6 +1,9 @@
+import { SessionSummaryProjection } from "../../../application/projections/SessionSummaryProjection.ts";
+import { ToolStatsProjection } from "../../../application/projections/ToolStatsProjection.ts";
 import type { ExportEventLog } from "../../../application/use-cases/ExportEventLog.ts";
 import type { ImportEventLog } from "../../../application/use-cases/ImportEventLog.ts";
 import type { ListSessions } from "../../../application/use-cases/ListSessions.ts";
+import type { ProjectionLag } from "../../../application/use-cases/ProjectionLag.ts";
 import type { RebuildProjection } from "../../../application/use-cases/RebuildProjection.ts";
 import type { ShowSession } from "../../../application/use-cases/ShowSession.ts";
 import type { ToolStatsReport } from "../../../application/use-cases/ToolStatsReport.ts";
@@ -9,13 +12,14 @@ import { GlobalPosition } from "../../../domain/events/GlobalPosition.ts";
 import { ProjectionName } from "../../../domain/events/ProjectionName.ts";
 import { SessionId } from "../../../domain/events/SessionId.ts";
 import { StreamId } from "../../../domain/events/StreamId.ts";
+import { Timestamp } from "../../../domain/events/Timestamp.ts";
 import { CanonicalJson } from "../../../domain/shared/CanonicalJson.ts";
 
 type Deps = {
   sessions: ListSessions; show: ShowSession; tools: ToolStatsReport; verify: VerifyEventLog; exportLog: ExportEventLog; importLog: ImportEventLog;
-  rebuild: RebuildProjection; readFile: (path: string) => string; print: (s: string) => void;
+  rebuild: RebuildProjection; lag: ProjectionLag; readFile: (path: string) => string; print: (s: string) => void;
 };
-const USAGE = "usage: underpass events sessions|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>";
+const USAGE = "usage: underpass events sessions [--since t]|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>";
 const opt = (args: string[], flag: string): string | null => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] ?? "" : null; };
 
 export class EventsCli {
@@ -27,18 +31,25 @@ export class EventsCli {
     try {
       switch (cmd) {
         case "sessions": {
-          const sessions = d.sessions.execute();
-          if (sessions.length === 0) d.print("no sessions recorded yet");
+          const since = opt(args, "--since");
+          let from: Timestamp | undefined;
+          if (since !== null) { try { from = Timestamp.parse(since); } catch { return this.#usage(); } }
+          const sessions = d.sessions.execute(from);
+          const behind = this.#hints(SessionSummaryProjection.NAME);
+          if (sessions.length === 0 && !behind) d.print("no sessions recorded yet");
           for (const s of sessions) d.print(`${s.sessionId}  ${s.openedAt ?? "-"}  ${s.phase ?? "-"}  turns=${s.turns}  tokens=${s.tokens.input}+${s.tokens.output}  cost=${s.cost.toFixed(4)}  failures=${s.failures}`);
           return 0;
         }
         case "show":
           if (!arg) return this.#usage();
-          for (const r of d.show.execute(SessionId.of(arg))) d.print(`v${r.version}  ${r.occurredAt}  ${r.type}  ${CanonicalJson.of(r.payload).text}`);
+          const timeline = d.show.execute(SessionId.of(arg));
+          if (timeline.length === 0) d.print(`no events for session ${arg}`);
+          for (const r of timeline) d.print(`v${r.version}  ${r.occurredAt}  ${r.type}  ${CanonicalJson.of(r.payload).text}`);
           return 0;
         case "tools": {
           const rows = d.tools.execute();
-          if (rows.length === 0) d.print("no tool calls recorded yet");
+          const behind = this.#hints(ToolStatsProjection.NAME);
+          if (rows.length === 0 && !behind) d.print("no tool calls recorded yet");
           for (const t of rows) d.print(`${t.server}/${t.tool}  n=${t.n}  ok=${t.succeeded}  fail=${t.failed}  refused=${t.refused}  aborted=${t.aborted}  p50=${t.p50 ?? "-"}  p95=${t.p95 ?? "-"}`);
           return 0;
         }
@@ -48,7 +59,8 @@ export class EventsCli {
           const results = d.verify.execute(s === null ? undefined : StreamId.of(s));
           if (results.length === 0) d.print("no streams recorded yet");
           for (const x of results) d.print(`${x.stream.value}  ${x.result.kind}${x.result.reason ? ` at v${x.result.version?.value}: ${x.result.reason}` : ""}`);
-          return results.some((x) => x.result.kind === "broken") ? 1 : 0;
+          // Pedir un stream concreto que no existe es un fallo; el log entero sin streams no lo es.
+          return results.some((x) => x.result.kind === "broken" || (s !== null && x.result.kind === "notFound")) ? 1 : 0;
         }
         case "export": {
           const since = opt(args, "--since");
@@ -58,7 +70,9 @@ export class EventsCli {
         }
         case "import":
           if (!arg) return this.#usage();
-          d.print(`imported ${d.importLog.execute(d.readFile(arg).split("\n"))} events`);
+          const imported = d.importLog.execute(d.readFile(arg).split("\n"));
+          d.print(`imported ${imported} events`);
+          if (imported > 0) this.#hints();
           return 0;
         case "rebuild":
           if (!arg) return this.#usage();
@@ -72,6 +86,13 @@ export class EventsCli {
       d.print(`error: ${(e as Error).message}`);
       return 1;
     }
+  }
+
+  // Las proyecciones las mantiene el host; el CLI no las ejecuta, sólo avisa si van por detrás del log.
+  #hints(only?: ProjectionName): boolean {
+    const behind = this.#d.lag.execute(only);
+    for (const b of behind) this.#d.print(`projections behind (${b.position}/${b.last}): start pi in this project or run underpass events rebuild ${b.projection}`);
+    return behind.length > 0;
   }
 
   #usage(): number { this.#d.print(USAGE); return 2; }
