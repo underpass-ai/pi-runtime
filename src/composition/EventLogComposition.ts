@@ -58,7 +58,7 @@ export class EventLogComposition {
         const events = new LazyEventStore(() => resolve().events); const projections = new LazyProjectionStore(() => resolve().projections);
         return new EventsCli({
           sessions: new ListSessions(projections), show: new ShowSession(events), tools: new ToolStatsReport(projections), verify: new VerifyEventLog(events),
-          exportLog: new ExportEventLog(events, this.#project.id), importLog: new ImportEventLog(events),
+          exportLog: new ExportEventLog(events, this.#project.id), importLog: new ImportEventLog(events, this.#project.id),
           rebuild: new RebuildProjection(new ProjectionRunner(events, projections, this.#projections())),
           lag: new ProjectionLag(events, projections, this.#projections()), readFile: (p) => readFileSync(p, "utf8"), print: this.#print,
         }).run(args);

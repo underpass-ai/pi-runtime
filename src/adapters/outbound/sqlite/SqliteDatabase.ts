@@ -27,7 +27,10 @@ export class SqliteDatabase {
     return new SqliteDatabase(db);
   }
 
-  // Lectura sin efectos: ni crea el fichero, ni ejecuta el DDL, ni cambia el modo de journal (doctor y verbos de consulta).
+  // Lectura sin efectos sobre el log: ni crea el fichero, ni ejecuta el DDL,
+  // ni cambia el modo de journal (doctor y verbos de consulta). Aceptado
+  // (decisión R7): como lector WAL, SQLite puede crear o dejar los sidecars
+  // `-wal` y `-shm` junto al log; nunca otra cosa, y el log no se modifica.
   static openReadOnly(path: string): SqliteDatabase {
     const db = new DatabaseSync(path, { readOnly: true });
     db.exec("PRAGMA busy_timeout=10000;");

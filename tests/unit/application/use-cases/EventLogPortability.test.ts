@@ -34,8 +34,8 @@ test("export → import en un almacén vacío reproduce el log; reimportar no du
   const header = JSON.parse(lines[0]);
   assert.deepEqual([header.format, header.count, header.from, header.to], ["pi-runtime.events.v1", 3, 1, 3]);
   const dst = new InMemoryEventStore();
-  assert.equal(new ImportEventLog(dst).execute(lines), 3);
-  assert.equal(new ImportEventLog(dst).execute(lines), 0);
+  assert.equal(new ImportEventLog(dst, ProjectId.of("0123456789abcdef")).execute(lines).imported, 3);
+  assert.equal(new ImportEventLog(dst, ProjectId.of("0123456789abcdef")).execute(lines).imported, 0);
   assert.deepEqual(dst.readStream(SESSION).map((r) => r.hash.value), src.readStream(SESSION).map((r) => r.hash.value));
   assert.ok(new VerifyEventLog(dst).execute().every((x) => x.result.isIntact()));
   assert.equal(new VerifyEventLog(dst).execute(SESSION).length, 1);
@@ -44,9 +44,9 @@ test("export → import en un almacén vacío reproduce el log; reimportar no du
 test("rechaza cabecera, digest y formato incorrectos", () => {
   const lines = new ExportEventLog(seeded(), ProjectId.of("0123456789abcdef")).execute();
   const dst = new InMemoryEventStore();
-  assert.throws(() => new ImportEventLog(dst).execute([]), /header/);
-  assert.throws(() => new ImportEventLog(dst).execute([lines[0].replace("pi-runtime.events.v1", "x"), ...lines.slice(1)]), /format/);
-  assert.throws(() => new ImportEventLog(dst).execute([lines[0], ...lines.slice(2)]), /sha256/);
+  assert.throws(() => new ImportEventLog(dst, ProjectId.of("0123456789abcdef")).execute([]), /header/);
+  assert.throws(() => new ImportEventLog(dst, ProjectId.of("0123456789abcdef")).execute([lines[0].replace("pi-runtime.events.v1", "x"), ...lines.slice(1)]), /format/);
+  assert.throws(() => new ImportEventLog(dst, ProjectId.of("0123456789abcdef")).execute([lines[0], ...lines.slice(2)]), /sha256/);
   assert.equal(dst.lastPosition().value, 0);
 });
 
@@ -62,7 +62,7 @@ test("sqlite: export → import en un almacén vacío reproduce el log", () => {
   src.append(StreamId.HOST, StreamVersion.NONE, [fact("host.started", "h", {}, StreamId.HOST)], AT);
   const lines = new ExportEventLog(src, ProjectId.of("0123456789abcdef")).execute();
   const dst = new SqliteEventStore(SqliteDatabase.open(":memory:"));
-  assert.equal(new ImportEventLog(dst).execute(lines), 3);
+  assert.equal(new ImportEventLog(dst, ProjectId.of("0123456789abcdef")).execute(lines).imported, 3);
   assert.deepEqual(dst.readStream(SESSION).map((r) => r.hash.value), src.readStream(SESSION).map((r) => r.hash.value));
   assert.ok(new VerifyEventLog(dst).execute().every((x) => x.result.isIntact()));
 });
@@ -76,7 +76,7 @@ test("rechaza un bundle manipulado (sha256 recalculado pero un registro con hash
   body[1] = JSON.stringify(tampered);
   const newHeader = JSON.stringify({ ...header, sha256: BundleDigest.of(body) });
   const dst = new InMemoryEventStore();
-  assert.throws(() => new ImportEventLog(dst).execute([newHeader, ...body]), /cadena|chain|broken|link/i);
+  assert.throws(() => new ImportEventLog(dst, ProjectId.of("0123456789abcdef")).execute([newHeader, ...body]), /cadena|chain|broken|link/i);
   assert.equal(dst.lastPosition().value, 0);
 });
 
@@ -90,4 +90,13 @@ test("RebuildProjection delega en el runner y propaga el fallo de una proyecció
   new RebuildProjection(runner).execute(p.name);
   assert.equal(store.load(p.name).get("count"), 3);
   assert.throws(() => new RebuildProjection(runner).execute(ProjectionName.of("missing")), /unknown projection/);
+});
+
+test("un bundle de otro proyecto se importa igual pero avisa; el mismo proyecto no avisa", () => {
+  const lines = new ExportEventLog(seeded(), ProjectId.of("0123456789abcdef")).execute();
+  const same = new ImportEventLog(new InMemoryEventStore(), ProjectId.of("0123456789abcdef")).execute(lines);
+  assert.deepEqual(same, { imported: 3, warnings: [] });
+  const other = new ImportEventLog(new InMemoryEventStore(), ProjectId.of("fedcba9876543210")).execute(lines);
+  assert.equal(other.imported, 3);
+  assert.deepEqual(other.warnings, ["bundle project_id 0123456789abcdef differs from this project (fedcba9876543210)"]);
 });

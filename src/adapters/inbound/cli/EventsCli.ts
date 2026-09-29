@@ -70,7 +70,8 @@ export class EventsCli {
         }
         case "import":
           if (!arg) return this.#usage();
-          const imported = d.importLog.execute(d.readFile(arg).split("\n"));
+          const { imported, warnings } = d.importLog.execute(d.readFile(arg).split("\n"));
+          for (const w of warnings) d.print(`warning: ${w}`);
           d.print(`imported ${imported} events`);
           if (imported > 0) this.#hints();
           return 0;

@@ -48,3 +48,24 @@ test("openReadOnly lee un log existente sin DDL ni escritura, y no crea uno inex
   assert.throws(() => SqliteDatabase.openReadOnly(missing));
   assert.equal(existsSync(join(dir, "nope")), false);
 });
+
+// Decisión R7: un lector WAL de sólo lectura puede crear (o dejar) los
+// sidecars -wal y -shm junto al log; no crea nada más ni modifica el log.
+test("openReadOnly: tras una lectura el directorio sólo tiene el log y sus sidecars WAL", async () => {
+  const { readdirSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "ro-")); const file = join(dir, "events.sqlite3");
+  SqliteDatabase.open(file).close();
+  const before = statSync(file).mtimeMs;
+  const ro = SqliteDatabase.openReadOnly(file);
+  assert.equal(ro.handle.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()!.value, "1");
+  ro.close();
+  assert.ok(readdirSync(dir).every((n) => ["events.sqlite3", "events.sqlite3-wal", "events.sqlite3-shm"].includes(n)), readdirSync(dir).join(","));
+  assert.equal(statSync(file).mtimeMs, before);
+});
+
+test("read: las lecturas de fn comparten una transacción y devuelve su resultado", () => {
+  const db = SqliteDatabase.open(":memory:");
+  assert.equal(db.read(() => { assert.equal(db.handle.isTransaction, true); return 7; }), 7);
+  assert.equal(db.handle.isTransaction, false);
+  db.close();
+});

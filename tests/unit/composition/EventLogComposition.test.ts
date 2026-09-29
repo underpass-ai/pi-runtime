@@ -43,7 +43,8 @@ test("doctor sin log: WARN 'no events recorded yet' y no crea nada en el estado"
 test("doctor con log existente lo abre en sólo lectura (sin tocar el fichero) y ve el spool real", () => {
   const { home, out, composition, log, spool } = setup();
   assert.equal(composition.cli().run(["import", bundle(home)]), 0);
-  assert.equal(out[0], "imported 1 events");
+  assert.match(out[0], /^warning: bundle project_id 0123456789abcdef differs from this project/, "el bundle de prueba es de otro proyecto");
+  assert.equal(out[1], "imported 1 events");
   const before = statSync(log).mtimeMs;
   mkdirSync(spool, { recursive: true }); writeFileSync(join(spool, "9.gap"), "");
   const checks = composition.diagnosis().execute();

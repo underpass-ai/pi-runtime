@@ -19,7 +19,7 @@ No duplica autoridad. MADE sigue siendo la fuente de las decisiones (ceremonias,
 4. **Captura:** la hacen las extensiones de Pi sobre los eventos públicos de Pi y el host sobre sus propios hechos. Si el host no está disponible, los hechos van a un spool de respaldo.
 5. **Almacenamiento:**
    - un SQLite por proyecto en `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/projects/<id>/events.sqlite3`;
-   - el host es el único escritor, así que `node:sqlite` solo se carga en el host, arrancado con `--disable-warning=ExperimentalWarning`;
+   - el host es el escritor habitual (`node:sqlite` se carga en el host, arrancado con `--disable-warning=ExperimentalWarning`, y en el CLI). **Revisado (R9):** `underpass events import` y `underpass events rebuild` también escriben el log desde el CLI; la exclusión la da el bloqueo de SQLite (`BEGIN IMMEDIATE`, `busy_timeout`) y los cursores de proyección se confirman con compare-and-set (§4), así que un rebuild concurrente con el host no duplica ni pierde aplicaciones;
    - un stream por sesión de Pi y otro para el host.
 
 ### Qué se toma de MADE y KMP, y qué no
@@ -89,7 +89,7 @@ No duplica autoridad. MADE sigue siendo la fuente de las decisiones (ceremonias,
 ### 1.4. Agregado de sesión
 
 - **Estado:** fase, tools activas (digest), modelo actual, contadores de turnos, tokens, coste y llamadas por servidor y estado, y abierta o cerrada.
-- `decide(state, command, clock, ids) → facts[] | rejection` es puro.
+- `decide(state, command, clock, ids) → facts[] | rejection` es puro. **(R10)** `session.opened` sobre una sesión abierta es una reapertura implícita (Pi murió sin `session.closed` y la sesión se reanuda): se acepta.
 - `apply(state, record) → state` es infalible, no lee el reloj y no valida. Rechaza de forma explícita un stream que no empiece por `session.opened`.
 
 ## 2. Almacenamiento e integridad
@@ -98,8 +98,8 @@ No duplica autoridad. MADE sigue siendo la fuente de las decisiones (ceremonias,
 
 SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras en `BEGIN IMMEDIATE`:
 
-- `events(global_position INTEGER PRIMARY KEY, stream TEXT NOT NULL, version INTEGER NOT NULL, event_id TEXT NOT NULL, type TEXT NOT NULL, type_version INTEGER NOT NULL, occurred_at TEXT NOT NULL, recorded_at TEXT NOT NULL, actor TEXT NOT NULL, correlation_id TEXT NOT NULL, causation_id TEXT, payload TEXT NOT NULL, prev_hash TEXT, hash TEXT NOT NULL, UNIQUE(stream, version), UNIQUE(stream, event_id))`.
-- `streams(stream TEXT PRIMARY KEY, version INTEGER NOT NULL, head_hash TEXT NOT NULL)`: la cabeza se lee en O(1).
+- `events(global_position INTEGER PRIMARY KEY, stream TEXT NOT NULL, version INTEGER NOT NULL, event_id TEXT NOT NULL, type TEXT NOT NULL, type_version INTEGER NOT NULL, occurred_at TEXT NOT NULL, recorded_at TEXT NOT NULL, actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL, correlation_id TEXT NOT NULL, causation_id TEXT, payload TEXT NOT NULL, prev_hash TEXT, hash TEXT NOT NULL, UNIQUE(stream, version), UNIQUE(stream, event_id))`. **Revisado (R9):** el actor se guarda en dos columnas reales (`actor_kind`, `actor_id`) en vez de un `actor` JSON.
+- `streams(stream TEXT PRIMARY KEY, version INTEGER NOT NULL, head_hash TEXT NOT NULL, last_event_id TEXT NOT NULL, correlation_id TEXT NOT NULL)`: la cabeza se lee en O(1). **Revisado (R9):** `last_event_id` y `correlation_id` permiten rellenar `causation_id` y `correlation_id` del siguiente append sin releer el stream.
 - `cursors(consumer TEXT PRIMARY KEY, projection_version INTEGER NOT NULL, position INTEGER NOT NULL)`.
 - `projection_state(consumer TEXT, key TEXT, value TEXT, PRIMARY KEY(consumer, key))`: estado de las proyecciones durables.
 - `projection_quarantine(consumer TEXT, global_position INTEGER, reason TEXT, PRIMARY KEY(consumer, global_position))`.
@@ -149,7 +149,8 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - `FactMapper` convierte cada evento de Pi en un `FactDto` con metadatos, digest y tamaño y el `event_id` derivado. Nunca copia contenido.
 - Las tools de KMP y MADE que pasan por `PiToolFactory` añaden el servidor, el código de negativa y el tipo de error (`refused`, `rpc`, `transport`, `aborted`).
 - **Envío:** método IPC `record`, de solo escritura y con esquema cerrado. Es sin espera: la sesión de Pi nunca se bloquea por el log.
-- **Spool de respaldo:** si el host no responde, los hechos van a `.../projects/<id>/spool/<pid>.jsonl` (0600, tope de 10 MB, un fichero por proceso). Al reconectar se reenvían en orden y se borran tras confirmarse.
+- **Spool de respaldo:** si el host no responde, los hechos van a `.../projects/<id>/spool/<pid>.jsonl` (0600, tope de 10 MB, un fichero por proceso). Al reconectar se reenvían en orden y se borran tras confirmarse. Hay un único sink (y un único drain) por proceso y fichero de spool, compartido entre sesiones; los envíos directos se encadenan, y en cuanto uno acaba en el spool los siguientes van detrás de él.
+- **Adopción de spools huérfanos (R9):** si el proceso de Pi muere con hechos en su spool, nadie volvería a reenviarlos. El host, al arrancar y en cada tick de 5 s, reclama los `<pid>.jsonl` cuyo pid ya no existe con un rename atómico a `<pid>.jsonl.draining`, registra cada hecho por `RecordFact` (idempotente, así que un drain a medias se puede repetir), cuenta los inválidos y borra el fichero. Los `.draining` que dejó un host muerto se recogen igual; los marcadores `.gap` se conservan para `doctor`.
 - Si se pierde el spool (por ejemplo, un disco lleno), queda un hueco y se avisa en `doctor`. Nunca se inventan eventos.
 
 ### 3.2. En el host
@@ -170,6 +171,7 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - `ProjectionRunner`:
   - lee `readAll` desde `cursor.position + 1` en lotes;
   - aplica los eventos y guarda el estado y el cursor **en la misma transacción**, así que el procesamiento es exactamente una vez;
+  - **(R9)** parte de una instantánea consistente (cursor y estado) y confirma con compare-and-set sobre el cursor (`UPDATE … WHERE projection_version = ? AND position = ?`); si otro escritor (el CLI) lo movió, descarta la pasada y la repite desde la instantánea nueva. Un `reset` invalida las pasadas en vuelo;
   - se dispara después de cada append y además cada 5 s.
 - Si la `version` de una proyección no coincide con la del cursor, se borra su estado y se reconstruye reproduciendo desde 0 en una transacción.
 - **Cuarentena:** un evento que hace fallar la proyección 3 veces se aparta con su motivo y la proyección continúa.
@@ -186,9 +188,9 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - `underpass events show <session>`: la línea temporal, solo con metadatos.
 - `underpass events tools`
 - `underpass events verify [--stream]`
-- `underpass events export [--since] > bundle.jsonl` y `underpass events import bundle.jsonl`
+- `underpass events export [--since] > bundle.jsonl` y `underpass events import bundle.jsonl` (si el `project_id` de la cabecera no es el del proyecto, se importa igual y se avisa)
 - `underpass events rebuild <projection>`
-- `/underpass-status` en Pi añade la sesión actual (turnos, tokens, coste, llamadas y fallos) y el estado del log (posición y verificación).
+- `/underpass-status` en Pi añade la sesión actual (turnos, tokens, coste, llamadas y fallos) y el estado del log (posición y verificación). **Revisado (R3/R9):** el método IPC `summary` devuelve el resumen de la sesión junto con el estado del log (`logPosition` y si la cadena del stream de la sesión está intacta), en una sola llamada.
 - `underpass doctor` añade: log presente, cadena íntegra, proyecciones al día, spool vacío y cuarentena vacía.
 
 ### 5.2. Pruebas

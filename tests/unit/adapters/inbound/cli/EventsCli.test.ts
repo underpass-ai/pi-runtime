@@ -24,7 +24,7 @@ import { AT, SESSION, fact } from "../../../../support/recordFixtures.ts";
 
 const PROJECT = ProjectId.of("0123456789abcdef");
 
-function cli(events: EventStore = new InMemoryEventStore(), files: Record<string, string> = {}, verifyFrom: EventStore = events, project = true) {
+function cli(events: EventStore = new InMemoryEventStore(), files: Record<string, string> = {}, verifyFrom: EventStore = events, project = true, target: ProjectId = PROJECT) {
   const store = new InMemoryProjectionStore();
   const list = [new SessionSummaryProjection(), new ToolStatsProjection()];
   const runner = new ProjectionRunner(events, store, list);
@@ -32,7 +32,7 @@ function cli(events: EventStore = new InMemoryEventStore(), files: Record<string
   const out: string[] = [];
   const c = new EventsCli({
     sessions: new ListSessions(store), show: new ShowSession(events), tools: new ToolStatsReport(store), verify: new VerifyEventLog(verifyFrom),
-    exportLog: new ExportEventLog(events, PROJECT), importLog: new ImportEventLog(events), rebuild: new RebuildProjection(runner), lag: new ProjectionLag(events, store, list),
+    exportLog: new ExportEventLog(events, PROJECT), importLog: new ImportEventLog(events, target), rebuild: new RebuildProjection(runner), lag: new ProjectionLag(events, store, list),
     readFile: (p) => { if (!(p in files)) throw new Error(`ENOENT: ${p}`); return files[p]; }, print: (s) => out.push(s),
   });
   return { c, out, text: () => out.join("\n"), events };
@@ -112,6 +112,14 @@ test("export → import en otro almacén imprime 'imported 3 events'; --since ac
   out.length = 0;
   assert.equal(c.run(["export", "--since", "2"]), 0);
   assert.equal(JSON.parse(out[0]).count, 1);
+});
+
+test("import de un bundle de otro proyecto avisa (sin fallar) antes de importar", () => {
+  const { c, out } = cli(seeded());
+  c.run(["export"]);
+  const dst = cli(new InMemoryEventStore(), { "/b.jsonl": out.join("\n") }, undefined, true, ProjectId.of("fedcba9876543210"));
+  assert.equal(dst.c.run(["import", "/b.jsonl"]), 0);
+  assert.deepEqual(dst.out.slice(0, 2), ["warning: bundle project_id 0123456789abcdef differs from this project (fedcba9876543210)", "imported 3 events"]);
 });
 
 test("rebuild reconstruye la proyección; errores salen con 1 y un mensaje limpio", () => {

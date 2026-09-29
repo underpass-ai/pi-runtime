@@ -41,7 +41,7 @@ test("events: sin log los verbos de lectura no crean nada; sólo import crea el 
   out.length = 0;
   assert.equal(await cli().run(["events", "import", bundle]), 0);
   assert.equal(await cli().run(["events", "verify"]), 0);
-  assert.deepEqual(out.filter((l) => !l.startsWith("projections behind")), ["imported 1 events", "session:s1  intact"]);
+  assert.deepEqual(out.filter((l) => !l.startsWith("projections behind") && !l.startsWith("warning: bundle project_id")), ["imported 1 events", "session:s1  intact"]);
   const projects = readdirSync(join(state, "pi-runtime", "projects"));
   assert.equal(projects.length, 1);
   assert.ok(existsSync(join(state, "pi-runtime", "projects", projects[0], "events.sqlite3")));
