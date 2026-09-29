@@ -30,6 +30,7 @@ import { BinaryName } from "../domain/distribution/BinaryName.ts";
 import type { Fact } from "../domain/events/Fact.ts";
 import type { CatalogFingerprint } from "../domain/mcp/CatalogFingerprint.ts";
 import { PackageInfo } from "./PackageInfo.ts";
+import { RepoFile } from "./RepoFile.ts";
 import { StatePaths } from "./StatePaths.ts";
 
 export class HostComposition {
@@ -92,7 +93,7 @@ export class HostComposition {
 
   // Cableado de producción de los servidores del host (público para probarlo).
   static commands(env: Record<string, string | undefined>, paths: StatePaths): Map<string, ServerCommandFactory> {
-    const pins = new JsonPinSetSource(new URL("../../pins.json", import.meta.url).pathname).load();
+    const pins = new JsonPinSetSource(RepoFile.path("pins.json")).load();
     const bin = (n: BinaryName) => join(paths.binDir(), pins.pinFor(n).installedFileName());
     const made = new LazyMadeServerCommandFactory(bin(BinaryName.MADE), paths.madeStore(), new FsMadeConfigurationRepository(paths.madeConfigRoot()), env);
     return new Map<string, ServerCommandFactory>([["kmp", new KmpServerCommandFactory(bin(BinaryName.KMP), env)], ["made", made]]);

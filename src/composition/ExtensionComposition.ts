@@ -17,6 +17,7 @@ import { SelectPhaseTools } from "../application/use-cases/SelectPhaseTools.ts";
 import { ServerName } from "../domain/mcp/ServerName.ts";
 import { PhaseToolSelection } from "../domain/session/PhaseToolSelection.ts";
 import { PackageInfo } from "./PackageInfo.ts";
+import { RepoFile } from "./RepoFile.ts";
 import { SharedInstance } from "./SharedInstance.ts";
 import { StatePaths } from "./StatePaths.ts";
 
@@ -40,7 +41,7 @@ export class ExtensionComposition {
     return SharedInstance.get(HOST_EXTENSION_KEY, () => {
       const paths = new StatePaths(process.env);
       const connect = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p),
-        new DetachedHostLauncher(new URL("../../bin/underpass-host.ts", import.meta.url).pathname, process.env, (p) => paths.hostLogOf(p)));
+        new DetachedHostLauncher(RepoFile.path("bin/underpass-host.ts"), process.env, (p) => paths.hostLogOf(p)));
       return new HostExtension((cwd) => connect.execute(cwd), this.#select);
     });
   }
@@ -70,7 +71,7 @@ export class ExtensionComposition {
   // La versión de Pi fijada en pins.json (la que instala `underpass setup`);
   // se lee una vez al cargar, nunca por evento. Sin pins legibles: null.
   static #piVersion(): string | null {
-    try { return new JsonPinSetSource(new URL("../../pins.json", import.meta.url).pathname).load().pi.version.value; } catch { return null; }
+    try { return new JsonPinSetSource(RepoFile.path("pins.json")).load().pi.version.value; } catch { return null; }
   }
 
   static server(pi: PiExtensionApi, server: ServerName, toSchema: (json: Record<string, unknown>) => unknown): void {
