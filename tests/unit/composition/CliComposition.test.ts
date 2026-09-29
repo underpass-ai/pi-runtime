@@ -46,3 +46,13 @@ test("events: sin log los verbos de lectura no crean nada; sólo import crea el 
   assert.equal(projects.length, 1);
   assert.ok(existsSync(join(state, "pi-runtime", "projects", projects[0], "events.sqlite3")));
 });
+
+test("metrics sin log: comentario de vacío, exit 0 y sin crear estado", async () => {
+  const home = mkdtempSync(join(tmpdir(), "underpass-home-"));
+  const state = join(home, ".local/state");
+  const out: string[] = [];
+  const cli = CliComposition.build({ ...process.env, HOME: home, XDG_STATE_HOME: state, XDG_DATA_HOME: join(home, ".local/share"), XDG_CONFIG_HOME: join(home, ".config") }, (s) => out.push(s));
+  assert.equal(await cli.run(["metrics"]), 0);
+  assert.deepEqual(out, ["# no metrics recorded yet"]);
+  assert.equal(existsSync(state), false);
+});

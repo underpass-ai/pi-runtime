@@ -3,13 +3,13 @@ import type { DiagnosisReport } from "../../../domain/diagnosis/DiagnosisReport.
 import { CheckRenderer } from "./CheckRenderer.ts";
 
 type Runs = { execute(record?: boolean): Promise<DiagnosisReport> };
-type Events = { run(args: string[]): number };
-const USAGE = "usage: underpass setup | doctor | update | events <sessions|show|tools|verify|export|import|rebuild|ack-gaps>";
+type Verb = { run(args: string[]): number };
+const USAGE = "usage: underpass setup | doctor | update | events <sessions|show|tools|verify|export|import|rebuild|ack-gaps> | metrics [--session <id>]";
 
 export class UnderpassCli {
-  readonly #setup: Runs; readonly #doctor: Runs; readonly #print: (s: string) => void; readonly #events: Events | null;
-  constructor(setup: Runs, doctor: Runs, print: (s: string) => void, events: Events | null = null) {
-    this.#setup = setup; this.#doctor = doctor; this.#print = print; this.#events = events;
+  readonly #setup: Runs; readonly #doctor: Runs; readonly #print: (s: string) => void; readonly #events: Verb | null; readonly #metrics: Verb | null;
+  constructor(setup: Runs, doctor: Runs, print: (s: string) => void, events: Verb | null = null, metrics: Verb | null = null) {
+    this.#setup = setup; this.#doctor = doctor; this.#print = print; this.#events = events; this.#metrics = metrics;
   }
 
   async run(argv: string[]): Promise<number> {
@@ -30,6 +30,7 @@ export class UnderpassCli {
       return doctorReport.hasFailures() ? 1 : 0;
     }
     if (verb === "events" && this.#events !== null) return this.#events.run(argv.slice(1));
+    if (verb === "metrics" && this.#metrics !== null) return this.#metrics.run(argv.slice(1));
     this.#print(USAGE);
     return 2;
   }

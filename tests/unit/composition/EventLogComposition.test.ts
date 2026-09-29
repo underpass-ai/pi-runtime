@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { EventLogComposition } from "../../../src/composition/EventLogComposition.ts";
 import { StatePaths } from "../../../src/composition/StatePaths.ts";
 import { InMemoryEventStore } from "../../../src/adapters/outbound/memory/InMemoryEventStore.ts";
+import { SqliteDatabase } from "../../../src/adapters/outbound/sqlite/SqliteDatabase.ts";
+import { SqliteProjectionStore } from "../../../src/adapters/outbound/sqlite/SqliteProjectionStore.ts";
+import { SqliteTelemetryEpochStore } from "../../../src/adapters/outbound/sqlite/SqliteTelemetryEpochStore.ts";
 import { ExportEventLog } from "../../../src/application/use-cases/ExportEventLog.ts";
+import { TraceExport } from "../../../src/application/use-cases/TraceExport.ts";
 import { Project } from "../../../src/domain/project/Project.ts";
 import { ProjectRoot } from "../../../src/domain/project/ProjectRoot.ts";
 import { ProjectId } from "../../../src/domain/project/ProjectId.ts";
@@ -88,4 +92,20 @@ test("ack-gaps borra los marcadores del spool del proyecto (sin crear el log) y 
   assert.equal(existsSync(log), false);
   assert.equal(composition.diagnosis().execute().find((c) => c.name.value === "fact spool")!.status.value, "WARN");
   assert.ok(existsSync(state));
+});
+
+test("rebuild telemetry_metrics fija un inicio del acumulado en meta, rebuild otlp_traces pone su cursor a 0 y metrics lee el log", () => {
+  const { home, out, composition, log } = setup();
+  assert.equal(composition.cli().run(["import", bundle(home)]), 0);
+  assert.equal(composition.cli().run(["rebuild", "telemetry_metrics"]), 0);
+  assert.equal(composition.cli().run(["rebuild", "otlp_traces"]), 0);
+  assert.deepEqual(out.slice(-2), ["rebuilt telemetry_metrics", "rebuilt otlp_traces"]);
+  out.length = 0;
+  assert.equal(composition.metrics().run([]), 0);
+  assert.match(out.join("\n"), /^pi_runtime_sessions_total\{event="opened"\} 1$/m);
+  const db = SqliteDatabase.open(log);
+  try {
+    assert.notEqual(new SqliteTelemetryEpochStore(db).read(), null);
+    assert.equal(new SqliteProjectionStore(db).cursor(TraceExport.NAME)?.position.value, 0);
+  } finally { db.close(); }
 });
