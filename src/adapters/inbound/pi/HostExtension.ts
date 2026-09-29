@@ -150,6 +150,8 @@ export class HostExtension {
             if (k) lines.push(`kpis: first-try ${pct(k.firstTrySuccess)}, refusals ${pct(k.refusalRate)}, cache ${pct(k.cacheRatio)}, compactions ${k.compactions}`);
             const x = status.exporter;
             if (x) lines.push(x.state === "disabled" ? "otlp: disabled" : x.state === "ok" ? `otlp: ok, lag ${x.lag}` : `otlp: failing since ${x.since}`);
+            const l = status.learning;
+            if (l) lines.push(`learning: ${l.mode} · ${l.selected ?? "-"}/${l.candidates ?? "-"} tools · miss ${pct(l.missRate)}`);
           } catch { lines.push("session: summary unavailable"); }
         }
         ctx.ui.notify(lines.join("\n"), "info");

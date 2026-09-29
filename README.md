@@ -78,6 +78,19 @@ alongside Pi's own. Two Pi commands are added:
 - `/underpass-status` shows the project, the servers that are running, and each tool catalog's version, size and fingerprint.
 - `/underpass-phase interactive|design` switches which Underpass tools are active.
 
+### Tool learning
+
+The host learns which KMP and MADE tools are worth exposing in each phase of
+each project, from the project's own event log. It starts in `shadow`: every
+request records the selection it would have made and the model keeps the whole
+set of the phase. `node bin/underpass.ts learning report [--context <phase>]`
+shows what it learnt and how often the selection would have missed a tool the
+model used. `learning mode active [--k N]` applies it: `kmp_wake`, `kmp_ask`
+and MADE's status tools stay on, plus the `k` best candidates (12 by default,
+4 to 64); one decision in ten keeps the whole set as a control group, and
+`doctor` warns if that group does better. `learning mode shadow` or
+`learning mode off` turns it back.
+
 ### OTLP export (optional)
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` (`https://`, or plain `http://` only for

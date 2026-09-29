@@ -28,6 +28,7 @@ import { TelemetryEpochs } from "../application/services/TelemetryEpochs.ts";
 import { AcknowledgeSpoolGaps } from "../application/use-cases/AcknowledgeSpoolGaps.ts";
 import { ChangeLearningMode } from "../application/use-cases/ChangeLearningMode.ts";
 import { DiagnoseEventLog } from "../application/use-cases/DiagnoseEventLog.ts";
+import { DiagnoseLearning } from "../application/use-cases/DiagnoseLearning.ts";
 import { DiagnoseTelemetry } from "../application/use-cases/DiagnoseTelemetry.ts";
 import { ExportEventLog } from "../application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../application/use-cases/ImportEventLog.ts";
@@ -70,6 +71,7 @@ export class EventLogComposition {
         return [
           ...new DiagnoseEventLog(s.events, s.projections, s.persisted ? this.#projections() : [], new FsSpoolInspector(this.#spool)).execute(),
           ...new DiagnoseTelemetry(s.events, s.projections, this.#telemetry, new SystemClock()).execute(),
+          ...new DiagnoseLearning(s.events, s.projections).execute(),
         ];
       },
     };

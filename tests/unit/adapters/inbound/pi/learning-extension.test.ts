@@ -261,3 +261,22 @@ test("fases iguales de realms distintos (Phase de otra copia del módulo) no des
   await flush();
   assert.deepEqual(sorted(pi.active), NARROWED);
 });
+
+test("/underpass-status añade la línea learning con modo, seleccionadas/candidatas y miss", async () => {
+  const pi = new FakePi(); const notes: string[] = [];
+  const commands = new Map<string, { handler: (a: string, ctx: unknown) => Promise<void> }>();
+  pi.registerCommand = ((n: string, o: { handler: (a: string, ctx: unknown) => Promise<void> }) => { commands.set(n, o); }) as never;
+  const gateway = {
+    health: async () => ({ project: "/repo", started: [] }),
+    summary: async () => ({ summary: null, logPosition: 3, sessionChainIntact: true, learning: { mode: "shadow", selected: 12, candidates: 18, missRate: 0.042 } }),
+    select: async () => SHADOW, onClose: () => {}, close: () => {},
+  };
+  const host = new HostExtension(async () => gateway as never, new SelectPhaseTools(PhaseToolSelection.standard()));
+  host.register(pi as never);
+  await pi.fire("session_start");
+  await commands.get("underpass-status")!.handler("", { ...pi.ctx, ui: { notify: (m: string) => notes.push(m) } });
+  assert.match(notes[0], /\nlearning: shadow · 12\/18 tools · miss 4%$/);
+  gateway.summary = async () => ({ summary: null, logPosition: 3, sessionChainIntact: true, learning: { mode: "active", selected: null, candidates: null, missRate: null } });
+  await commands.get("underpass-status")!.handler("", { ...pi.ctx, ui: { notify: (m: string) => notes.push(m) } });
+  assert.match(notes[1], /\nlearning: active · -\/- tools · miss -$/);
+});
