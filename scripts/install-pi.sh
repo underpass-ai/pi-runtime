@@ -8,7 +8,7 @@ pins="${here}/pins.json"
 pkg="$(node -e 'console.log(require(process.argv[1]).pi.package)' "$pins")"
 ver="$(node -e 'console.log(require(process.argv[1]).pi.version)' "$pins")"
 want="$(node -e 'console.log(require(process.argv[1]).pi.integrity)' "$pins")"
-prefix="${UNDERPASS_PI_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/underpass-pi/pi-${ver}}"
+prefix="${PI_RUNTIME_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/pi-runtime/pi-${ver}}"
 staging="${prefix}.staging"
 
 got="$(npm view "${pkg}@${ver}" dist.integrity)"

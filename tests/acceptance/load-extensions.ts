@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 
-const prefix = process.env.UNDERPASS_PI_PREFIX ?? join(process.env.HOME!, ".local/share/underpass-pi/pi-0.87.1");
+const prefix = process.env.PI_RUNTIME_PREFIX ?? join(process.env.HOME!, ".local/share/pi-runtime/pi-0.87.1");
 const pkgDir = join(prefix, "lib/node_modules/@earendil-works/pi-coding-agent");
 const main = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
 const entry = typeof main.exports === "string" ? main.exports : main.exports?.["."]?.import ?? main.exports?.["."]?.default ?? main.main;

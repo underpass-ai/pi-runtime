@@ -1,8 +1,10 @@
-# Underpass-Pi — Pi como runtime de Underpass, con MADE y KMP nativos
+# Pi Runtime — Pi como runtime de Underpass, con MADE y KMP nativos
 
 **Fecha:** 28 de septiembre de 2026
 **Estado:** diseño aprobado por secciones; pendiente de revisión de la spec escrita. No hay implementación.
 **Sustituye a:** `made-kmp-pi-integration-design.md` (RFC del mismo día), cuyas garantías defensivas se conservan y cuyas reimplementaciones se retiran.
+
+> Nota: el proyecto se llamó `underpass-pi` hasta el 29 de septiembre de 2026; hoy es `pi-runtime` (repo `underpass-ai/pi-runtime`), también en las rutas de estado e instalación.
 
 ## 0. Tesis
 
@@ -11,7 +13,7 @@ Pi es el runtime agéntico de Underpass. MADE y KMP no son integraciones opciona
 - **MADE gobierna todo lo que es decisión:** procedimientos, claims, leases, presupuesto, permisos por worker, maker/checker, deliberación con contrato y validación de evidencia, razones causales, sucesión y handoff.
 - **Pi ejecuta todo lo que razona:** pasos con efectos y también las propuestas, críticas y juicios de los councils de MADE.
 - **KMP recuerda con evidencia:** memoria siempre activa y acotada, proyección canónica del diario de MADE, dimensiones de MADE como etiquetas y curación gobernada.
-- **El host Underpass-Pi cose:** es un integrador determinista, sin FSM propia, sin presupuesto propio, sin autorización propia y sin validador propio.
+- **El host Pi Runtime cose:** es un integrador determinista, sin FSM propia, sin presupuesto propio, sin autorización propia y sin validador propio.
 
 ### Qué cambia respecto al RFC anterior
 
@@ -47,7 +49,7 @@ Cada uno tendrá su propio plan de implementación.
 
 | # | Subproyecto | Entrega | Depende de |
 |---|---|---|---|
-| S1 | **Distribución Underpass-Pi** | Paquete con extensiones y binarios fijados; `underpass setup|doctor|update`; `Host::Pi` en KMP; bootstrap de autorización de MADE; catálogo de tools por fase; handshake de capacidades. | — |
+| S1 | **Distribución Pi Runtime** | Paquete con extensiones y binarios fijados; `underpass setup|doctor|update`; `Host::Pi` en KMP; bootstrap de autorización de MADE; catálogo de tools por fase; handshake de capacidades. | — |
 | S2 | **KMP nativo en Pi** | Memoria siempre activa y acotada; guide con `purpose`; wake enfocado; condense; comandos `/catchup /save /restore /revert`; ChronoLoom. | S1 |
 | S3 | **MADE nativo en Pi** | `working_session`, promoción a ceremonias hijas, integrador determinista, grants por worker, presupuesto, intervenciones y aprobaciones en la TUI, sucesión y handoff; `/ceremony /approve /budget`. | S1 |
 | S5 | **Puente MADE→KMP** | Proyector `kmp_ingest`, mapeo de razones a relaciones, etiquetas, ceremonia `memory_curation`. | S2, S3 |
@@ -62,7 +64,7 @@ Cada uno tendrá su propio plan de implementación.
 Usuario ──► Pi (TUI) + extensiones pi-underpass-host / pi-kmp / pi-made
                 │  IPC local tipado (socket 0600, sin API de administración)
                 ▼
-        Host Underpass-Pi — determinista, TrustedHost ante MADE
+        Host Pi Runtime — determinista, TrustedHost ante MADE
           ├─ cliente MCP stdio persistente ──► made-mcp ──► MADE (SQLite, diario, artefactos)
           ├─ cliente MCP stdio persistente ──► kmp-mcp  ──► KMP (SQLite, ChronoLoom, Jev opcional)
           ├─ workers Pi SDK (autor, revisor, curador, tareas de council) — aislados
@@ -229,7 +231,7 @@ El mapeo final de `achieved_by` y `follows_from` se valida en S5 contra el vocab
 
 ## 8. Distribución (S1)
 
-- **Paquete `underpass-pi`:**
+- **Paquete `pi-runtime`:**
   - extensiones `pi-underpass-host`, `pi-kmp` y `pi-made`;
   - binarios `kmp-mcp` y `made-mcp` fijados por versión y hash, descargados de sus releases y verificados;
   - sin dependencias npm de terceros salvo, como mucho, el SDK MCP de TypeScript. **Pendiente de decidir:** vendorizarlo con verificación o escribir un cliente mínimo sobre stdio.
@@ -302,7 +304,7 @@ Se mantienen todos los casos del RFC anterior, reescritos sobre los mecanismos d
 | P2 — S3 | `working_session`, grants, presupuesto real, un paso con efectos, promoción, intervenciones y aprobación en la TUI, sucesión y handoff | Caída entre resultado y completion sin duplicar |
 | P3 — S5 | Proyector ingest, etiquetas, `memory_curation` | La sesión siguiente recupera la decisión con su `why` |
 | P4 — S4 | Adaptador delegado en MADE y councils sobre Pi con validación de evidencia | Prueba decisiva de extremo a extremo |
-| P5 — S6 | AEO, Foundry y Signal Studio sobre el runtime | Cada producto ejecuta su ceremonia principal en Underpass-Pi |
+| P5 — S6 | AEO, Foundry y Signal Studio sobre el runtime | Cada producto ejecuta su ceremonia principal en Pi Runtime |
 
 ## 13. Decisiones tomadas
 

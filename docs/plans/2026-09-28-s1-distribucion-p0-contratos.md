@@ -1,14 +1,16 @@
-# S1 Distribución Underpass-Pi + P0 Contratos — Plan de implementación
+# S1 Distribución Pi Runtime + P0 Contratos — Plan de implementación
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Que `pi` arranque en cualquier proyecto con el paquete `underpass-pi` cargado. Ese paquete levanta perezosamente un host por proyecto que habla con `kmp-mcp` y `made-mcp` fijados y verificados, registra sus tools por fase y ofrece `underpass setup|doctor|update`. Además, fija con pruebas de contrato cómo se comportan de verdad ambos servidores.
+**Goal:** Que `pi` arranque en cualquier proyecto con el paquete `pi-runtime` cargado. Ese paquete levanta perezosamente un host por proyecto que habla con `kmp-mcp` y `made-mcp` fijados y verificados, registra sus tools por fase y ofrece `underpass setup|doctor|update`. Además, fija con pruebas de contrato cómo se comportan de verdad ambos servidores.
 
 **Architecture:** Hexagonal estricta con DDD. `domain` contiene value objects, entidades y servicios de dominio, sin I/O ni dependencias externas. `application` contiene puertos (interfaces), DTOs, mappers y casos de uso, y sólo depende de `domain`. `adapters` contiene los inbound (Pi, CLI, servidor IPC) y los outbound (MCP stdio, GitHub, OSV, sistema de ficheros, procesos, git, cliente IPC). `composition` cablea. Un archivo, una clase (o una interfaz, o un alias de tipo). Ningún primitivo cruza una frontera de dominio: los conceptos son value objects. Hay un test de arquitectura que hace cumplir las dependencias entre capas y el uno-por-fichero, y la cobertura mínima del 80 % la impone Node.
 
 **Tech Stack:** Node ≥ 22.19 (máquina: 22.23.2) con type stripping nativo, `node:test` con cobertura nativa, `node:net`, `node:child_process`, `node:crypto`; Pi `@earendil-works/pi-coding-agent@0.87.1`; `kmp-mcp` v0.24.0; `made-mcp` v0.8.0.
 
-**Spec:** `docs/specs/2026-09-28-underpass-pi-runtime-design.md` (§1, §2 S1, §3, §8, §12 P0, §14).
+**Spec:** `docs/specs/2026-09-28-pi-runtime-design.md` (§1, §2 S1, §3, §8, §12 P0, §14).
+
+> Nota: el proyecto se llamó `underpass-pi` hasta el 29 de septiembre de 2026; hoy es `pi-runtime` (repo `underpass-ai/pi-runtime`), también en las rutas de estado e instalación.
 
 ## Global Constraints
 
@@ -39,7 +41,7 @@
   - Configuración privada: `${MADE_SETUP_CONFIG_ROOT:-${XDG_CONFIG_HOME:-~/.config}/underpass-made/embedded}/<sha256(ruta)[0:16]>.env`.
   - Requisitos de ese fichero: propietario el usuario, modo 600 o 400, sin symlink, exactamente `MADE_AUTH_POLICY_ID`, `MADE_AUTH_TRUSTED_HOST_ID`, `MADE_CEREMONY_STORE_ID` y `MADE_CEREMONY_SEARCH_CURSOR_HMAC_KEY` (64 hex).
   - **Nunca** se rota una clave existente. La clave no se imprime, no va en argumentos, no aparece en recibos y su `toString()` devuelve `[redacted]`.
-- **Estado del host fuera del proyecto:** `${XDG_STATE_HOME:-~/.local/state}/underpass-pi/`.
+- **Estado del host fuera del proyecto:** `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/`.
 - **Las factorías de extensión no abren procesos, sockets ni timers;** todo arranca en `session_start`.
 - **Pruebas de contrato contra binarios reales** sólo con `UNDERPASS_KMP_MCP_BIN` y `UNDERPASS_MADE_MCP_BIN`; si no, se marcan como skip, nunca como pass. Van fuera del umbral de cobertura (script `test:contract`).
 - **Commits** en español con prefijo convencional, en ramas `feat/s1-*`. El cambio de KMP va en su repo, con su rama y su PR.
@@ -120,7 +122,7 @@ Dependencias permitidas: `domain` ← `application` ← `adapters` ← `composit
 
 ```json
 {
-  "name": "underpass-pi",
+  "name": "pi-runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -1327,7 +1329,7 @@ pins="${here}/pins.json"
 pkg="$(node -e 'console.log(require(process.argv[1]).pi.package)' "$pins")"
 ver="$(node -e 'console.log(require(process.argv[1]).pi.version)' "$pins")"
 want="$(node -e 'console.log(require(process.argv[1]).pi.integrity)' "$pins")"
-prefix="${UNDERPASS_PI_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/underpass-pi/pi-${ver}}"
+prefix="${PI_RUNTIME_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/pi-runtime/pi-${ver}}"
 staging="${prefix}.staging"
 
 got="$(npm view "${pkg}@${ver}" dist.integrity)"
@@ -2039,7 +2041,7 @@ export class StdioMcpConnection implements McpConnection {
   }
 
   async handshake(): Promise<void> {
-    const init = (await this.#request("initialize", { protocolVersion: ProtocolVersion.MCP_2024_11_05.value, capabilities: {}, clientInfo: { name: "underpass-pi", version: "0.1.0" } })) as
+    const init = (await this.#request("initialize", { protocolVersion: ProtocolVersion.MCP_2024_11_05.value, capabilities: {}, clientInfo: { name: "pi-runtime", version: "0.1.0" } })) as
       { protocolVersion: string; serverInfo: { name: string; version: string } };
     this.protocol = ProtocolVersion.of(init.protocolVersion);
     this.identity = ServerIdentity.of(init.serverInfo.name, SemVer.of(init.serverInfo.version));
@@ -3007,7 +3009,7 @@ const { GithubReleaseDownloader } = await import("./src/adapters/outbound/github
 const { NodeFileDigester } = await import("./src/adapters/outbound/fs/NodeFileDigester.ts");
 const { FsBinaryInstallation } = await import("./src/adapters/outbound/fs/FsBinaryInstallation.ts");
 const uc = new InstallPinnedBinaries(new JsonPinSetSource("pins.json").load(), Target.detect(process.platform, process.arch),
-  new GithubReleaseDownloader(), new NodeFileDigester(), new FsBinaryInstallation(process.env.HOME + "/.local/share/underpass-pi/bin"));
+  new GithubReleaseDownloader(), new NodeFileDigester(), new FsBinaryInstallation(process.env.HOME + "/.local/share/pi-runtime/bin"));
 for (const r of await uc.execute()) console.log(r.name.value, r.action, r.path);' --input-type=module
 ```
 
@@ -3130,8 +3132,8 @@ test("made-mcp: una espera acotada retrasa la siguiente llamada en la misma cone
 - [ ] **Step 4: Ejecutar contra los binarios**
 
 ```bash
-UNDERPASS_KMP_MCP_BIN=$HOME/.local/share/underpass-pi/bin/kmp-mcp-0.24.0 \
-UNDERPASS_MADE_MCP_BIN=$HOME/.local/share/underpass-pi/bin/made-mcp-0.8.0 \
+UNDERPASS_KMP_MCP_BIN=$HOME/.local/share/pi-runtime/bin/kmp-mcp-0.24.0 \
+UNDERPASS_MADE_MCP_BIN=$HOME/.local/share/pi-runtime/bin/made-mcp-0.8.0 \
 npm run test:contract 2>&1 | tee /tmp/p0.log
 ```
 
@@ -3319,11 +3321,11 @@ import { ProjectRoot } from "../../../src/domain/project/ProjectRoot.ts";
 test("rutas de estado bajo XDG y fuera del proyecto", () => {
   const p = Project.of(ProjectRoot.of("/repo"));
   const s = new StatePaths({ HOME: "/h" });
-  assert.equal(s.root(), "/h/.local/state/underpass-pi");
-  assert.equal(s.socketOf(p), `/h/.local/state/underpass-pi/projects/${p.id}/host.sock`);
-  assert.equal(s.binDir(), "/h/.local/share/underpass-pi/bin");
-  assert.equal(new StatePaths({ HOME: "/h", XDG_STATE_HOME: "/s", XDG_DATA_HOME: "/d" }).fingerprintsFile(), "/s/underpass-pi/fingerprints.json");
-  assert.equal(new StatePaths({ HOME: "/h", XDG_DATA_HOME: "/d" }).binDir(), "/d/underpass-pi/bin");
+  assert.equal(s.root(), "/h/.local/state/pi-runtime");
+  assert.equal(s.socketOf(p), `/h/.local/state/pi-runtime/projects/${p.id}/host.sock`);
+  assert.equal(s.binDir(), "/h/.local/share/pi-runtime/bin");
+  assert.equal(new StatePaths({ HOME: "/h", XDG_STATE_HOME: "/s", XDG_DATA_HOME: "/d" }).fingerprintsFile(), "/s/pi-runtime/fingerprints.json");
+  assert.equal(new StatePaths({ HOME: "/h", XDG_DATA_HOME: "/d" }).binDir(), "/d/pi-runtime/bin");
 });
 ```
 
@@ -3573,10 +3575,10 @@ import type { Project } from "../domain/project/Project.ts";
 export class StatePaths {
   readonly #env: Record<string, string | undefined>;
   constructor(env: Record<string, string | undefined>) { this.#env = env; }
-  root(): string { return join(this.#env.XDG_STATE_HOME ?? join(this.#env.HOME ?? "", ".local/state"), "underpass-pi"); }
+  root(): string { return join(this.#env.XDG_STATE_HOME ?? join(this.#env.HOME ?? "", ".local/state"), "pi-runtime"); }
   projectDir(p: Project): string { return join(this.root(), "projects", p.id.value); }
   socketOf(p: Project): string { return join(this.projectDir(p), "host.sock"); }
-  binDir(): string { return join(this.#env.XDG_DATA_HOME ?? join(this.#env.HOME ?? "", ".local/share"), "underpass-pi", "bin"); }
+  binDir(): string { return join(this.#env.XDG_DATA_HOME ?? join(this.#env.HOME ?? "", ".local/share"), "pi-runtime", "bin"); }
   fingerprintsFile(): string { return join(this.root(), "fingerprints.json"); }
 }
 ```
@@ -4471,7 +4473,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 
-const prefix = process.env.UNDERPASS_PI_PREFIX ?? join(process.env.HOME!, ".local/share/underpass-pi/pi-0.87.1");
+const prefix = process.env.PI_RUNTIME_PREFIX ?? join(process.env.HOME!, ".local/share/pi-runtime/pi-0.87.1");
 const pkgDir = join(prefix, "lib/node_modules/@earendil-works/pi-coding-agent");
 const main = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
 const entry = typeof main.exports === "string" ? main.exports : main.exports?.["."]?.import ?? main.exports?.["."]?.default ?? main.main;
@@ -4641,7 +4643,7 @@ test("setup encadena todo y no falla con dobles sanos", async () => {
   const d = deps();
   const r = await new SetupInstallation(d.install, d.ensure, d.bootstrap, d.kmp, d.pi, store, "/pkg").execute();
   assert.equal(r.hasFailures(), false);
-  assert.deepEqual(r.checks().map((c) => c.name.value), ["pinned binaries", "private configuration", "authorization bootstrap", "kmp-mcp setup", "underpass-pi package"]);
+  assert.deepEqual(r.checks().map((c) => c.name.value), ["pinned binaries", "private configuration", "authorization bootstrap", "kmp-mcp setup", "pi-runtime package"]);
 });
 
 test("setup se detiene si la descarga falla", async () => {
@@ -4735,9 +4737,9 @@ test("kmp lifecycle, pi package manager, pi runtime y huellas", async () => {
   const kmp = script(dir, "kmp-mcp", `[ "$1" = doctor ] && exit 1; exit 0`);
   await new KmpCliLifecycle(kmp, dir, {}).setup();
   assert.equal(await new KmpCliLifecycle(kmp, dir, {}).doctor(), false);
-  const pi = script(dir, "pi", `case "$1" in --version) echo 0.87.1;; list) echo "  /x/underpass-pi";; install) exit 0;; esac`);
-  await new PiCliPackageManager(pi).install("/x/underpass-pi");
-  assert.equal(await new PiCliPackageManager(pi).isRegistered("underpass-pi"), true);
+  const pi = script(dir, "pi", `case "$1" in --version) echo 0.87.1;; list) echo "  /x/pi-runtime";; install) exit 0;; esac`);
+  await new PiCliPackageManager(pi).install("/x/pi-runtime");
+  assert.equal(await new PiCliPackageManager(pi).isRegistered("pi-runtime"), true);
   assert.equal((await new PiCliRuntimeInspector(pi).version())!.value, "0.87.1");
   assert.equal(await new PiCliRuntimeInspector(join(dir, "missing")).version(), null);
   const repo = new FsFingerprintRepository(join(dir, "fp.json"));
@@ -5011,7 +5013,7 @@ export class SetupInstallation {
     report = report.add(Check.ok(CheckSection.MADE, CheckName.of("private configuration"), CheckDetail.of(`${ensured.created ? "created" : "reused"} ${ensured.location} (key redacted)`)));
     report = report.add(await this.#bootstrap.execute(this.#store, ensured.configuration));
     report = report.add(await step(CheckSection.KMP, "kmp-mcp setup", async () => { await this.#kmp.setup(); return "receipt ok"; }));
-    return report.add(await step(CheckSection.PI, "underpass-pi package", async () => { await this.#pi.install(this.#packageDir); return `pi install ${this.#packageDir}`; }));
+    return report.add(await step(CheckSection.PI, "pi-runtime package", async () => { await this.#pi.install(this.#packageDir); return `pi install ${this.#packageDir}`; }));
   }
 }
 ```
@@ -5087,10 +5089,10 @@ export class DiagnoseInstallation {
       : v.equals(this.#piVersion)
         ? Check.ok(CheckSection.PI, CheckName.of("pi version"), CheckDetail.of(v.value))
         : Check.fail(CheckSection.PI, CheckName.of("pi version"), CheckDetail.of(`${v} (pinned ${this.#piVersion})`));
-    const registered = await this.#pi.isRegistered("underpass-pi");
+    const registered = await this.#pi.isRegistered("pi-runtime");
     const pkg = registered
-      ? Check.ok(CheckSection.PI, CheckName.of("underpass-pi package"), CheckDetail.of("registered"))
-      : Check.fail(CheckSection.PI, CheckName.of("underpass-pi package"), CheckDetail.of("not registered; run underpass setup"));
+      ? Check.ok(CheckSection.PI, CheckName.of("pi-runtime package"), CheckDetail.of("registered"))
+      : Check.fail(CheckSection.PI, CheckName.of("pi-runtime package"), CheckDetail.of("not registered; run underpass setup"));
     return [version, pkg];
   }
 }
@@ -5333,7 +5335,7 @@ Sin cambios de enfoque respecto a la versión anterior del plan: KMP ya tiene su
 - Test: `crates/kmp-mcp/tests/{lifecycle_native_hosts,lifecycle_update,lifecycle_diagnosis}.rs`, `crates/kmp-mcp/tests/lifecycle_support/{fake_host_gateway,fake_engine_store}.rs`
 
 **Contrato del host Pi** (Pi no tiene MCP nativo):
-- **Evidencia de registro:** `<home>/settings.json`, clave `packages`, con una entrada (string u objeto `{source}`) que termine en `underpass-pi`. Si falta → `Missing`. Si está presente pero con el filtro `extensions` que incluye `!src/adapters/inbound/pi/entry/kmp.ts` → `Disabled`. Si está presente → `Registered`. Si el JSON es ilegible → `Failed`.
+- **Evidencia de registro:** `<home>/settings.json`, clave `packages`, con una entrada (string u objeto `{source}`) que termine en `pi-runtime`. Si falta → `Missing`. Si está presente pero con el filtro `extensions` que incluye `!src/adapters/inbound/pi/entry/kmp.ts` → `Disabled`. Si está presente → `Registered`. Si el JSON es ilegible → `Failed`.
 - **Home:** `$PI_CODING_AGENT_DIR` si está definido, si no `$HOME/.pi/agent`. Las skills van en `<home>/skills/<name>/`.
 - **`provision()`:** replica las skills con la lista compartida `NATIVE_SKILL_NAMES`, que es la actual `HERMES_SKILL_NAMES` renombrada. No instala el paquete: de eso se encarga `underpass setup`. Sin registro, el aviso incluye `underpass setup`.
 - **`installs_plugin_tree()` y `owns_plugin_engine()`:** `false` los dos. `runtime_engine` resuelve `kmp-mcp` en PATH.
@@ -5384,12 +5386,12 @@ fn absent_settings_is_missing() { assert_eq!(map_pi_settings(None), HostRuntimeS
 
 #[test]
 fn underpass_package_string_is_registered() {
-    assert_eq!(map_pi_settings(Some(r#"{"packages":["/home/u/Documents/ai/underpass-pi"]}"#)), HostRuntimeStatus::Registered);
+    assert_eq!(map_pi_settings(Some(r#"{"packages":["/home/u/Documents/ai/pi-runtime"]}"#)), HostRuntimeStatus::Registered);
 }
 
 #[test]
 fn underpass_package_excluding_the_kmp_extension_is_disabled() {
-    let s = r#"{"packages":[{"source":"git:github.com/underpass-ai/underpass-pi@v0.1.0","extensions":["!src/adapters/inbound/pi/entry/kmp.ts"]}]}"#;
+    let s = r#"{"packages":[{"source":"git:github.com/underpass-ai/pi-runtime@v0.1.0","extensions":["!src/adapters/inbound/pi/entry/kmp.ts"]}]}"#;
     assert_eq!(map_pi_settings(Some(s)), HostRuntimeStatus::Disabled);
 }
 
@@ -5408,7 +5410,7 @@ Implementación. Si las variantes reales de `HostRuntimeStatus` en `domain/host_
 use serde_json::Value;
 use crate::lifecycle::domain::host_runtime_status::HostRuntimeStatus;
 
-const PACKAGE_SUFFIX: &str = "underpass-pi";
+const PACKAGE_SUFFIX: &str = "pi-runtime";
 const KMP_EXTENSION: &str = "src/adapters/inbound/pi/entry/kmp.ts";
 
 pub fn map_pi_settings(settings: Option<&str>) -> HostRuntimeStatus {
@@ -5465,13 +5467,13 @@ Se ejecutan también los gates de arquitectura del repo (`Makefile` / `.github/w
 - [ ] **Step 8: PR**
 
 ```bash
-git add -A && git commit -m "feat(lifecycle): Pi como cuarto host nativo (skills + registro vía underpass-pi)"
+git add -A && git commit -m "feat(lifecycle): Pi como cuarto host nativo (skills + registro vía pi-runtime)"
 git push -u origin feat/lifecycle-pi-host
 gh pr create -R underpass-ai/kmp --base main --title "feat(lifecycle): Pi as a native host" \
-  --body "Adds Host::Pi (setup/update --pi, doctor, skills mirroring). Registration evidence comes from ~/.pi/agent/settings.json (the underpass-pi package), since Pi has no native MCP. Also fixes --hermes missing from CLI help and the non-existent --host flag in the plugin README."
+  --body "Adds Host::Pi (setup/update --pi, doctor, skills mirroring). Registration evidence comes from ~/.pi/agent/settings.json (the pi-runtime package), since Pi has no native MCP. Also fixes --hermes missing from CLI help and the non-existent --host flag in the plugin README."
 ```
 
-- [ ] **Step 9:** Tras el merge y la release de KMP, en `underpass-pi` se sube el pin de `kmp-mcp` y `KmpCliLifecycle.setup()` pasa a añadir `--pi`. Es un commit aparte (`feat(dist): kmp-mcp <ver> con --pi`) con los sha256 nuevos y su test.
+- [ ] **Step 9:** Tras el merge y la release de KMP, en `pi-runtime` se sube el pin de `kmp-mcp` y `KmpCliLifecycle.setup()` pasa a añadir `--pi`. Es un commit aparte (`feat(dist): kmp-mcp <ver> con --pi`) con los sha256 nuevos y su test.
 
   > **Nota (revisión final, 2026-09-29):** el paso `kmp-mcp setup` se retiró de `SetupInstallation` (y `setup()` del puerto `KmpLifecycle`): sin flag de host reconciliaba los hosts de KMP de Claude/Codex del usuario. Vuelve en este Step 9 como `kmp-mcp setup --pi`, y se ejecuta **después** de `pi install`, no antes.
 
@@ -5505,7 +5507,7 @@ Expected: `project: /home/gx10a/Documents/ai/kmp` y, con cualquier llamada ya he
 - [ ] **Step 4: Cierre**
 
 Cerrar ambas ventanas y esperar 60 s.
-Expected: el host, `kmp-mcp` y `made-mcp` de ese proyecto terminan, y `host.lock` y `host.sock` desaparecen de `~/.local/state/underpass-pi/projects/<id>/`.
+Expected: el host, `kmp-mcp` y `made-mcp` de ese proyecto terminan, y `host.lock` y `host.sock` desaparecen de `~/.local/state/pi-runtime/projects/<id>/`.
 
 - [ ] **Step 5: Registrar el resultado** en `docs/acceptance/s1.md`: comandos, salidas relevantes sin secretos, fecha y versiones.
 

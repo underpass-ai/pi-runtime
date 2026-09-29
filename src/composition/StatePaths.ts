@@ -13,11 +13,11 @@ export class StatePaths {
   readonly #env: Env;
   constructor(env: Env) { this.#env = env; }
 
-  root(): string { return join(this.#xdg("XDG_STATE_HOME", ".local/state"), "underpass-pi"); }
+  root(): string { return join(this.#xdg("XDG_STATE_HOME", ".local/state"), "pi-runtime"); }
   projectDir(p: Project): string { return join(this.root(), "projects", p.id.value); }
   socketOf(p: Project): string { return join(this.projectDir(p), "host.sock"); }
   hostLogOf(p: Project): string { return join(this.projectDir(p), "host.log"); }
-  binDir(): string { return join(this.#xdg("XDG_DATA_HOME", ".local/share"), "underpass-pi", "bin"); }
+  binDir(): string { return join(this.#xdg("XDG_DATA_HOME", ".local/share"), "pi-runtime", "bin"); }
   fingerprintsFile(): string { return join(this.root(), "fingerprints.json"); }
 
   // ${MADE_MCP_STORE_PATH:-${XDG_STATE_HOME:-~/.local/state}/underpass-made/ceremonies.sqlite3}
