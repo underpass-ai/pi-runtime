@@ -193,3 +193,19 @@ test("un lote descartado (4xx) cuyo compare-and-set pierde también es stale, no
   assert.deepEqual(await new TraceExport(events, store, racing, RESOURCE).execute(NOW), ExportResult.stale());
   assert.equal(store.cursor(TraceExport.NAME)?.position.value, 0, "el rebuild gana");
 });
+
+test("una sesión abandonada sale incompleta a las 24 h; el rebuild desde el log exporta los mismos spans", async () => {
+  const DAY = 24 * 3_600_000; const t0 = AT.epochMs();
+  const live = setup();
+  live.events.append(SESSION, StreamVersion.NONE, [fact("session.opened", "o", {}, SESSION, 1000), fact("tool.started", "c1s", { tool: "t", server: "pi", callId: "c1" }, SESSION, 1500)], AT);
+  await live.exporter.execute(Timestamp.fromEpochMs(t0 + 1));
+  await live.exporter.execute(Timestamp.fromEpochMs(t0 + DAY));
+  assert.deepEqual(live.sink.batches.flat().map((s) => [s.name, s.attributes.get("pi_runtime.incomplete")]), [["tool", true], ["session", true]]);
+  assert.deepEqual((live.store.snapshot(TraceExport.NAME).state.get("assembler") as { sessions: object }).sessions, {}, "el estado no guarda la sesión abandonada");
+  live.events.append(SESSION, StreamVersion.of(2), [fact("session.closed", "x", {}, SESSION, DAY + 5)], Timestamp.fromEpochMs(t0 + DAY + 5));
+  await live.exporter.execute(Timestamp.fromEpochMs(t0 + DAY + 10));
+  const rebuilt = new FakeTelemetrySink();
+  await new TraceExport(live.events, new InMemoryProjectionStore(), rebuilt, RESOURCE).execute(Timestamp.fromEpochMs(t0 + DAY + 10));
+  const json = (spans: Span[]) => spans.map((s) => JSON.stringify(s.toJson())).sort();
+  assert.deepEqual(json(rebuilt.batches.flat()), json(live.sink.batches.flat()));
+});

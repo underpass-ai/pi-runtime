@@ -19,6 +19,7 @@ type Host = NonNullable<AssemblerState["host"]>;
 type OpenServer = Host["servers"][string];
 
 const INCOMPLETE_AFTER_MS = 10 * 60_000;
+const ABANDONED_AFTER_MS = 24 * 3_600_000;
 const MAX_SESSION_EVENTS = 128;
 const MAX_EXPIRED = 512;
 
@@ -39,22 +40,11 @@ export class SpanAssembler {
 
   feed(r: EventRecord): Span[] { return r.stream.isSession() ? this.#session(r) : this.#host(r); }
 
-  // Tools sin cierre (o cerradas sin turno) con más de 10 min desde su recordedAt.
+  // Tools sin cierre (o cerradas sin turno) con más de 10 min desde su recordedAt, y
+  // sesiones sin cierre con 24 h sin hechos: salen incompletas y dejan el estado.
   expire(now: Timestamp): Span[] {
     const out: Span[] = [];
-    for (const [stream, s] of Object.entries(this.#state.sessions)) {
-      const trace = TraceId.forStream(StreamId.of(stream)); const parent = SpanId.of(s.spanId);
-      for (const [callId, t] of Object.entries(s.tools)) {
-        const deadline = t.recordedAtMs + INCOMPLETE_AFTER_MS;
-        if (now.epochMs() < deadline) continue;
-        out.push(this.#incomplete(trace, parent, t, deadline));
-        delete s.tools[callId];
-        this.#expire(s, callId);
-      }
-      const due = s.pending.filter((x) => now.epochMs() >= x.recordedAtMs + INCOMPLETE_AFTER_MS);
-      s.pending = s.pending.filter((x) => !due.includes(x));
-      out.push(...due.map((x) => SpanAssembler.#withParent(x.span, parent)));
-    }
+    for (const stream of Object.keys(this.#state.sessions)) out.push(...this.#expireSession(StreamId.of(stream), now.epochMs()));
     return out;
   }
 
@@ -71,7 +61,42 @@ export class SpanAssembler {
     return out;
   }
 
+  // Expiración de una sesión con `nowMs` (reloj de pared o recordedAt de un hecho posterior):
+  // primero sus tools y spans pendientes (10 min), luego la sesión si lleva 24 h sin hechos,
+  // cerrada en su último hecho. El replay del log y la exportación en vivo dan lo mismo.
+  #expireSession(stream: StreamId, nowMs: number): Span[] {
+    const s = this.#state.sessions[stream.value];
+    const out: Span[] = [];
+    const trace = TraceId.forStream(stream); const parent = SpanId.of(s.spanId);
+    for (const [callId, t] of Object.entries(s.tools)) {
+      const deadline = t.recordedAtMs + INCOMPLETE_AFTER_MS;
+      if (nowMs < deadline) continue;
+      out.push(this.#incomplete(trace, parent, t, deadline));
+      delete s.tools[callId];
+      this.#expire(s, callId);
+    }
+    const due = s.pending.filter((x) => nowMs >= x.recordedAtMs + INCOMPLETE_AFTER_MS);
+    s.pending = s.pending.filter((x) => !due.includes(x));
+    out.push(...due.map((x) => SpanAssembler.#withParent(x.span, parent)));
+    if (nowMs >= (s.lastRecordedAtMs ?? s.startMs) + ABANDONED_AFTER_MS) {
+      delete this.#state.sessions[stream.value];
+      out.push(...this.#closeSession(stream, s, s.lastMs ?? s.startMs, { "pi_runtime.incomplete": true }));
+    }
+    return out;
+  }
+
+  // Un hecho de sesión: si la sesión lleva 24 h sin hechos se cierra antes como abandonada
+  // (igual que la habría cerrado expire en vivo); después se anota su actividad.
   #session(r: EventRecord): Span[] {
+    const idle = this.#state.sessions[r.stream.value];
+    const before = idle && r.recordedAt.epochMs() >= (idle.lastRecordedAtMs ?? idle.startMs) + ABANDONED_AFTER_MS ? this.#expireSession(r.stream, r.recordedAt.epochMs()) : [];
+    const out = [...before, ...this.#sessionFact(r)];
+    const s = this.#state.sessions[r.stream.value];
+    if (s) { s.lastMs = Math.max(s.lastMs ?? s.startMs, r.occurredAt.epochMs()); s.lastRecordedAtMs = Math.max(s.lastRecordedAtMs ?? 0, r.recordedAt.epochMs()); }
+    return out;
+  }
+
+  #sessionFact(r: EventRecord): Span[] {
     const key = r.stream.value; const s = this.#state.sessions[key]; const p = obj(r.payload.toValue()); const ms = r.occurredAt.epochMs();
     switch (r.type.value) {
       case "session.opened": {
@@ -79,7 +104,7 @@ export class SpanAssembler {
         this.#state.sessions[key] = {
           spanId: SpanId.forEvent(r.id).value, startMs: ms,
           attributes: attrs({ "pi_runtime.session_id": r.stream.sessionId().value, "pi_runtime.open_reason": str(p.reason), "pi_runtime.version": str(p.piRuntimeVersion), "pi_runtime.pi_version": str(p.piVersion) }),
-          events: [], tools: {}, pending: [], expired: s ? s.expired : [],
+          events: [], tools: {}, pending: [], expired: s ? s.expired : [], lastMs: ms, lastRecordedAtMs: r.recordedAt.epochMs(),
         };
         return out;
       }

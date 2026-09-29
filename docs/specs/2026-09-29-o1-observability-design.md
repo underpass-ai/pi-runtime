@@ -90,6 +90,7 @@ Los KPIs de aceptación de recomendaciones del runtime se dejan para L1.
   - `refused` y `aborted` se emiten con status UNSET y el atributo `pi_runtime.status`.
 - **Eventos de span:** `phase.changed`, `model.selected` y `context.compacted` se añaden a `session`.
 - **Incompletos:** un `tool.started` sin cierre se emite al cerrar la sesión o a los 10 min de `recordedAt`, con status UNSET y `pi_runtime.incomplete=true`. Si el cierre llega después, se ignora, porque el span ya salió.
+- **Sesiones abandonadas:** una sesión sin `session.closed` se cierra a las 24 h de su último hecho (por `recordedAt`), con `pi_runtime.incomplete=true` y fin en el `occurredAt` de ese último hecho, y sale del estado del ensamblador. El "ahora" es el mismo que para las tools (reloj de pared con el log al día; si no, el `recordedAt` más alto leído) y, además, un hecho de esa sesión grabado 24 h o más después del anterior la cierra antes de procesarse: el replay del log da los mismos spans que la exportación en vivo. Un cierre o cualquier hecho posterior de esa sesión se ignora; una reapertura abre un span nuevo en la misma traza.
 
 **Host:** cada `host.started` abre la traza de ese arranque (stream `host` + id del hecho). Contiene:
 - un span `host` que dura hasta `host.stopped`;

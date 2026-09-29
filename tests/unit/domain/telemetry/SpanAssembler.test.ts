@@ -206,3 +206,58 @@ test("entradas malformadas no rompen: callId ausente se ignora, código de salid
   const [server] = feedAll(fresh(), records([fact("host.started", "h", {}, H, 900), fact("server.started", "s", {}, H, 950), fact("server.exited", "e", { code: "SIGKILL" }, H, 990)], H));
   assert.deepEqual([server.name, server.attributes.get("pi_runtime.server"), server.attributes.get("pi_runtime.exit_code")], ["mcp_server", "unknown", "unknown"]);
 });
+
+const DAY = 24 * 3_600_000;
+// Hechos de SESSION grabados en tandas con su propio recordedAt: [[recordedAtMs, facts], …].
+function timed(batches: [number, Fact[]][]): EventRecord[] {
+  const store = new InMemoryEventStore(); let version = 0;
+  for (const [ms, facts] of batches) { store.append(SESSION, StreamVersion.of(version), facts, Timestamp.fromEpochMs(ms)); version += facts.length; }
+  return store.readStream(SESSION);
+}
+
+test("una sesión sin cierre sale incompleta a las 24 h de su último hecho y sale del estado; un cierre tardío se ignora", () => {
+  const rs = timed([
+    [RECORDED, [fact("session.opened", "o", { reason: "startup" }, SESSION, 1000), fact("tool.started", "c1s", { tool: "t", server: "pi", callId: "c1" }, SESSION, 1500)]],
+    [RECORDED + 3_600_000, [fact("phase.changed", "p", { to: "design" }, SESSION, 3_601_000)]],
+    [RECORDED + 2 * DAY, [fact("session.closed", "x", { reason: "quit" }, SESSION, 2 * DAY)]],
+  ]);
+  const a = fresh();
+  feedAll(a, rs.slice(0, 3));
+  assert.deepEqual(a.expire(Timestamp.fromEpochMs(RECORDED + 3_600_000 + DAY - 1)).map((s) => s.name), ["tool"], "a las 24 h del inicio sigue viva: hubo actividad después");
+  const expired = a.expire(Timestamp.fromEpochMs(RECORDED + 3_600_000 + DAY));
+  assert.deepEqual(expired.map((s) => [s.name, s.start.epochMs(), s.end.epochMs(), s.attributes.get("pi_runtime.incomplete"), s.attributes.get("pi_runtime.close_reason")]),
+    [["session", 1000, 3_601_000, true, null]], "termina en su último hecho");
+  assert.ok(expired[0].spanId.equals(SpanId.forEvent(rs[0].id)));
+  assert.deepEqual(expired[0].events.map((e) => e.name), ["phase.changed"]);
+  assert.deepEqual(a.state(), SpanAssembler.empty(), "el estado no crece con sesiones abandonadas");
+  assert.deepEqual(a.feed(rs[3]), [], "el cierre tardío se ignora: el span ya salió");
+});
+
+test("sesión abandonada: el replay del log da los mismos spans que la exportación en vivo", () => {
+  const rs = timed([
+    [RECORDED, [fact("session.opened", "o", {}, SESSION, 1000), fact("tool.started", "c1s", { tool: "t", server: "pi", callId: "c1" }, SESSION, 1500)]],
+    [RECORDED + DAY + 1, [fact("tool.completed", "c1", { tool: "t", server: "pi", callId: "c1", status: "succeeded" }, SESSION, DAY), fact("session.closed", "x", {}, SESSION, DAY + 10)]],
+    [RECORDED + DAY + 2, [fact("session.opened", "o2", { reason: "resume" }, SESSION, DAY + 20), fact("session.closed", "x2", {}, SESSION, DAY + 30)]],
+  ]);
+  // En vivo: el host corre, el exportador expira con el reloj de pared antes de que llegue lo demás.
+  const live = fresh();
+  const liveSpans = [...feedAll(live, rs.slice(0, 2)), ...live.expire(Timestamp.fromEpochMs(RECORDED + 600_000)), ...live.expire(Timestamp.fromEpochMs(RECORDED + DAY)), ...feedAll(live, rs.slice(2))];
+  // Replay (rebuild o host parado durante el hueco): todo el log de una vez y un expire al final.
+  const replay = fresh();
+  const replaySpans = [...feedAll(replay, rs), ...replay.expire(Timestamp.fromEpochMs(RECORDED + DAY + 2))];
+  const shape = (spans: Span[]) => spans.map((s) => s.toJson()).sort((x, y) => (x.spanId < y.spanId ? -1 : 1));
+  assert.deepEqual(shape(replaySpans), shape(liveSpans));
+  assert.deepEqual(liveSpans.map((s) => [s.name, s.attributes.get("pi_runtime.incomplete")]), [["tool", true], ["session", true], ["session", null]]);
+  assert.deepEqual(replay.state(), live.state());
+});
+
+test("un estado guardado antes del seguimiento de actividad expira desde el inicio de la sesión", () => {
+  const a = fresh();
+  feedAll(a, records([fact("session.opened", "o", {}, SESSION, 1000)]));
+  const legacy = a.state();
+  delete (legacy.sessions[SESSION.value] as { lastRecordedAtMs?: number }).lastRecordedAtMs;
+  delete (legacy.sessions[SESSION.value] as { lastMs?: number }).lastMs;
+  const restored = new SpanAssembler(legacy);
+  assert.deepEqual(restored.expire(Timestamp.fromEpochMs(1000 + DAY - 1)), []);
+  assert.deepEqual(restored.expire(Timestamp.fromEpochMs(1000 + DAY)).map((s) => [s.name, s.end.epochMs()]), [["session", 1000]]);
+});
