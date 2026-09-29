@@ -1,0 +1,34 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { InMemoryEventStore } from "../../../../src/adapters/outbound/memory/InMemoryEventStore.ts";
+import { InMemoryProjectionStore } from "../../../../src/adapters/outbound/memory/InMemoryProjectionStore.ts";
+import { InMemoryTelemetryEpochStore } from "../../../../src/adapters/outbound/memory/InMemoryTelemetryEpochStore.ts";
+import { TelemetryMetricsProjection } from "../../../../src/application/projections/TelemetryMetricsProjection.ts";
+import { ProjectionRunner } from "../../../../src/application/services/ProjectionRunner.ts";
+import { TelemetryEpochs } from "../../../../src/application/services/TelemetryEpochs.ts";
+import { RebuildProjection } from "../../../../src/application/use-cases/RebuildProjection.ts";
+import { TraceExport } from "../../../../src/application/use-cases/TraceExport.ts";
+import { GlobalPosition } from "../../../../src/domain/events/GlobalPosition.ts";
+import { ProjectionCursor } from "../../../../src/domain/events/ProjectionCursor.ts";
+import { StreamVersion } from "../../../../src/domain/events/StreamVersion.ts";
+import { ManualClock } from "../../../support/ManualClock.ts";
+import { AT, SESSION, fact } from "../../../support/recordFixtures.ts";
+
+test("rebuild otlp_traces vuelve su cursor a 0 (reexportación); rebuild telemetry_metrics reinicia el inicio del acumulado", () => {
+  const events = new InMemoryEventStore(); const store = new InMemoryProjectionStore(); const clock = new ManualClock(1000);
+  events.append(SESSION, StreamVersion.NONE, [fact("session.opened", "o")], AT);
+  const runner = new ProjectionRunner(events, store, [new TelemetryMetricsProjection()]);
+  runner.runOnce();
+  const epochStore = new InMemoryTelemetryEpochStore(); const epochs = new TelemetryEpochs(epochStore, clock);
+  epochs.current();
+  store.commit(TraceExport.NAME, ProjectionCursor.of(TraceExport.VERSION, GlobalPosition.START), ProjectionCursor.of(TraceExport.VERSION, GlobalPosition.of(1)), new Map([["assembler", { sessions: {}, host: null }]]));
+  const rebuild = new RebuildProjection(runner, store, epochs);
+  rebuild.execute(TraceExport.NAME);
+  assert.equal(store.cursor(TraceExport.NAME)?.position.value, 0);
+  assert.deepEqual([...store.load(TraceExport.NAME).keys()], []);
+  clock.ms = 9000;
+  rebuild.execute(TelemetryMetricsProjection.NAME);
+  assert.equal(epochStore.read()?.start.epochMs(), 9000);
+  assert.equal(store.cursor(TelemetryMetricsProjection.NAME)?.position.value, 1);
+  assert.throws(() => new RebuildProjection(runner).execute(TraceExport.NAME), /unknown projection otlp_traces/);
+});

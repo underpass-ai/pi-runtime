@@ -12,7 +12,10 @@ import { ExportEventLog } from "../../../../../src/application/use-cases/ExportE
 import { ImportEventLog } from "../../../../../src/application/use-cases/ImportEventLog.ts";
 import { ListSessions } from "../../../../../src/application/use-cases/ListSessions.ts";
 import { AcknowledgeSpoolGaps } from "../../../../../src/application/use-cases/AcknowledgeSpoolGaps.ts";
+import { QualityKpisReport } from "../../../../../src/application/use-cases/QualityKpisReport.ts";
+import { ReadTelemetryMetrics } from "../../../../../src/application/use-cases/ReadTelemetryMetrics.ts";
 import { RebuildProjection } from "../../../../../src/application/use-cases/RebuildProjection.ts";
+import { SessionTrace } from "../../../../../src/application/use-cases/SessionTrace.ts";
 import { ShowSession } from "../../../../../src/application/use-cases/ShowSession.ts";
 import { ToolStatsReport } from "../../../../../src/application/use-cases/ToolStatsReport.ts";
 import { VerifyEventLog } from "../../../../../src/application/use-cases/VerifyEventLog.ts";
@@ -34,6 +37,7 @@ function cli(events: EventStore = new InMemoryEventStore(), files: Record<string
   const c = new EventsCli({
     sessions: new ListSessions(store), show: new ShowSession(events), tools: new ToolStatsReport(store), verify: new VerifyEventLog(verifyFrom),
     exportLog: new ExportEventLog(events, PROJECT), importLog: new ImportEventLog(events, target), rebuild: new RebuildProjection(runner), lag: new ProjectionLag(events, store, list),
+    kpis: new QualityKpisReport(store), trace: new SessionTrace(events), metrics: new ReadTelemetryMetrics(events, store),
     ackGaps: new AcknowledgeSpoolGaps({ list: () => [...gaps], remove: (m) => { gaps.splice(gaps.indexOf(m), 1); } }),
     readFile: (p) => { if (!(p in files)) throw new Error(`ENOENT: ${p}`); return files[p]; }, print: (s) => out.push(s),
   });
@@ -135,7 +139,7 @@ test("rebuild reconstruye la proyección; errores salen con 1 y un mensaje limpi
 
 test("uso incorrecto sale con 2 y muestra el uso", () => {
   const { c, out } = cli(seeded());
-  const usage = "usage: underpass events sessions [--since t]|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>|ack-gaps";
+  const usage = "usage: underpass events sessions [--since t]|show <session>|tools|kpis [--session s]|trace <session>|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>|ack-gaps";
   for (const args of [["nope"], [], ["show"], ["import"], ["rebuild"], ["export", "--since", "x"], ["sessions", "--since", "ayer"], ["sessions", "--since"], ["verify", "--stream"]]) {
     out.length = 0;
     assert.equal(c.run(args), 2, JSON.stringify(args));

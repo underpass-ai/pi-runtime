@@ -29,6 +29,7 @@ import { ServerName } from "../domain/mcp/ServerName.ts";
 import { EventLogComposition } from "./EventLogComposition.ts";
 import { RepoFile } from "./RepoFile.ts";
 import { StatePaths } from "./StatePaths.ts";
+import { TelemetryEnvironment } from "./TelemetryEnvironment.ts";
 
 export class CliComposition {
   static build(env: Record<string, string | undefined>, print: (s: string) => void): UnderpassCli {
@@ -55,12 +56,12 @@ export class CliComposition {
       return connector.open(s, made.commandFor(project));
     };
 
-    const eventLog = new EventLogComposition(paths, project, print);
+    const eventLog = new EventLogComposition(paths, project, print, TelemetryEnvironment.configuration(env));
     const setup = new SetupInstallation(install, ensure, new BootstrapMadeAuthorization(new MadeCliAuthorizationBootstrapper(madeBin)), piPackages, store, repoRoot);
     const doctor = new DiagnoseInstallation(verify, new PiCliRuntimeInspector(), piPackages, kmp, new FsFingerprintRepository(paths.fingerprintsFile()),
       connect, new VerifyServerProfiles(ToolProfiles.standard()), new DiscoverMadeCapabilities(), pins.pi.version,
       eventLog.diagnosis());
 
-    return new UnderpassCli(setup, doctor, print, eventLog.cli());
+    return new UnderpassCli(setup, doctor, print, eventLog.cli(), eventLog.metrics());
   }
 }

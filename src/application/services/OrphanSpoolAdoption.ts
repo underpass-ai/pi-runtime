@@ -6,12 +6,13 @@ import { SpoolRetryBackoff } from "./SpoolRetryBackoff.ts";
 // retroceso de cada fichero que falla, para no reintentarlo en cada tick, y lo
 // olvida al adoptarlo o si desaparece. Sólo registra cambios de estado: el
 // primer fallo de un fichero, su recuperación y las adopciones; nunca un
-// reintento fallido más.
+// reintento fallido más. Los fallos (retenido, error al reclamar) son `warn`; la
+// recuperación y las adopciones, `info`.
 export class OrphanSpoolAdoption {
-  readonly #adopt: AdoptOrphanSpools; readonly #clock: Clock; readonly #log: (line: string) => void;
+  readonly #adopt: AdoptOrphanSpools; readonly #clock: Clock; readonly #log: (level: "info" | "warn", line: string) => void;
   readonly #backoff = new Map<string, SpoolRetryBackoff>();
   #claimError: string | null = null;
-  constructor(adopt: AdoptOrphanSpools, clock: Clock, log: (line: string) => void) { this.#adopt = adopt; this.#clock = clock; this.#log = log; }
+  constructor(adopt: AdoptOrphanSpools, clock: Clock, log: (level: "info" | "warn", line: string) => void) { this.#adopt = adopt; this.#clock = clock; this.#log = log; }
 
   tick(): void {
     const now = this.#clock.now().epochMs();
@@ -19,11 +20,11 @@ export class OrphanSpoolAdoption {
     try { claims = this.#adopt.claims(); }
     catch (e) {
       const message = (e as Error)?.message ?? String(e);
-      if (message !== this.#claimError) this.#log(`fact spool: ${message}`);
+      if (message !== this.#claimError) this.#log("warn", `fact spool: ${message}`);
       this.#claimError = message;
       return;
     }
-    if (this.#claimError !== null) { this.#claimError = null; this.#log("fact spool: orphan adoption recovered"); }
+    if (this.#claimError !== null) { this.#claimError = null; this.#log("info", "fact spool: orphan adoption recovered"); }
     for (const known of [...this.#backoff.keys()]) if (!claims.includes(known)) this.#backoff.delete(known);
 
     let files = 0; let recorded = 0; let invalid = 0;
@@ -34,12 +35,12 @@ export class OrphanSpoolAdoption {
       recorded += r.recorded; invalid += r.invalid;
       if (r.failure === null) {
         files++;
-        if (previous) { this.#backoff.delete(claim); this.#log(`fact spool: ${claim} adopted after ${previous.failures()} failed attempt(s)`); }
+        if (previous) { this.#backoff.delete(claim); this.#log("info", `fact spool: ${claim} adopted after ${previous.failures()} failed attempt(s)`); }
         continue;
       }
       this.#backoff.set(claim, previous ? previous.failedAgain(now) : SpoolRetryBackoff.first(now));
-      if (!previous) this.#log(`fact spool: ${claim} retained (${r.failure}); retrying with backoff from 5s up to 5min`);
+      if (!previous) this.#log("warn", `fact spool: ${claim} retained (${r.failure}); retrying with backoff from 5s up to 5min`);
     }
-    if (files > 0) this.#log(`fact spool: adopted ${files} orphan spool(s): ${recorded} recorded, ${invalid} invalid`);
+    if (files > 0) this.#log("info", `fact spool: adopted ${files} orphan spool(s): ${recorded} recorded, ${invalid} invalid`);
   }
 }

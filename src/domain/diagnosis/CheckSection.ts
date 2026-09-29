@@ -8,9 +8,10 @@ export class CheckSection extends ValueObject<string> {
   static readonly MADE = new CheckSection("made");
   static readonly HOST = new CheckSection("host");
   static readonly EVENTS = new CheckSection("events");
+  static readonly TELEMETRY = new CheckSection("telemetry");
   static of(raw: string): CheckSection {
     if (typeof raw !== "string") throw DomainError.because(`unknown check section ${raw}`);
-    const found = [CheckSection.PI, CheckSection.KMP, CheckSection.MADE, CheckSection.HOST, CheckSection.EVENTS].find((s) => s.value === raw);
+    const found = [CheckSection.PI, CheckSection.KMP, CheckSection.MADE, CheckSection.HOST, CheckSection.EVENTS, CheckSection.TELEMETRY].find((s) => s.value === raw);
     if (!found) throw DomainError.because(`unknown check section ${raw}`);
     return found;
   }

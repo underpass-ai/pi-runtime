@@ -19,11 +19,11 @@ class MemSource implements OrphanSpoolSource {
 
 // Registro que falla para los hechos de las sesiones que están en `broken`.
 function setup() {
-  const source = new MemSource(); const broken = new Set<string>(); const clock = new FixedClock(0); const log: string[] = [];
+  const source = new MemSource(); const broken = new Set<string>(); const clock = new FixedClock(0); const log: string[] = []; const levels: string[] = [];
   const record = { execute: (f: Fact) => { if (broken.has(f.stream.sessionId().value)) throw new Error("database is locked"); } };
-  const adoption = new OrphanSpoolAdoption(new AdoptOrphanSpools(source, record as never), clock, (l) => log.push(l));
+  const adoption = new OrphanSpoolAdoption(new AdoptOrphanSpools(source, record as never), clock, (level, l) => { levels.push(level); log.push(l); });
   const at = (ms: number) => { clock.ms = ms; adoption.tick(); };
-  return { source, broken, log, at };
+  return { source, broken, log, levels, at };
 }
 
 test("el retroceso por fichero empieza en 5 s, se dobla y se topa en 5 min", () => {
@@ -37,10 +37,11 @@ test("el retroceso por fichero empieza en 5 s, se dobla y se topa en 5 min", () 
 });
 
 test("un .draining que falla se reintenta con retroceso exponencial y sólo se registra al fallar la primera vez y al recuperarse", () => {
-  const { source, broken, log, at } = setup();
+  const { source, broken, log, levels, at } = setup();
   source.files.set("7.jsonl.draining", [dto("a")]); broken.add("a");
   at(0);
   assert.equal(source.reads.length, 1);
+  assert.deepEqual(levels, ["warn"], "retenido es un aviso");
   assert.equal(log.length, 1);
   assert.match(log[0], /^fact spool: 7\.jsonl\.draining retained \(database is locked\); retrying with backoff from 5s up to 5min$/);
   for (const [ms, attempted] of [[4_999, 1], [5_000, 2], [14_999, 2], [15_000, 3], [34_999, 3], [35_000, 4]] as const) {
@@ -53,6 +54,7 @@ test("un .draining que falla se reintenta con retroceso exponencial y sólo se r
   at(75_000);
   assert.equal(source.files.size, 0);
   assert.deepEqual(log.slice(1), ["fact spool: 7.jsonl.draining adopted after 4 failed attempt(s)", "fact spool: adopted 1 orphan spool(s): 1 recorded, 0 invalid"]);
+  assert.deepEqual(levels, ["warn", "info", "info"], "la recuperación y la adopción son info");
   at(80_000);
   assert.equal(log.length, 3);
 });
@@ -87,13 +89,14 @@ test("un fichero que desaparece mientras espera se olvida", () => {
 });
 
 test("un fallo al reclamar se registra una vez por cambio de estado, no en cada tick", () => {
-  const { source, log, at } = setup();
+  const { source, log, levels, at } = setup();
   source.failClaim = "EACCES: permission denied";
   at(0); at(5_000); at(10_000);
   assert.deepEqual(log, ["fact spool: EACCES: permission denied"]);
   source.failClaim = null;
   at(15_000);
   assert.deepEqual(log, ["fact spool: EACCES: permission denied", "fact spool: orphan adoption recovered"]);
+  assert.deepEqual(levels, ["warn", "info"], "el fallo al reclamar es un aviso; la recuperación, info");
   source.failClaim = "EACCES: permission denied";
   at(20_000);
   assert.equal(log.length, 3);
