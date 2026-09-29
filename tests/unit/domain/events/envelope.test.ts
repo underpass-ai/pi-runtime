@@ -30,11 +30,17 @@ test("tipos, versiones y posiciones", () => {
   assert.equal(EventType.of("server.started").belongsToSessions(), false);
   assert.throws(() => EventType.of("tool.exploded"), DomainError);
   assert.equal(TypeVersion.V1.value, 1);
+  assert.equal(TypeVersion.of(2).value, 2);
   assert.throws(() => TypeVersion.of(0), DomainError);
+  assert.throws(() => TypeVersion.of(1001), DomainError);
   assert.equal(StreamVersion.NONE.next().value, 1);
+  assert.equal(StreamVersion.of(3).value, 3);
   assert.throws(() => StreamVersion.of(-1), DomainError);
   assert.throws(() => StreamVersion.of(1.5), DomainError);
   assert.equal(GlobalPosition.START.value, 0);
+  assert.equal(GlobalPosition.of(5).value, 5);
+  assert.throws(() => GlobalPosition.of(-1), DomainError);
+  assert.throws(() => GlobalPosition.of(1.5), DomainError);
 });
 
 test("timestamps ISO con milisegundos", () => {
@@ -52,8 +58,13 @@ test("actor, about, id derivado y hash", () => {
   assert.throws(() => Actor.of("host", ""), DomainError);
   const id = EventId.derive(StreamId.HOST, EventType.of("host.started"), EventAbout.of("42.1000.0"));
   assert.equal(id.value, "host:host.started:42.1000.0");
+  assert.equal(EventId.of("x:y").value, "x:y");
+  assert.throws(() => EventId.of("x y"), DomainError);
   assert.throws(() => EventAbout.of("with space"), DomainError);
+  const hex = "a".repeat(64);
+  assert.equal(EventHash.of(hex).value, hex);
   assert.throws(() => EventHash.of("zz"), DomainError);
+  assert.throws(() => EventHash.of("A".repeat(64)), DomainError);
 });
 
 test("los VOs de cadena rechazan entradas que no son string", () => {
