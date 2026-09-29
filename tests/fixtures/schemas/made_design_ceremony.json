@@ -1,0 +1,1000 @@
+{
+ "additionalProperties": false,
+ "oneOf": [
+  {
+   "not": {
+    "required": [
+     "pattern"
+    ]
+   },
+   "properties": {
+    "stages": {
+     "minItems": 1
+    }
+   },
+   "required": [
+    "stages"
+   ]
+  },
+  {
+   "properties": {
+    "stages": {
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "pattern"
+   ]
+  }
+ ],
+ "properties": {
+  "backoff_seconds": {
+   "description": "Default retry backoff written into the draft. Defaults to one.",
+   "minimum": 0,
+   "type": "integer"
+  },
+  "final_approval": {
+   "additionalProperties": false,
+   "description": "Optional explicit human gate after the final stage. Designing it never records approval.",
+   "properties": {
+    "guard_name": {
+     "description": "Human guard identity. Defaults to human_approved_outcome.",
+     "minLength": 1,
+     "type": "string"
+    },
+    "role_id": {
+     "description": "Participant role whose explicit human approval unlocks completion.",
+     "minLength": 1,
+     "type": "string"
+    },
+    "trigger": {
+     "description": "Final transition trigger. Defaults to approve_outcome.",
+     "minLength": 1,
+     "type": "string"
+    }
+   },
+   "required": [
+    "role_id"
+   ],
+   "type": "object"
+  },
+  "max_attempts": {
+   "description": "Default maximum attempts written into the draft. Defaults to two.",
+   "minimum": 1,
+   "type": "integer"
+  },
+  "max_bounces": {
+   "description": "Maximum applications of each exact from/trigger/to edge. Either transition budget makes a cyclic definition bounded.",
+   "minimum": 1,
+   "type": "integer"
+  },
+  "max_parallel": {
+   "description": "Definition-level claim capacity. Defaults to three; the host may enforce a lower runtime ceiling.",
+   "maximum": 8,
+   "minimum": 1,
+   "type": "integer"
+  },
+  "max_transitions": {
+   "description": "Maximum total transition applications. Either transition budget makes a cyclic definition bounded.",
+   "minimum": 1,
+   "type": "integer"
+  },
+  "name": {
+   "description": "Stable lower_snake_case identity for the designed ceremony.",
+   "minLength": 1,
+   "type": "string"
+  },
+  "objective": {
+   "description": "The single question or artifact this ceremony exists to resolve or produce.",
+   "minLength": 1,
+   "type": "string"
+  },
+  "optional_inputs": {
+   "description": "Context keys a run may provide.",
+   "items": {
+    "minLength": 1,
+    "type": "string"
+   },
+   "type": "array",
+   "uniqueItems": true
+  },
+  "outputs": {
+   "description": "Named output objects the completed ceremony promises.",
+   "items": {
+    "minLength": 1,
+    "type": "string"
+   },
+   "minItems": 1,
+   "type": "array",
+   "uniqueItems": true
+  },
+  "participants": {
+   "items": {
+    "additionalProperties": false,
+    "properties": {
+     "capabilities": {
+      "description": "Optional live-agenda capabilities beyond owned stages.",
+      "items": {
+       "enum": [
+        "request_intervention",
+        "respond_to_intervention"
+       ],
+       "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+     },
+     "role_id": {
+      "description": "Role seated at the working session.",
+      "minLength": 1,
+      "type": "string"
+     }
+    },
+    "required": [
+     "role_id"
+    ],
+    "type": "object"
+   },
+   "minItems": 1,
+   "type": "array"
+  },
+  "pattern": {
+   "description": "Shipped authoring preset. Mutually exclusive with explicit stages; roundtable_fixed_order gives each participant one turn in declaration order, and every turn after the first receives prior contributions.",
+   "enum": [
+    "roundtable_fixed_order"
+   ],
+   "type": "string"
+  },
+  "required_inputs": {
+   "description": "Context keys every run must provide.",
+   "items": {
+    "minLength": 1,
+    "type": "string"
+   },
+   "type": "array",
+   "uniqueItems": true
+  },
+  "stages": {
+   "items": {
+    "oneOf": [
+     {
+      "additionalProperties": false,
+      "dependentRequired": {
+       "allowed_roles": [
+        "role_from"
+       ],
+       "role_from": [
+        "allowed_roles"
+       ]
+      },
+      "properties": {
+       "aggregate": {
+        "description": "Optional aggregation of every output from the immediately preceding concurrent state. The stage must be first in its sequential state and set see_prior to true. Vote fails on a missing field or when no value has a strict majority.",
+        "oneOf": [
+         {
+          "additionalProperties": false,
+          "properties": {
+           "strategy": {
+            "const": "synthesize"
+           }
+          },
+          "required": [
+           "strategy"
+          ],
+          "type": "object"
+         },
+         {
+          "additionalProperties": false,
+          "properties": {
+           "output_field": {
+            "description": "Top-level sibling output field counted by strict majority.",
+            "minLength": 1,
+            "type": "string"
+           },
+           "strategy": {
+            "const": "vote"
+           }
+          },
+          "required": [
+           "strategy",
+           "output_field"
+          ],
+          "type": "object"
+         }
+        ]
+       },
+       "allowed_roles": {
+        "description": "Roles the dynamic selector may resolve to.",
+        "items": {
+         "minLength": 1,
+         "pattern": "^[^\\x00-\\x1F\\x7F\\u0080-\\u009F]*[^\\s\\x00-\\x1F\\x7F\\u0080-\\u009F][^\\x00-\\x1F\\x7F\\u0080-\\u009F]*$",
+         "type": "string"
+        },
+        "minItems": 1,
+        "type": "array",
+        "uniqueItems": true
+       },
+       "context_writes": {
+        "additionalProperties": {
+         "minLength": 1,
+         "pattern": "^[^\\x00-\\x1F\\x7F\\u0080-\\u009F]*[^\\s\\x00-\\x1F\\x7F\\u0080-\\u009F][^\\x00-\\x1F\\x7F\\u0080-\\u009F]*$",
+         "type": "string"
+        },
+        "description": "Destination context keys mapped to top-level successful output fields.",
+        "propertyNames": {
+         "minLength": 1,
+         "pattern": "^[^\\x00-\\x1F\\x7F\\u0080-\\u009F]*[^\\s\\x00-\\x1F\\x7F\\u0080-\\u009F][^\\x00-\\x1F\\x7F\\u0080-\\u009F]*$"
+        },
+        "type": "object"
+       },
+       "exit_guards": {
+        "description": "Additional conditions conjoined with stage completion and any final human approval.",
+        "items": {
+         "oneOf": [
+          {
+           "additionalProperties": false,
+           "properties": {
+            "equals": {
+             "description": "Exact JSON value required for this guard. Numbers in this object are read at ingress on every backend: a whole-valued number is read whole, so `1.0` and `1` are stored and sealed identically, and a number outside \u00b12^53 is refused \u2014 past that a double no longer counts one at a time, and the contract carries this object as `google.protobuf.Struct`."
+            },
+            "kind": {
+             "const": "output_field"
+            },
+            "output_field": {
+             "description": "Top-level structured output field.",
+             "minLength": 1,
+             "type": "string"
+            },
+            "step": {
+             "description": "Declared step whose current successful output is inspected.",
+             "minLength": 1,
+             "type": "string"
+            }
+           },
+           "required": [
+            "kind",
+            "step",
+            "output_field",
+            "equals"
+           ],
+           "type": "object"
+          },
+          {
+           "additionalProperties": false,
+           "properties": {
+            "kind": {
+             "const": "step_repeat_exhausted"
+            },
+            "step": {
+             "description": "Repeating step in this stage whose final iteration must be exhausted.",
+             "minLength": 1,
+             "type": "string"
+            }
+           },
+           "required": [
+            "kind",
+            "step"
+           ],
+           "type": "object"
+          },
+          {
+           "additionalProperties": false,
+           "else": {
+            "not": {
+             "required": [
+              "count"
+             ]
+            }
+           },
+           "if": {
+            "properties": {
+             "join": {
+              "const": "quorum"
+             }
+            }
+           },
+           "properties": {
+            "count": {
+             "minimum": 1,
+             "type": "integer"
+            },
+            "join": {
+             "enum": [
+              "all",
+              "any",
+              "quorum"
+             ],
+             "type": "string"
+            },
+            "kind": {
+             "const": "children_completed"
+            },
+            "step": {
+             "description": "Spawning step whose verified child group is inspected.",
+             "minLength": 1,
+             "type": "string"
+            }
+           },
+           "required": [
+            "kind",
+            "step",
+            "join"
+           ],
+           "then": {
+            "required": [
+             "count"
+            ]
+           },
+           "type": "object"
+          }
+         ]
+        },
+        "type": "array",
+        "uniqueItems": true
+       },
+       "handler": {
+        "description": "Host step-handler specialty. Defaults to host_callback.",
+        "minLength": 1,
+        "type": "string"
+       },
+       "id": {
+        "description": "Lower_snake_case step identity. Declaration order is execution order.",
+        "minLength": 1,
+        "type": "string"
+       },
+       "instructions": {
+        "description": "Concrete instructions and success criteria for this stage.",
+        "minLength": 1,
+        "type": "string"
+       },
+       "num_agents": {
+        "description": "Council size. Defaults to one.",
+        "minimum": 1,
+        "type": "integer"
+       },
+       "owner_role_id": {
+        "description": "Participant role allowed to run this stage.",
+        "minLength": 1,
+        "type": "string"
+       },
+       "repeat": {
+        "additionalProperties": false,
+        "description": "Optional bounded repeat-until policy. Iterations are distinct from technical retry attempts.",
+        "properties": {
+         "equals": {
+          "description": "Exact JSON value that ends repetition. Missing or unequal output repeats the stage. Numbers in this object are read at ingress on every backend: a whole-valued number is read whole, so `1.0` and `1` are stored and sealed identically, and a number outside \u00b12^53 is refused \u2014 past that a double no longer counts one at a time, and the contract carries this object as `google.protobuf.Struct`."
+         },
+         "max_iterations": {
+          "description": "Hard cap on semantic executions of this stage, including the first.",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+         },
+         "output_field": {
+          "description": "Top-level structured step-output field tested after each successful iteration.",
+          "minLength": 1,
+          "type": "string"
+         }
+        },
+        "required": [
+         "max_iterations",
+         "output_field",
+         "equals"
+        ],
+        "type": "object"
+       },
+       "review_rounds": {
+        "description": "Adversarial peer-review rounds. A positive value requires at least two agents.",
+        "minimum": 0,
+        "type": "integer"
+       },
+       "role_from": {
+        "description": "Top-level ceremony-context role selector resolved and sealed at claim time.",
+        "pattern": "^context\\.[^\\x00-\\x1F\\x7F\\u0080-\\u009F]*[^\\s\\x00-\\x1F\\x7F\\u0080-\\u009F][^\\x00-\\x1F\\x7F\\u0080-\\u009F]*$",
+        "type": "string"
+       },
+       "see_prior": {
+        "description": "Whether earlier stage outputs enter this stage; defaults to false for the first stage and true afterwards.",
+        "type": "boolean"
+       },
+       "spawn": {
+        "additionalProperties": false,
+        "properties": {
+         "children": {
+          "items": {
+           "additionalProperties": false,
+           "properties": {
+            "ceremony": {
+             "description": "Published child ceremony name.",
+             "minLength": 1,
+             "type": "string"
+            },
+            "inputs": {
+             "additionalProperties": {
+              "type": "string"
+             },
+             "description": "Child context key to sealed parent context key binding.",
+             "type": "object"
+            },
+            "version": {
+             "description": "Published child ceremony version.",
+             "minLength": 1,
+             "type": "string"
+            }
+           },
+           "required": [
+            "ceremony",
+            "version"
+           ],
+           "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+         },
+         "max_children": {
+          "minimum": 1,
+          "type": "integer"
+         },
+         "max_depth": {
+          "minimum": 1,
+          "type": "integer"
+         }
+        },
+        "required": [
+         "children",
+         "max_children",
+         "max_depth"
+        ],
+        "type": "object"
+       }
+      },
+      "required": [
+       "id",
+       "owner_role_id",
+       "instructions"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "group": {
+        "additionalProperties": false,
+        "properties": {
+         "execution": {
+          "default": "sequential",
+          "enum": [
+           "sequential",
+           "concurrent"
+          ],
+          "type": "string"
+         },
+         "join": {
+          "oneOf": [
+           {
+            "additionalProperties": false,
+            "properties": {
+             "condition": {
+              "enum": [
+               "all_steps_completed",
+               "any_step_completed"
+              ]
+             }
+            },
+            "required": [
+             "condition"
+            ],
+            "type": "object"
+           },
+           {
+            "additionalProperties": false,
+            "properties": {
+             "condition": {
+              "const": "steps_completed"
+             },
+             "count": {
+              "minimum": 1,
+              "type": "integer"
+             }
+            },
+            "required": [
+             "condition",
+             "count"
+            ],
+            "type": "object"
+           }
+          ]
+         },
+         "repeat": {
+          "additionalProperties": false,
+          "description": "Optional bounded repeat-until policy for the whole group state.",
+          "properties": {
+           "max_iterations": {
+            "description": "Hard cap on complete state iterations, including the first.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+           },
+           "until": {
+            "additionalProperties": false,
+            "properties": {
+             "equals": {
+              "description": "Exact JSON value that ends repetition after every group step and its own repeats finish. Numbers in this object are read at ingress on every backend: a whole-valued number is read whole, so `1.0` and `1` are stored and sealed identically, and a number outside \u00b12^53 is refused \u2014 past that a double no longer counts one at a time, and the contract carries this object as `google.protobuf.Struct`."
+             },
+             "output_field": {
+              "description": "Top-level structured output field tested after each group iteration.",
+              "minLength": 1,
+              "type": "string"
+             },
+             "step": {
+              "description": "Step in this group whose successful output is inspected after every group iteration.",
+              "minLength": 1,
+              "type": "string"
+             }
+            },
+            "required": [
+             "step",
+             "output_field",
+             "equals"
+            ],
+            "type": "object"
+           }
+          },
+          "required": [
+           "max_iterations",
+           "until"
+          ],
+          "type": "object"
+         },
+         "steps": {
+          "items": {
+           "additionalProperties": false,
+           "dependentRequired": {
+            "allowed_roles": [
+             "role_from"
+            ],
+            "role_from": [
+             "allowed_roles"
+            ]
+           },
+           "properties": {
+            "aggregate": {
+             "description": "Optional aggregation of every output from the immediately preceding concurrent state. The stage must be first in its sequential state and set see_prior to true. Vote fails on a missing field or when no value has a strict majority.",
+             "oneOf": [
+              {
+               "additionalProperties": false,
+               "properties": {
+                "strategy": {
+                 "const": "synthesize"
+                }
+               },
+               "required": [
+                "strategy"
+               ],
+               "type": "object"
+              },
+              {
+               "additionalProperties": false,
+               "properties": {
+                "output_field": {
+                 "description": "Top-level sibling output field counted by strict majority.",
+                 "minLength": 1,
+                 "type": "string"
+                },
+                "strategy": {
+                 "const": "vote"
+                }
+               },
+               "required": [
+                "strategy",
+                "output_field"
+               ],
+               "type": "object"
+              }
+             ]
+            },
+            "allowed_roles": {
+             "description": "Roles the dynamic selector may resolve to.",
+             "items": {
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1F\\x7F\\u0080-\\u009F]*[^\\s\\x00-\\x1F\\x7F\\u0080-\\u009F][^\\x00-\\x1F\\x7F\\u0080-\\u009F]*$",
+              "type": "string"
+             },
+             "minItems": 1,
+             "type": "array",
+             "uniqueItems": true
+            },
+            "context_writes": {
+             "additionalProperties": {
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1F\\x7F\\u0080-\\u009F]*[^\\s\\x00-\\x1F\\x7F\\u0080-\\u009F][^\\x00-\\x1F\\x7F\\u0080-\\u009F]*$",
+              "type": "string"
+             },
+             "description": "Destination context keys mapped to top-level successful output fields.",
+             "propertyNames": {
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1F\\x7F\\u0080-\\u009F]*[^\\s\\x00-\\x1F\\x7F\\u0080-\\u009F][^\\x00-\\x1F\\x7F\\u0080-\\u009F]*$"
+             },
+             "type": "object"
+            },
+            "handler": {
+             "description": "Host step-handler specialty. Defaults to host_callback.",
+             "minLength": 1,
+             "type": "string"
+            },
+            "id": {
+             "description": "Lower_snake_case step identity. Declaration order is execution order.",
+             "minLength": 1,
+             "type": "string"
+            },
+            "instructions": {
+             "description": "Concrete instructions and success criteria for this stage.",
+             "minLength": 1,
+             "type": "string"
+            },
+            "num_agents": {
+             "description": "Council size. Defaults to one.",
+             "minimum": 1,
+             "type": "integer"
+            },
+            "owner_role_id": {
+             "description": "Participant role allowed to run this stage.",
+             "minLength": 1,
+             "type": "string"
+            },
+            "repeat": {
+             "additionalProperties": false,
+             "description": "Optional bounded repeat-until policy. Iterations are distinct from technical retry attempts.",
+             "properties": {
+              "equals": {
+               "description": "Exact JSON value that ends repetition. Missing or unequal output repeats the stage. Numbers in this object are read at ingress on every backend: a whole-valued number is read whole, so `1.0` and `1` are stored and sealed identically, and a number outside \u00b12^53 is refused \u2014 past that a double no longer counts one at a time, and the contract carries this object as `google.protobuf.Struct`."
+              },
+              "max_iterations": {
+               "description": "Hard cap on semantic executions of this stage, including the first.",
+               "maximum": 1000,
+               "minimum": 1,
+               "type": "integer"
+              },
+              "output_field": {
+               "description": "Top-level structured step-output field tested after each successful iteration.",
+               "minLength": 1,
+               "type": "string"
+              }
+             },
+             "required": [
+              "max_iterations",
+              "output_field",
+              "equals"
+             ],
+             "type": "object"
+            },
+            "review_rounds": {
+             "description": "Adversarial peer-review rounds. A positive value requires at least two agents.",
+             "minimum": 0,
+             "type": "integer"
+            },
+            "role_from": {
+             "description": "Top-level ceremony-context role selector resolved and sealed at claim time.",
+             "pattern": "^context\\.[^\\x00-\\x1F\\x7F\\u0080-\\u009F]*[^\\s\\x00-\\x1F\\x7F\\u0080-\\u009F][^\\x00-\\x1F\\x7F\\u0080-\\u009F]*$",
+             "type": "string"
+            },
+            "see_prior": {
+             "description": "Whether earlier stage outputs enter this stage; defaults to false for the first stage and true afterwards.",
+             "type": "boolean"
+            },
+            "spawn": {
+             "additionalProperties": false,
+             "properties": {
+              "children": {
+               "items": {
+                "additionalProperties": false,
+                "properties": {
+                 "ceremony": {
+                  "description": "Published child ceremony name.",
+                  "minLength": 1,
+                  "type": "string"
+                 },
+                 "inputs": {
+                  "additionalProperties": {
+                   "type": "string"
+                  },
+                  "description": "Child context key to sealed parent context key binding.",
+                  "type": "object"
+                 },
+                 "version": {
+                  "description": "Published child ceremony version.",
+                  "minLength": 1,
+                  "type": "string"
+                 }
+                },
+                "required": [
+                 "ceremony",
+                 "version"
+                ],
+                "type": "object"
+               },
+               "minItems": 1,
+               "type": "array"
+              },
+              "max_children": {
+               "minimum": 1,
+               "type": "integer"
+              },
+              "max_depth": {
+               "minimum": 1,
+               "type": "integer"
+              }
+             },
+             "required": [
+              "children",
+              "max_children",
+              "max_depth"
+             ],
+             "type": "object"
+            }
+           },
+           "required": [
+            "id",
+            "owner_role_id",
+            "instructions"
+           ],
+           "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+         }
+        },
+        "required": [
+         "steps"
+        ],
+        "type": "object"
+       },
+       "id": {
+        "description": "State identity generated for this group.",
+        "minLength": 1,
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "group"
+      ],
+      "type": "object"
+     },
+     {
+      "additionalProperties": false,
+      "properties": {
+       "id": {
+        "description": "Identity of the composed pattern region.",
+        "minLength": 1,
+        "type": "string"
+       },
+       "pattern": {
+        "additionalProperties": false,
+        "allOf": [
+         {
+          "if": {
+           "properties": {
+            "kind": {
+             "enum": [
+              "group_chat",
+              "maker_checker",
+              "handoff",
+              "magentic"
+             ]
+            }
+           }
+          },
+          "then": {
+           "required": [
+            "max_iterations",
+            "fallback_role_id"
+           ]
+          }
+         },
+         {
+          "if": {
+           "properties": {
+            "kind": {
+             "enum": [
+              "broadcast_collect",
+              "group_chat",
+              "magentic"
+             ]
+            }
+           }
+          },
+          "then": {
+           "required": [
+            "manager_role_id"
+           ]
+          }
+         },
+         {
+          "if": {
+           "properties": {
+            "kind": {
+             "const": "maker_checker"
+            }
+           }
+          },
+          "then": {
+           "properties": {
+            "roles": {
+             "maxItems": 2,
+             "minItems": 2
+            }
+           }
+          }
+         },
+         {
+          "if": {
+           "properties": {
+            "kind": {
+             "const": "handoff"
+            }
+           }
+          },
+          "then": {
+           "properties": {
+            "roles": {
+             "minItems": 2
+            }
+           }
+          }
+         }
+        ],
+        "properties": {
+         "fallback_role_id": {
+          "description": "Human or fallback role used when the declared cap or stalled route is reached.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "instructions": {
+          "description": "Work instructions shared by the pattern's role steps.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "join": {
+          "oneOf": [
+           {
+            "additionalProperties": false,
+            "properties": {
+             "condition": {
+              "enum": [
+               "all_steps_completed",
+               "any_step_completed"
+              ]
+             }
+            },
+            "required": [
+             "condition"
+            ],
+            "type": "object"
+           },
+           {
+            "additionalProperties": false,
+            "properties": {
+             "condition": {
+              "const": "steps_completed"
+             },
+             "count": {
+              "minimum": 1,
+              "type": "integer"
+             }
+            },
+            "required": [
+             "condition",
+             "count"
+            ],
+            "type": "object"
+           }
+          ]
+         },
+         "kind": {
+          "enum": [
+           "sequential",
+           "concurrent",
+           "broadcast_collect",
+           "group_chat",
+           "maker_checker",
+           "handoff",
+           "magentic"
+          ],
+          "type": "string"
+         },
+         "manager_role_id": {
+          "description": "Manager or synthesizer role for the pattern.",
+          "minLength": 1,
+          "type": "string"
+         },
+         "max_iterations": {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+         },
+         "roles": {
+          "items": {
+           "minLength": 1,
+           "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+         }
+        },
+        "required": [
+         "kind",
+         "roles",
+         "instructions"
+        ],
+        "type": "object"
+       }
+      },
+      "required": [
+       "id",
+       "pattern"
+      ],
+      "type": "object"
+     }
+    ]
+   },
+   "type": "array"
+  },
+  "step_timeout_seconds": {
+   "description": "Default step timeout written into the draft. Defaults to 300.",
+   "minimum": 1,
+   "type": "integer"
+  },
+  "version": {
+   "description": "Immutable publication version. Defaults to 1.0.",
+   "minLength": 1,
+   "type": "string"
+  }
+ },
+ "required": [
+  "name",
+  "objective",
+  "outputs",
+  "participants"
+ ],
+ "type": "object",
+ "x-made-pattern-catalog": [
+  {
+   "definition_fragment_yaml": "version: \"1.0\"\nname: \"roundtable_fixed_order\"\ndescription: \"A fixed-order roundtable in which each declared role contributes once and later turns receive the prior transcript\"\ninputs:\n  required:\n    - topic\noutputs:\n  discussion:\n    type: object\nstates:\n  - id: ROUNDTABLE_TURN_1\n    initial: true\n  - id: ROUNDTABLE_TURN_2\n  - id: ROUNDTABLE_TURN_3\n  - id: COMPLETED\n    terminal: true\ntransitions:\n  - from: ROUNDTABLE_TURN_1\n    to: ROUNDTABLE_TURN_2\n    trigger: roundtable_turn_1_completed\n    guards:\n      - roundtable_turn_1_completed\n  - from: ROUNDTABLE_TURN_2\n    to: ROUNDTABLE_TURN_3\n    trigger: roundtable_turn_2_completed\n    guards:\n      - roundtable_turn_2_completed\n  - from: ROUNDTABLE_TURN_3\n    to: COMPLETED\n    trigger: roundtable_turn_3_completed\n    guards:\n      - roundtable_turn_3_completed\nsteps:\n  - id: roundtable_turn_1\n    state: ROUNDTABLE_TURN_1\n    handler: host_callback\n    config:\n      see_prior: false\n      num_agents: 1\n      prompt: \"Open the fixed-order roundtable from the first declared role's perspective. Address the objective directly and make one concrete contribution.\"\n  - id: roundtable_turn_2\n    state: ROUNDTABLE_TURN_2\n    handler: host_callback\n    config:\n      see_prior: true\n      num_agents: 1\n      prompt: \"Continue the fixed-order roundtable from the second declared role's perspective. Read the prior contribution, add a distinct point, and avoid repetition.\"\n  - id: roundtable_turn_3\n    state: ROUNDTABLE_TURN_3\n    handler: host_callback\n    config:\n      see_prior: true\n      num_agents: 1\n      prompt: \"Continue the fixed-order roundtable from the third declared role's perspective. Read all prior contributions, add a distinct point, and avoid repetition.\"\nguards:\n  roundtable_turn_1_completed:\n    type: automated\n    check: \"step_status:roundtable_turn_1:COMPLETED\"\n  roundtable_turn_2_completed:\n    type: automated\n    check: \"step_status:roundtable_turn_2:COMPLETED\"\n  roundtable_turn_3_completed:\n    type: automated\n    check: \"step_status:roundtable_turn_3:COMPLETED\"\nroles:\n  - id: FIRST_SPEAKER\n    allowed_actions:\n      - roundtable_turn_1\n      - roundtable_turn_1_completed\n  - id: SECOND_SPEAKER\n    allowed_actions:\n      - roundtable_turn_2\n      - roundtable_turn_2_completed\n  - id: THIRD_SPEAKER\n    allowed_actions:\n      - roundtable_turn_3\n      - roundtable_turn_3_completed\ntimeouts:\n  step_default: 300\nretry_policies:\n  default:\n    max_attempts: 2\n    backoff_seconds: 1\n",
+   "description": "One speaking turn per participant in declaration order; every turn after the first receives the prior transcript.",
+   "id": "roundtable_fixed_order",
+   "scope": "ceremony"
+  },
+  {
+   "definition_fragment_yaml": "version: '1.0'\nname: broadcast_collect\ndescription: Canonical broadcast_collect coordination fragment.\ninputs:\n  required: []\n  optional: []\noutputs:\n  result:\n    type: object\nstates:\n- id: COORDINATION_BROADCAST\n  initial: true\n  execution: concurrent\n  x-pattern: broadcast_collect\n- id: COORDINATION_COLLECT\n  x-pattern: broadcast_collect\n- id: COMPLETED\n  terminal: true\ntransitions:\n- from: COORDINATION_BROADCAST\n  to: COORDINATION_COLLECT\n  trigger: coordination_broadcast_completed\n  guards:\n  - coordination_broadcast_coordination_review_1_completed\n  - coordination_broadcast_coordination_review_2_completed\n- from: COORDINATION_COLLECT\n  to: COMPLETED\n  trigger: coordination_collect_completed\n  guards:\n  - coordination_collect_completed\nsteps:\n- id: coordination_review_1\n  state: COORDINATION_BROADCAST\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Execute the broadcast_collect coordination fragment.\n    see_prior: false\n- id: coordination_review_2\n  state: COORDINATION_BROADCAST\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Execute the broadcast_collect coordination fragment.\n    see_prior: false\n- id: coordination_collect\n  state: COORDINATION_COLLECT\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Synthesize every independent contribution into one result.\n    see_prior: true\n  aggregate:\n    strategy: synthesize\nguards:\n  coordination_broadcast_coordination_review_1_completed:\n    type: automated\n    check: step_status:coordination_review_1:COMPLETED\n  coordination_broadcast_coordination_review_2_completed:\n    type: automated\n    check: step_status:coordination_review_2:COMPLETED\n  coordination_collect_completed:\n    type: automated\n    check: step_status:coordination_collect:COMPLETED\nroles:\n- id: LEAD\n  allowed_actions:\n  - coordination_collect\n  - coordination_collect_completed\n  - request_intervention\n- id: OPS\n  allowed_actions:\n  - coordination_broadcast_completed\n  - coordination_review_1\n  - request_intervention\n- id: SECURITY\n  allowed_actions:\n  - coordination_review_2\n  - respond_to_intervention\n- id: HUMAN\n  allowed_actions:\n  - respond_to_intervention\ntimeouts:\n  step_default: 300\nretry_policies:\n  default:\n    max_attempts: 2\n    backoff_seconds: 1\n",
+   "description": "Independent fan-out followed by one collecting synthesis step.",
+   "id": "broadcast_collect",
+   "scope": "stage"
+  },
+  {
+   "definition_fragment_yaml": "version: '1.0'\nname: group_chat\ndescription: Canonical group_chat coordination fragment.\ninputs:\n  required: []\n  optional: []\noutputs:\n  result:\n    type: object\nstates:\n- id: COORDINATION_MANAGE_1\n  initial: true\n  x-pattern: group_chat\n- id: COORDINATION_SELECT_1\n  x-pattern: group_chat\n- id: COORDINATION_SPEAK_1\n  x-pattern: group_chat\n- id: COORDINATION_MANAGE_2\n  x-pattern: group_chat\n- id: COORDINATION_SELECT_2\n  x-pattern: group_chat\n- id: COORDINATION_SPEAK_2\n  x-pattern: group_chat\n- id: COORDINATION_FALLBACK\n  x-pattern: group_chat\n- id: COORDINATION_RECORD\n  x-pattern: group_chat\n- id: COMPLETED\n  terminal: true\ntransitions:\n- from: COORDINATION_SELECT_1\n  to: COORDINATION_SPEAK_1\n  trigger: coordination_select_1_completed\n  guards:\n  - coordination_select_1_completed\n- from: COORDINATION_SPEAK_1\n  to: COORDINATION_MANAGE_2\n  trigger: coordination_speak_1_completed\n  guards:\n  - coordination_speak_1_completed\n- from: COORDINATION_SELECT_2\n  to: COORDINATION_SPEAK_2\n  trigger: coordination_select_2_completed\n  guards:\n  - coordination_select_2_completed\n- from: COORDINATION_SPEAK_2\n  to: COORDINATION_FALLBACK\n  trigger: coordination_speak_2_completed\n  guards:\n  - coordination_speak_2_completed\n- from: COORDINATION_FALLBACK\n  to: COORDINATION_RECORD\n  trigger: coordination_fallback_completed\n  guards:\n  - coordination_fallback_completed\n- from: COORDINATION_RECORD\n  to: COMPLETED\n  trigger: coordination_record_completed\n  guards:\n  - coordination_record_completed\n- from: COORDINATION_MANAGE_1\n  to: COORDINATION_RECORD\n  trigger: coordination_manage_1_finished\n  guards:\n  - coordination_manage_1_finished_completed\n  - coordination_manage_1_finished_output_0\n- from: COORDINATION_MANAGE_1\n  to: COORDINATION_SELECT_1\n  trigger: coordination_manage_1_continue\n  guards:\n  - coordination_manage_1_continue_completed\n  - coordination_manage_1_continue_output_0\n- from: COORDINATION_MANAGE_2\n  to: COORDINATION_RECORD\n  trigger: coordination_manage_2_finished\n  guards:\n  - coordination_manage_2_finished_completed\n  - coordination_manage_2_finished_output_0\n- from: COORDINATION_MANAGE_2\n  to: COORDINATION_SELECT_2\n  trigger: coordination_manage_2_continue\n  guards:\n  - coordination_manage_2_continue_completed\n  - coordination_manage_2_continue_output_0\nsteps:\n- id: coordination_manage_1\n  state: COORDINATION_MANAGE_1\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - done\n    prompt: Decide whether the discussion is done and return done plus instructions.\n    see_prior: true\n- id: coordination_select_1\n  state: COORDINATION_SELECT_1\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - next_speaker\n    prompt: Choose the next speaker and return next_speaker.\n    see_prior: true\n  context_writes:\n    coordination_next_speaker: next_speaker\n- id: coordination_speak_1\n  state: COORDINATION_SPEAK_1\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Execute the group_chat coordination fragment.\n    see_prior: true\n  role_from: context.coordination_next_speaker\n  allowed_roles:\n  - OPS\n  - SECURITY\n- id: coordination_manage_2\n  state: COORDINATION_MANAGE_2\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - done\n    prompt: Decide whether the discussion is done and return done plus instructions.\n    see_prior: true\n- id: coordination_select_2\n  state: COORDINATION_SELECT_2\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - next_speaker\n    prompt: Choose the next speaker and return next_speaker.\n    see_prior: true\n  context_writes:\n    coordination_next_speaker: next_speaker\n- id: coordination_speak_2\n  state: COORDINATION_SPEAK_2\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Execute the group_chat coordination fragment.\n    see_prior: true\n  role_from: context.coordination_next_speaker\n  allowed_roles:\n  - OPS\n  - SECURITY\n- id: coordination_fallback\n  state: COORDINATION_FALLBACK\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Close a discussion that reached its turn cap with an explicit fallback.\n    see_prior: true\n- id: coordination_record\n  state: COORDINATION_RECORD\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Record the discussion outcome and minutes.\n    see_prior: true\nguards:\n  coordination_fallback_completed:\n    type: automated\n    check: step_status:coordination_fallback:COMPLETED\n  coordination_manage_1_completed:\n    type: automated\n    check: step_status:coordination_manage_1:COMPLETED\n  coordination_manage_1_continue_completed:\n    type: automated\n    check: step_status:coordination_manage_1:COMPLETED\n  coordination_manage_1_continue_output_0:\n    type: automated\n    check: output_field:coordination_manage_1:done=false\n  coordination_manage_1_finished_completed:\n    type: automated\n    check: step_status:coordination_manage_1:COMPLETED\n  coordination_manage_1_finished_output_0:\n    type: automated\n    check: output_field:coordination_manage_1:done=true\n  coordination_manage_2_completed:\n    type: automated\n    check: step_status:coordination_manage_2:COMPLETED\n  coordination_manage_2_continue_completed:\n    type: automated\n    check: step_status:coordination_manage_2:COMPLETED\n  coordination_manage_2_continue_output_0:\n    type: automated\n    check: output_field:coordination_manage_2:done=false\n  coordination_manage_2_finished_completed:\n    type: automated\n    check: step_status:coordination_manage_2:COMPLETED\n  coordination_manage_2_finished_output_0:\n    type: automated\n    check: output_field:coordination_manage_2:done=true\n  coordination_record_completed:\n    type: automated\n    check: step_status:coordination_record:COMPLETED\n  coordination_select_1_completed:\n    type: automated\n    check: step_status:coordination_select_1:COMPLETED\n  coordination_select_2_completed:\n    type: automated\n    check: step_status:coordination_select_2:COMPLETED\n  coordination_speak_1_completed:\n    type: automated\n    check: step_status:coordination_speak_1:COMPLETED\n  coordination_speak_2_completed:\n    type: automated\n    check: step_status:coordination_speak_2:COMPLETED\nroles:\n- id: LEAD\n  allowed_actions:\n  - coordination_manage_1\n  - coordination_manage_1_continue\n  - coordination_manage_1_finished\n  - coordination_manage_2\n  - coordination_manage_2_continue\n  - coordination_manage_2_finished\n  - coordination_record\n  - coordination_record_completed\n  - coordination_select_1\n  - coordination_select_1_completed\n  - coordination_select_2\n  - coordination_select_2_completed\n  - request_intervention\n- id: OPS\n  allowed_actions:\n  - coordination_speak_1\n  - coordination_speak_1_completed\n  - coordination_speak_2\n  - coordination_speak_2_completed\n  - request_intervention\n- id: SECURITY\n  allowed_actions:\n  - coordination_speak_1\n  - coordination_speak_2\n  - respond_to_intervention\n- id: HUMAN\n  allowed_actions:\n  - coordination_fallback\n  - coordination_fallback_completed\n  - respond_to_intervention\ntimeouts:\n  step_default: 300\nretry_policies:\n  default:\n    max_attempts: 2\n    backoff_seconds: 1\n",
+   "description": "Manager-selected speakers with bounded turns, early stop and fallback.",
+   "id": "group_chat",
+   "scope": "stage"
+  },
+  {
+   "definition_fragment_yaml": "version: '1.0'\nname: maker_checker\ndescription: Canonical maker_checker coordination fragment.\ninputs:\n  required: []\n  optional: []\noutputs:\n  result:\n    type: object\nstates:\n- id: COORDINATION_ITERATION_1\n  initial: true\n  x-pattern: maker_checker\n- id: COORDINATION_ITERATION_2\n  x-pattern: maker_checker\n- id: COORDINATION_FALLBACK\n  x-pattern: maker_checker\n- id: COORDINATION_DELIVER\n  x-pattern: maker_checker\n- id: COMPLETED\n  terminal: true\ntransitions:\n- from: COORDINATION_FALLBACK\n  to: COORDINATION_DELIVER\n  trigger: coordination_fallback_completed\n  guards:\n  - coordination_fallback_completed\n- from: COORDINATION_DELIVER\n  to: COMPLETED\n  trigger: coordination_deliver_completed\n  guards:\n  - coordination_deliver_completed\n- from: COORDINATION_ITERATION_1\n  to: COORDINATION_DELIVER\n  trigger: coordination_iteration_1_approved\n  guards:\n  - coordination_iteration_1_approved_completed\n  - coordination_iteration_1_approved_output_0\n- from: COORDINATION_ITERATION_1\n  to: COORDINATION_ITERATION_2\n  trigger: coordination_iteration_1_revise\n  guards:\n  - coordination_iteration_1_revise_completed\n  - coordination_iteration_1_revise_output_0\n- from: COORDINATION_ITERATION_2\n  to: COORDINATION_DELIVER\n  trigger: coordination_iteration_2_approved\n  guards:\n  - coordination_iteration_2_approved_completed\n  - coordination_iteration_2_approved_output_0\n- from: COORDINATION_ITERATION_2\n  to: COORDINATION_FALLBACK\n  trigger: coordination_iteration_2_revise\n  guards:\n  - coordination_iteration_2_revise_completed\n  - coordination_iteration_2_revise_output_0\nsteps:\n- id: coordination_make_1\n  state: COORDINATION_ITERATION_1\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Execute the maker_checker coordination fragment.\n    see_prior: true\n- id: coordination_check_1\n  state: COORDINATION_ITERATION_1\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - approved\n    prompt: Check the result and return approved plus findings.\n    see_prior: true\n- id: coordination_make_2\n  state: COORDINATION_ITERATION_2\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Execute the maker_checker coordination fragment.\n    see_prior: true\n- id: coordination_check_2\n  state: COORDINATION_ITERATION_2\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - approved\n    prompt: Check the result and return approved plus findings.\n    see_prior: true\n- id: coordination_fallback\n  state: COORDINATION_FALLBACK\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Escalate work that reached the declared maker-checker cap.\n    see_prior: true\n- id: coordination_deliver\n  state: COORDINATION_DELIVER\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Deliver the checked result, retaining any findings.\n    see_prior: true\nguards:\n  coordination_deliver_completed:\n    type: automated\n    check: step_status:coordination_deliver:COMPLETED\n  coordination_fallback_completed:\n    type: automated\n    check: step_status:coordination_fallback:COMPLETED\n  coordination_iteration_1_approved_completed:\n    type: automated\n    check: step_status:coordination_check_1:COMPLETED\n  coordination_iteration_1_approved_output_0:\n    type: automated\n    check: output_field:coordination_check_1:approved=true\n  coordination_iteration_1_coordination_check_1_completed:\n    type: automated\n    check: step_status:coordination_check_1:COMPLETED\n  coordination_iteration_1_coordination_make_1_completed:\n    type: automated\n    check: step_status:coordination_make_1:COMPLETED\n  coordination_iteration_1_revise_completed:\n    type: automated\n    check: step_status:coordination_check_1:COMPLETED\n  coordination_iteration_1_revise_output_0:\n    type: automated\n    check: output_field:coordination_check_1:approved=false\n  coordination_iteration_2_approved_completed:\n    type: automated\n    check: step_status:coordination_check_2:COMPLETED\n  coordination_iteration_2_approved_output_0:\n    type: automated\n    check: output_field:coordination_check_2:approved=true\n  coordination_iteration_2_coordination_check_2_completed:\n    type: automated\n    check: step_status:coordination_check_2:COMPLETED\n  coordination_iteration_2_coordination_make_2_completed:\n    type: automated\n    check: step_status:coordination_make_2:COMPLETED\n  coordination_iteration_2_revise_completed:\n    type: automated\n    check: step_status:coordination_check_2:COMPLETED\n  coordination_iteration_2_revise_output_0:\n    type: automated\n    check: output_field:coordination_check_2:approved=false\nroles:\n- id: LEAD\n  allowed_actions:\n  - request_intervention\n- id: OPS\n  allowed_actions:\n  - coordination_deliver\n  - coordination_deliver_completed\n  - coordination_make_1\n  - coordination_make_2\n  - request_intervention\n- id: SECURITY\n  allowed_actions:\n  - coordination_check_1\n  - coordination_check_2\n  - coordination_iteration_1_approved\n  - coordination_iteration_1_revise\n  - coordination_iteration_2_approved\n  - coordination_iteration_2_revise\n  - respond_to_intervention\n- id: HUMAN\n  allowed_actions:\n  - coordination_fallback\n  - coordination_fallback_completed\n  - respond_to_intervention\ntimeouts:\n  step_default: 300\nretry_policies:\n  default:\n    max_attempts: 2\n    backoff_seconds: 1\n",
+   "description": "Bounded maker/checker revisions with acceptance or escalation.",
+   "id": "maker_checker",
+   "scope": "stage"
+  },
+  {
+   "definition_fragment_yaml": "version: '1.0'\nname: handoff\ndescription: Canonical handoff coordination fragment.\ninputs:\n  required: []\n  optional: []\noutputs:\n  result:\n    type: object\nstates:\n- id: COORDINATION_OPS\n  initial: true\n  x-pattern: handoff\n- id: COORDINATION_SECURITY\n  x-pattern: handoff\n- id: COORDINATION_HUMAN\n  x-pattern: handoff\n- id: COORDINATION_RECORD\n  x-pattern: handoff\n- id: COMPLETED\n  terminal: true\ntransitions:\n- from: COORDINATION_HUMAN\n  to: COORDINATION_RECORD\n  trigger: coordination_human_completed\n  guards:\n  - coordination_human_completed\n- from: COORDINATION_RECORD\n  to: COMPLETED\n  trigger: coordination_record_completed\n  guards:\n  - coordination_record_completed\n- from: COORDINATION_OPS\n  to: COORDINATION_RECORD\n  trigger: coordination_ops_resolved\n  guards:\n  - coordination_ops_resolved_completed\n  - coordination_ops_resolved_output_0\n- from: COORDINATION_OPS\n  to: COORDINATION_OPS\n  trigger: coordination_ops_to_ops\n  guards:\n  - coordination_ops_to_ops_completed\n  - coordination_ops_to_ops_output_0\n- from: COORDINATION_OPS\n  to: COORDINATION_SECURITY\n  trigger: coordination_ops_to_security\n  guards:\n  - coordination_ops_to_security_completed\n  - coordination_ops_to_security_output_0\n- from: COORDINATION_OPS\n  to: COORDINATION_HUMAN\n  trigger: coordination_ops_to_human\n  guards:\n  - coordination_ops_to_human_completed\n  - coordination_ops_to_human_human\n  - coordination_ops_to_human_output_0\n- from: COORDINATION_SECURITY\n  to: COORDINATION_RECORD\n  trigger: coordination_security_resolved\n  guards:\n  - coordination_security_resolved_completed\n  - coordination_security_resolved_output_0\n- from: COORDINATION_SECURITY\n  to: COORDINATION_OPS\n  trigger: coordination_security_to_ops\n  guards:\n  - coordination_security_to_ops_completed\n  - coordination_security_to_ops_output_0\n- from: COORDINATION_SECURITY\n  to: COORDINATION_SECURITY\n  trigger: coordination_security_to_security\n  guards:\n  - coordination_security_to_security_completed\n  - coordination_security_to_security_output_0\n- from: COORDINATION_SECURITY\n  to: COORDINATION_HUMAN\n  trigger: coordination_security_to_human\n  guards:\n  - coordination_security_to_human_completed\n  - coordination_security_to_human_human\n  - coordination_security_to_human_output_0\nsteps:\n- id: coordination_ops\n  state: COORDINATION_OPS\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - handoff_to\n    - resolved\n    prompt: Resolve the work or return resolved=false and handoff_to with the next role.\n    see_prior: true\n- id: coordination_security\n  state: COORDINATION_SECURITY\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - handoff_to\n    - resolved\n    prompt: Resolve the work or return resolved=false and handoff_to with the next role.\n    see_prior: true\n- id: coordination_human\n  state: COORDINATION_HUMAN\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Review the bounded handoff chain and decide its exit.\n    see_prior: true\n- id: coordination_record\n  state: COORDINATION_RECORD\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Record the resolved or human-approved handoff outcome.\n    see_prior: true\nguards:\n  coordination_human_completed:\n    type: automated\n    check: step_status:coordination_human:COMPLETED\n  coordination_ops_completed:\n    type: automated\n    check: step_status:coordination_ops:COMPLETED\n  coordination_ops_resolved_completed:\n    type: automated\n    check: step_status:coordination_ops:COMPLETED\n  coordination_ops_resolved_output_0:\n    type: automated\n    check: output_field:coordination_ops:resolved=true\n  coordination_ops_to_human_completed:\n    type: automated\n    check: step_status:coordination_ops:COMPLETED\n  coordination_ops_to_human_human:\n    type: human\n    check: manual_approval\n  coordination_ops_to_human_output_0:\n    type: automated\n    check: output_field:coordination_ops:handoff_to=\"HUMAN\"\n  coordination_ops_to_ops_completed:\n    type: automated\n    check: step_status:coordination_ops:COMPLETED\n  coordination_ops_to_ops_output_0:\n    type: automated\n    check: output_field:coordination_ops:handoff_to=\"OPS\"\n  coordination_ops_to_security_completed:\n    type: automated\n    check: step_status:coordination_ops:COMPLETED\n  coordination_ops_to_security_output_0:\n    type: automated\n    check: output_field:coordination_ops:handoff_to=\"SECURITY\"\n  coordination_record_completed:\n    type: automated\n    check: step_status:coordination_record:COMPLETED\n  coordination_security_completed:\n    type: automated\n    check: step_status:coordination_security:COMPLETED\n  coordination_security_resolved_completed:\n    type: automated\n    check: step_status:coordination_security:COMPLETED\n  coordination_security_resolved_output_0:\n    type: automated\n    check: output_field:coordination_security:resolved=true\n  coordination_security_to_human_completed:\n    type: automated\n    check: step_status:coordination_security:COMPLETED\n  coordination_security_to_human_human:\n    type: human\n    check: manual_approval\n  coordination_security_to_human_output_0:\n    type: automated\n    check: output_field:coordination_security:handoff_to=\"HUMAN\"\n  coordination_security_to_ops_completed:\n    type: automated\n    check: step_status:coordination_security:COMPLETED\n  coordination_security_to_ops_output_0:\n    type: automated\n    check: output_field:coordination_security:handoff_to=\"OPS\"\n  coordination_security_to_security_completed:\n    type: automated\n    check: step_status:coordination_security:COMPLETED\n  coordination_security_to_security_output_0:\n    type: automated\n    check: output_field:coordination_security:handoff_to=\"SECURITY\"\nroles:\n- id: LEAD\n  allowed_actions:\n  - request_intervention\n- id: OPS\n  allowed_actions:\n  - coordination_ops\n  - coordination_ops_resolved\n  - coordination_ops_to_human\n  - coordination_ops_to_ops\n  - coordination_ops_to_security\n  - coordination_record\n  - coordination_record_completed\n  - request_intervention\n- id: SECURITY\n  allowed_actions:\n  - coordination_security\n  - coordination_security_resolved\n  - coordination_security_to_human\n  - coordination_security_to_ops\n  - coordination_security_to_security\n  - respond_to_intervention\n- id: HUMAN\n  allowed_actions:\n  - coordination_human\n  - coordination_human_completed\n  - respond_to_intervention\ntimeouts:\n  step_default: 300\nretry_policies:\n  default:\n    max_attempts: 2\n    backoff_seconds: 1\nmax_bounces: 2\n",
+   "description": "Output-routed role handoffs with a human exit and bounce budget.",
+   "id": "handoff",
+   "scope": "stage"
+  },
+  {
+   "definition_fragment_yaml": "version: '1.0'\nname: magentic\ndescription: Canonical magentic coordination fragment.\ninputs:\n  required: []\n  optional: []\noutputs:\n  result:\n    type: object\nstates:\n- id: COORDINATION_PLAN\n  initial: true\n  x-pattern: magentic\n- id: COORDINATION_WORK_1\n  x-pattern: magentic\n- id: COORDINATION_WORK_2\n  x-pattern: magentic\n- id: COORDINATION_FALLBACK\n  x-pattern: magentic\n- id: COORDINATION_RECORD\n  x-pattern: magentic\n- id: COMPLETED\n  terminal: true\ntransitions:\n- from: COORDINATION_PLAN\n  to: COORDINATION_WORK_1\n  trigger: coordination_plan_completed\n  guards:\n  - coordination_plan_completed\n- from: COORDINATION_FALLBACK\n  to: COORDINATION_RECORD\n  trigger: coordination_fallback_completed\n  guards:\n  - coordination_fallback_completed\n- from: COORDINATION_RECORD\n  to: COMPLETED\n  trigger: coordination_record_completed\n  guards:\n  - coordination_record_completed\n- from: COORDINATION_WORK_1\n  to: COORDINATION_RECORD\n  trigger: coordination_work_1_done\n  guards:\n  - coordination_work_1_done_completed\n  - coordination_work_1_done_output_0\n- from: COORDINATION_WORK_1\n  to: COORDINATION_FALLBACK\n  trigger: coordination_work_1_stalled\n  guards:\n  - coordination_work_1_stalled_completed\n  - coordination_work_1_stalled_output_0\n- from: COORDINATION_WORK_1\n  to: COORDINATION_WORK_2\n  trigger: coordination_work_1_continue\n  guards:\n  - coordination_work_1_continue_completed\n  - coordination_work_1_continue_output_0\n  - coordination_work_1_continue_output_1\n- from: COORDINATION_WORK_2\n  to: COORDINATION_RECORD\n  trigger: coordination_work_2_done\n  guards:\n  - coordination_work_2_done_completed\n  - coordination_work_2_done_output_0\n- from: COORDINATION_WORK_2\n  to: COORDINATION_FALLBACK\n  trigger: coordination_work_2_stalled\n  guards:\n  - coordination_work_2_stalled_completed\n  - coordination_work_2_stalled_output_0\n- from: COORDINATION_WORK_2\n  to: COORDINATION_FALLBACK\n  trigger: coordination_work_2_continue\n  guards:\n  - coordination_work_2_continue_completed\n  - coordination_work_2_continue_output_0\n  - coordination_work_2_continue_output_1\nsteps:\n- id: coordination_plan\n  state: COORDINATION_PLAN\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - ledger\n    prompt: Create a task ledger with tasks, owners, goals and status.\n    see_prior: true\n  context_writes:\n    coordination_task_ledger: ledger\n- id: coordination_pick_1\n  state: COORDINATION_WORK_1\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - owner\n    prompt: Select the next open task and return its owner role.\n    see_prior: true\n  context_writes:\n    coordination_next_owner: owner\n- id: coordination_do_1\n  state: COORDINATION_WORK_1\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Execute the magentic coordination fragment.\n    see_prior: true\n  role_from: context.coordination_next_owner\n  allowed_roles:\n  - OPS\n  - SECURITY\n- id: coordination_update_1\n  state: COORDINATION_WORK_1\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - done\n    - ledger\n    - stalled\n    prompt: Update the ledger and return ledger, done and stalled.\n    see_prior: true\n  context_writes:\n    coordination_task_ledger: ledger\n- id: coordination_pick_2\n  state: COORDINATION_WORK_2\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - owner\n    prompt: Select the next open task and return its owner role.\n    see_prior: true\n  context_writes:\n    coordination_next_owner: owner\n- id: coordination_do_2\n  state: COORDINATION_WORK_2\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Execute the magentic coordination fragment.\n    see_prior: true\n  role_from: context.coordination_next_owner\n  allowed_roles:\n  - OPS\n  - SECURITY\n- id: coordination_update_2\n  state: COORDINATION_WORK_2\n  handler: host_callback\n  config:\n    num_agents: 1\n    project_winner_fields:\n    - done\n    - ledger\n    - stalled\n    prompt: Update the ledger and return ledger, done and stalled.\n    see_prior: true\n  context_writes:\n    coordination_task_ledger: ledger\n- id: coordination_fallback\n  state: COORDINATION_FALLBACK\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Review a stalled or capped task ledger.\n    see_prior: true\n- id: coordination_record\n  state: COORDINATION_RECORD\n  handler: host_callback\n  config:\n    num_agents: 1\n    prompt: Record the final ledger and its audit trail.\n    see_prior: true\nguards:\n  coordination_fallback_completed:\n    type: automated\n    check: step_status:coordination_fallback:COMPLETED\n  coordination_plan_completed:\n    type: automated\n    check: step_status:coordination_plan:COMPLETED\n  coordination_record_completed:\n    type: automated\n    check: step_status:coordination_record:COMPLETED\n  coordination_work_1_continue_completed:\n    type: automated\n    check: step_status:coordination_update_1:COMPLETED\n  coordination_work_1_continue_output_0:\n    type: automated\n    check: output_field:coordination_update_1:done=false\n  coordination_work_1_continue_output_1:\n    type: automated\n    check: output_field:coordination_update_1:stalled=false\n  coordination_work_1_coordination_do_1_completed:\n    type: automated\n    check: step_status:coordination_do_1:COMPLETED\n  coordination_work_1_coordination_pick_1_completed:\n    type: automated\n    check: step_status:coordination_pick_1:COMPLETED\n  coordination_work_1_coordination_update_1_completed:\n    type: automated\n    check: step_status:coordination_update_1:COMPLETED\n  coordination_work_1_done_completed:\n    type: automated\n    check: step_status:coordination_update_1:COMPLETED\n  coordination_work_1_done_output_0:\n    type: automated\n    check: output_field:coordination_update_1:done=true\n  coordination_work_1_stalled_completed:\n    type: automated\n    check: step_status:coordination_update_1:COMPLETED\n  coordination_work_1_stalled_output_0:\n    type: automated\n    check: output_field:coordination_update_1:stalled=true\n  coordination_work_2_continue_completed:\n    type: automated\n    check: step_status:coordination_update_2:COMPLETED\n  coordination_work_2_continue_output_0:\n    type: automated\n    check: output_field:coordination_update_2:done=false\n  coordination_work_2_continue_output_1:\n    type: automated\n    check: output_field:coordination_update_2:stalled=false\n  coordination_work_2_coordination_do_2_completed:\n    type: automated\n    check: step_status:coordination_do_2:COMPLETED\n  coordination_work_2_coordination_pick_2_completed:\n    type: automated\n    check: step_status:coordination_pick_2:COMPLETED\n  coordination_work_2_coordination_update_2_completed:\n    type: automated\n    check: step_status:coordination_update_2:COMPLETED\n  coordination_work_2_done_completed:\n    type: automated\n    check: step_status:coordination_update_2:COMPLETED\n  coordination_work_2_done_output_0:\n    type: automated\n    check: output_field:coordination_update_2:done=true\n  coordination_work_2_stalled_completed:\n    type: automated\n    check: step_status:coordination_update_2:COMPLETED\n  coordination_work_2_stalled_output_0:\n    type: automated\n    check: output_field:coordination_update_2:stalled=true\nroles:\n- id: LEAD\n  allowed_actions:\n  - coordination_pick_1\n  - coordination_pick_2\n  - coordination_plan\n  - coordination_plan_completed\n  - coordination_record\n  - coordination_record_completed\n  - coordination_update_1\n  - coordination_update_2\n  - coordination_work_1_continue\n  - coordination_work_1_done\n  - coordination_work_1_stalled\n  - coordination_work_2_continue\n  - coordination_work_2_done\n  - coordination_work_2_stalled\n  - request_intervention\n- id: OPS\n  allowed_actions:\n  - coordination_do_1\n  - coordination_do_2\n  - request_intervention\n- id: SECURITY\n  allowed_actions:\n  - coordination_do_1\n  - coordination_do_2\n  - respond_to_intervention\n- id: HUMAN\n  allowed_actions:\n  - coordination_fallback\n  - coordination_fallback_completed\n  - respond_to_intervention\ntimeouts:\n  step_default: 300\nretry_policies:\n  default:\n    max_attempts: 2\n    backoff_seconds: 1\n",
+   "description": "Manager-owned task ledger with dynamic workers and stalled fallback.",
+   "id": "magentic",
+   "scope": "stage"
+  }
+ ]
+}
