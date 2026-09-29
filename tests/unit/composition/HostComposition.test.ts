@@ -229,12 +229,3 @@ test("un colector que nunca responde no bloquea al host: /underpass-status dice 
     assert.equal(log.includes(String(port)), false, "el aviso no nombra el endpoint");
   } finally { for (const s of sockets) s.destroy(); blackHole.close(); }
 });
-
-test("withinDeadline: una exportación final que no termina (o falla) no retiene el apagado", async () => {
-  const { HostComposition } = await import("../../../src/composition/HostComposition.ts");
-  const started = Date.now();
-  assert.equal(await HostComposition.withinDeadline(new Promise<void>(() => {}), 30), false);
-  assert.ok(Date.now() - started < 1000);
-  assert.equal(await HostComposition.withinDeadline(Promise.reject(new Error("boom")), 1000), true);
-  assert.equal(await HostComposition.withinDeadline(Promise.resolve(), 1000), true);
-});

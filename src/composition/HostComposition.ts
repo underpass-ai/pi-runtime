@@ -54,6 +54,7 @@ import type { Project } from "../domain/project/Project.ts";
 import type { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts";
 import type { TelemetryKey } from "../domain/telemetry/TelemetryKey.ts";
 import { TraceId } from "../domain/telemetry/TraceId.ts";
+import { Deadline } from "./Deadline.ts";
 import { PackageInfo } from "./PackageInfo.ts";
 import { RepoFile } from "./RepoFile.ts";
 import { StatePaths } from "./StatePaths.ts";
@@ -100,7 +101,7 @@ export class HostComposition {
     catch (e) { log.error("telemetry projections failed", { error: message(e) }); }
     // Spools de procesos de Pi muertos: se adoptan al arrancar y en cada tick,
     // con retroceso por fichero para los que fallan (ver OrphanSpoolAdoption).
-    const orphans = new OrphanSpoolAdoption(new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record), clock, (line) => log.info(line));
+    const orphans = new OrphanSpoolAdoption(new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record), clock, (level, line) => (level === "warn" ? log.warn(line) : log.info(line)));
     const adopt = () => { try { orphans.tick(); } catch (e) { log.error("fact spool adoption failed", { error: message(e) }); } };
     adopt();
     void telemetry?.tickTraces();
@@ -123,7 +124,7 @@ export class HostComposition {
       try {
         await server.close(); await pool.close(); safeRecord(hostFacts.hostStopped(reason));
         try { runner.runOnce(); } catch (e) { log.error("projections failed", { error: message(e) }); }
-        if (telemetry !== null && otlp.settings !== null && !(await HostComposition.withinDeadline(telemetry.flush(), flushDeadline(otlp.settings.timeoutMs)))) {
+        if (telemetry !== null && otlp.settings !== null && !(await Deadline.within(telemetry.flush(), flushDeadline(otlp.settings.timeoutMs)))) {
           log.warn("otlp final flush timed out; remaining telemetry is exported on the next start");
         }
       } finally { db.close(); lock.release(); }
@@ -142,15 +143,6 @@ export class HostComposition {
 
   // Las proyecciones del host (EventLogComposition declara la misma lista para el CLI).
   static projections(): Projection[] { return [new SessionSummaryProjection(), new ToolStatsProjection(), new TelemetryMetricsProjection(), new QualityKpisProjection()]; }
-
-  // Espera `work` como mucho `ms`: true si terminó (bien o mal), false si venció el tope.
-  // Nunca lanza; el temporizador se cancela en cuanto hay respuesta (público para probarlo).
-  static async withinDeadline(work: Promise<void>, ms: number): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
-    try { return await Promise.race([work.then(() => true, () => true), deadline]); }
-    finally { clearTimeout(timer); }
-  }
 
   // Exportador OTLP: sólo con OTEL_EXPORTER_OTLP_ENDPOINT válida. Una configuración
   // inválida lo desactiva y se avisa una vez (sin repetir endpoint ni cabeceras). La clave

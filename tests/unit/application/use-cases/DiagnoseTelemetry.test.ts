@@ -51,6 +51,7 @@ test("exportador: FAIL si la configuración es inválida, OK al día, WARN con m
   const late = at(AT.epochMs() + 6 * 60_000);
   assert.equal(late.status.value, "WARN");
   assert.match(late.detail.value, /^2 events not exported for 6 min \(localhost endpoint, headers: authorization\)/);
+  assert.match(late.detail.value, /if it stays stuck with the host running, run underpass events rebuild otlp_traces \(re-exports the whole log\)$/);
   assert.equal(late.detail.value.includes("t0p"), false);
   store.commit(TraceExport.NAME, ProjectionCursor.of(TraceExport.VERSION, GlobalPosition.START), ProjectionCursor.of(TraceExport.VERSION, GlobalPosition.of(2)), new Map());
   assert.deepEqual(view(at(AT.epochMs() + 6 * 60_000)), ["telemetry", "OK", "otlp exporter", "up to date (localhost endpoint, headers: authorization)"]);

@@ -57,7 +57,7 @@ export class DiagnoseTelemetry {
     const lag = this.#events.lastPosition().value - from.value;
     const behindMs = this.#clock.now().epochMs() - pending.record.recordedAt.epochMs();
     return behindMs > STALE_MS
-      ? warn("otlp exporter", `${lag} events not exported for ${Math.floor(behindMs / 60_000)} min (${target}); check that the host is running and the collector is reachable`)
+      ? warn("otlp exporter", `${lag} events not exported for ${Math.floor(behindMs / 60_000)} min (${target}); check that the host is running and the collector is reachable; if it stays stuck with the host running, run underpass events rebuild ${TraceExport.NAME.value} (re-exports the whole log)`)
       : ok("otlp exporter", `lag ${lag} (${target})`);
   }
 }

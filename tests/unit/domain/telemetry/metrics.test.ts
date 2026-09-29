@@ -22,6 +22,10 @@ test("un label fuera de [A-Za-z0-9_.:-] o de más de 64 caracteres pasa a other;
   assert.equal(LabelValue.orUnknown(137).value, "137");
   assert.equal(LabelValue.orUnknown({}).value, "other");
   assert.throws(() => LabelValue.of(3 as never), DomainError);
+  // El mensaje nunca repite el valor recibido (podría ser texto libre o un secreto).
+  for (const raw of [31337, { secret: "t0p-s3cr3t" }, ["path/x"]]) {
+    assert.throws(() => LabelValue.of(raw as never), (e: Error) => e instanceof DomainError && e.message === "label value must be a string" && !e.message.includes("31337") && !e.message.includes("object"));
+  }
 });
 
 test("labels canónicos ordenados por nombre y clave de estado reversible", () => {

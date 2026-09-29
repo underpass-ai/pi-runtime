@@ -11,7 +11,7 @@ export class LabelValue extends ValueObject<string> {
   static readonly UNKNOWN = new LabelValue("unknown");
 
   static of(raw: string): LabelValue {
-    if (typeof raw !== "string") throw DomainError.because(`label value must be a string: ${raw}`);
+    if (typeof raw !== "string") throw DomainError.because("label value must be a string");
     return SAFE.test(raw) ? new LabelValue(raw) : LabelValue.OTHER;
   }
 
