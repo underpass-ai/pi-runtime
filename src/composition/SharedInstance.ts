@@ -4,7 +4,7 @@
 // ExtensionComposition. globalThis sí es el mismo objeto de proceso en los
 // tres casos, así que usamos un registro ahí para lograr un singleton real
 // entre extensiones.
-const REGISTRY_KEY = Symbol.for("underpass-pi.shared-instances");
+const REGISTRY_KEY = Symbol.for("pi-runtime.shared-instances");
 
 export class SharedInstance {
   static get<T>(key: string, factory: () => T): T {

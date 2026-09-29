@@ -50,7 +50,7 @@ test("setup encadena todo y no falla con dobles sanos", async () => {
   const d = deps();
   const r = await new SetupInstallation(d.install, d.ensure, d.bootstrap, d.pi, store, "/pkg").execute();
   assert.equal(r.hasFailures(), false);
-  assert.deepEqual(r.checks().map((c) => c.name.value), ["pinned binaries", "private configuration", "authorization bootstrap", "underpass-pi package"]);
+  assert.deepEqual(r.checks().map((c) => c.name.value), ["pinned binaries", "private configuration", "authorization bootstrap", "pi-runtime package"]);
 });
 
 test("setup se detiene si la descarga falla", async () => {

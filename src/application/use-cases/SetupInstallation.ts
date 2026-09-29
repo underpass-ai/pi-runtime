@@ -37,6 +37,6 @@ export class SetupInstallation {
     // Sin paso `kmp-mcp setup`: sin flag de host reconcilia los hosts de KMP
     // de Claude/Codex del usuario. Llegará como `kmp-mcp setup --pi` con la
     // release de KMP Host::Pi, y DESPUÉS de `pi install`.
-    return report.add(await step(CheckSection.PI, "underpass-pi package", async () => { await this.#pi.install(this.#packageDir); return `pi install ${this.#packageDir}`; }));
+    return report.add(await step(CheckSection.PI, "pi-runtime package", async () => { await this.#pi.install(this.#packageDir); return `pi install ${this.#packageDir}`; }));
   }
 }

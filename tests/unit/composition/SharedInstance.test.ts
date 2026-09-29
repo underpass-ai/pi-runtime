@@ -19,15 +19,15 @@ test("claves distintas dan instancias distintas", () => {
 });
 
 // ExtensionComposition versiona la clave del HostExtension con el `version`
-// de package.json (p.ej. "underpass-pi.host-extension@0.1.0") para que un
+// de package.json (p.ej. "pi-runtime.host-extension@0.1.0") para que un
 // `underpass update` seguido de una recarga de extensiones en el mismo
 // proceso de pi no reutilice la instancia de una versión anterior. Esto
 // prueba esa propiedad a nivel de SharedInstance: sólo la parte de versión
 // de la clave debe decidir si se comparte o no.
 test("claves que sólo difieren en versión dan instancias distintas; la misma versión comparte", () => {
-  const v1a = SharedInstance.get("underpass-pi.host-extension@0.1.0", () => ({ v: "0.1.0", n: 1 }));
-  const v1b = SharedInstance.get("underpass-pi.host-extension@0.1.0", () => ({ v: "0.1.0", n: 2 }));
-  const v2 = SharedInstance.get("underpass-pi.host-extension@0.2.0", () => ({ v: "0.2.0", n: 3 }));
+  const v1a = SharedInstance.get("pi-runtime.host-extension@0.1.0", () => ({ v: "0.1.0", n: 1 }));
+  const v1b = SharedInstance.get("pi-runtime.host-extension@0.1.0", () => ({ v: "0.1.0", n: 2 }));
+  const v2 = SharedInstance.get("pi-runtime.host-extension@0.2.0", () => ({ v: "0.2.0", n: 3 }));
   assert.equal(v1a, v1b);
   assert.notEqual(v1a, v2);
 });

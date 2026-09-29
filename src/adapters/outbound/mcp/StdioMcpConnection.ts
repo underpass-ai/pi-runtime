@@ -56,7 +56,7 @@ export class StdioMcpConnection implements McpConnection {
   }
 
   async handshake(): Promise<void> {
-    const init = (await this.#request("initialize", { protocolVersion: ProtocolVersion.MCP_2024_11_05.value, capabilities: {}, clientInfo: { name: "underpass-pi", version: "0.1.0" } })) as
+    const init = (await this.#request("initialize", { protocolVersion: ProtocolVersion.MCP_2024_11_05.value, capabilities: {}, clientInfo: { name: "pi-runtime", version: "0.1.0" } })) as
       { protocolVersion: string; serverInfo: { name: string; version: string } };
     this.protocol = ProtocolVersion.of(init.protocolVersion);
     this.identity = ServerIdentity.of(init.serverInfo.name, SemVer.of(init.serverInfo.version));

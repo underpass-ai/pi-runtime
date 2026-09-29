@@ -84,10 +84,10 @@ export class DiagnoseInstallation {
       : v.equals(this.#piVersion)
         ? Check.ok(CheckSection.PI, CheckName.of("pi version"), CheckDetail.of(v.value))
         : Check.fail(CheckSection.PI, CheckName.of("pi version"), CheckDetail.of(`${v} (pinned ${this.#piVersion})`));
-    const registered = await this.#pi.isRegistered("underpass-pi");
+    const registered = await this.#pi.isRegistered("pi-runtime");
     const pkg = registered
-      ? Check.ok(CheckSection.PI, CheckName.of("underpass-pi package"), CheckDetail.of("registered"))
-      : Check.fail(CheckSection.PI, CheckName.of("underpass-pi package"), CheckDetail.of("not registered; run underpass setup"));
+      ? Check.ok(CheckSection.PI, CheckName.of("pi-runtime package"), CheckDetail.of("registered"))
+      : Check.fail(CheckSection.PI, CheckName.of("pi-runtime package"), CheckDetail.of("not registered; run underpass setup"));
     return [version, pkg];
   }
 }

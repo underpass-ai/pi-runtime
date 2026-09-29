@@ -25,7 +25,7 @@ function packageVersion(): string {
   return pkg.version;
 }
 
-const HOST_EXTENSION_KEY = `underpass-pi.host-extension@${packageVersion()}`;
+const HOST_EXTENSION_KEY = `pi-runtime.host-extension@${packageVersion()}`;
 
 export class ExtensionComposition {
   static #select = new SelectPhaseTools(PhaseToolSelection.standard());

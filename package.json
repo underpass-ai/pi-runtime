@@ -1,5 +1,5 @@
 {
-  "name": "underpass-pi",
+  "name": "pi-runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",

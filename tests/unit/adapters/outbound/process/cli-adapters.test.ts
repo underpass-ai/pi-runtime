@@ -33,9 +33,9 @@ test("kmp lifecycle, pi package manager, pi runtime y huellas", async () => {
   assert.equal(await new KmpCliLifecycle(kmp, {}).doctor(), false);
   assert.equal(await new KmpCliLifecycle(script(dir, "kmp-ok", "exit 0"), {}).doctor(), true);
   assert.equal("setup" in new KmpCliLifecycle(kmp, {}), false, "setup no reconcilia hosts de KMP ajenos (llegará como kmp-mcp setup --pi)");
-  const pi = script(dir, "pi", `case "$1" in --version) echo 0.87.1;; list) echo "  /x/underpass-pi";; install) exit 0;; esac`);
-  await new PiCliPackageManager(pi).install("/x/underpass-pi");
-  assert.equal(await new PiCliPackageManager(pi).isRegistered("underpass-pi"), true);
+  const pi = script(dir, "pi", `case "$1" in --version) echo 0.87.1;; list) echo "  /x/pi-runtime";; install) exit 0;; esac`);
+  await new PiCliPackageManager(pi).install("/x/pi-runtime");
+  assert.equal(await new PiCliPackageManager(pi).isRegistered("pi-runtime"), true);
   assert.equal((await new PiCliRuntimeInspector(pi).version())!.value, "0.87.1");
   assert.equal(await new PiCliRuntimeInspector(join(dir, "missing")).version(), null);
   const repo = new FsFingerprintRepository(join(dir, "fp.json"));
