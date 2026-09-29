@@ -1,6 +1,7 @@
 import { connect, type Socket } from "node:net";
 import type { HostGateway } from "../../../application/ports/HostGateway.ts";
 import type { HostResponseDto } from "../../../application/dto/HostResponseDto.ts";
+import type { CallContextDto } from "../../../application/dto/CallContextDto.ts";
 import type { CatalogDto } from "../../../application/dto/CatalogDto.ts";
 import type { ToolCallResultDto } from "../../../application/dto/ToolCallResultDto.ts";
 import type { FactDto } from "../../../application/dto/FactDto.ts";
@@ -60,7 +61,12 @@ export class UnixSocketHostGateway implements HostGateway {
   }
 
   async catalog(server: ServerName): Promise<ToolCatalog> { return new CatalogMapper().toDomain(await this.raw<CatalogDto>({ method: "catalog", server: server.value })); }
-  call(server: ServerName, tool: ToolName, args: Record<string, unknown>): Promise<ToolCallResultDto> { return this.raw({ method: "call", server: server.value, tool: tool.value, args }); }
+  call(server: ServerName, tool: ToolName, args: Record<string, unknown>, context?: CallContextDto): Promise<ToolCallResultDto> {
+    return this.raw({ method: "call", server: server.value, tool: tool.value, args, ...(context ?? {}) });
+  }
+  confirmation(id: SessionId, token: string, outcome: "declined" | "no_ui"): Promise<{ recorded: boolean }> {
+    return this.raw({ method: "confirmation", sessionId: id.value, token, outcome });
+  }
   health(): Promise<{ project: string; started: string[] }> { return this.raw({ method: "health" }); }
   record(fact: FactDto): Promise<void> { return this.raw({ method: "record", fact }).then(() => undefined); }
   summary(id: SessionId): Promise<SessionStatusDto> { return this.raw({ method: "summary", sessionId: id.value }); }
@@ -82,7 +88,7 @@ export class UnixSocketHostGateway implements HostGateway {
     }
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
-      this.#pending.set(id, (res) => (res.ok ? resolve(res.result as T) : reject(new HostCallError(res.error.kind, res.error.message, res.error.code))));
+      this.#pending.set(id, (res) => (res.ok ? resolve(res.result as T) : reject(new HostCallError(res.error.kind, res.error.message, res.error.code, res.error.confirmation))));
       this.#sock.write(JSON.stringify({ ...req, id }) + "\n");
     });
   }

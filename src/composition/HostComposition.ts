@@ -5,6 +5,14 @@ import { FsTelemetryKeyRepository } from "../adapters/outbound/fs/FsTelemetryKey
 import { FsOrphanSpoolSource } from "../adapters/outbound/fs/FsOrphanSpoolSource.ts";
 import { FsMadeConfigurationRepository } from "../adapters/outbound/fs/FsMadeConfigurationRepository.ts";
 import { NodeEntropySource } from "../adapters/outbound/crypto/NodeEntropySource.ts";
+import { IssuedGrants } from "../application/services/IssuedGrants.ts";
+import { MadeFactFactory } from "../application/services/MadeFactFactory.ts";
+import { MadeOwner } from "../application/services/MadeOwner.ts";
+import { PendingConfirmations } from "../application/services/PendingConfirmations.ts";
+import { CallMadeTool } from "../application/use-cases/CallMadeTool.ts";
+import { DeclineMadeConfirmation } from "../application/use-cases/DeclineMadeConfirmation.ts";
+import { MadeActionPolicy } from "../domain/made/MadeActionPolicy.ts";
+import { ServerName } from "../domain/mcp/ServerName.ts";
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
 import { JsonPinSetSource } from "../adapters/outbound/fs/JsonPinSetSource.ts";
 import { UnixSocketHostServer } from "../adapters/inbound/ipc/UnixSocketHostServer.ts";
@@ -108,7 +116,16 @@ export class HostComposition {
     const hostActor = `host:${process.pid}`;
     const select = new SelectTools(projectionStore, record, new LearningFactFactory(clock, hostActor, Actor.of("host", hostActor)), PhaseToolSelection.standard(), catalogs,
       HostComposition.#learningProject(paths, project, log), () => runner.runOnce());
-    const serve = new ServeHostRequest(project, pool, record, status, select, catalogs);
+    // S3a: el host concede, pide confirmación y audita la autorización de MADE.
+    const madeConnection = () => pool.connection(ServerName.MADE);
+    const madeFacts = new MadeFactFactory(clock, Actor.of("host", hostActor));
+    const confirmations = new PendingConfirmations(new NodeEntropySource(), clock);
+    const made = {
+      call: new CallMadeTool({ connection: madeConnection, owner: new MadeOwner(madeConnection), policy: MadeActionPolicy.standard(), confirmations, grants: new IssuedGrants(),
+        record, facts: madeFacts, clock, log }),
+      decline: new DeclineMadeConfirmation(confirmations, record, madeFacts),
+    };
+    const serve = new ServeHostRequest(project, pool, record, status, select, catalogs, made);
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
     safeRecord(hostFacts.hostStarted(PackageInfo.version(), process.pid, HostComposition.#catalogs(paths)));
     // El inicio del acumulado de métricas se fija con la primera proyección y sobrevive a los reinicios.

@@ -6,7 +6,7 @@ import type { HostRequestDto } from "../../../application/dto/HostRequestDto.ts"
 import type { HostResponseDto } from "../../../application/dto/HostResponseDto.ts";
 import { LineFramer } from "../../ipc/LineFramer.ts";
 
-const ALLOWED = new Set(["call", "catalog", "health", "record", "summary", "select"]);
+const ALLOWED = new Set(["call", "catalog", "health", "record", "summary", "select", "confirmation"]);
 // sun_path admite 104–108 bytes según el sistema; 100 deja margen en todos.
 const MAX_SOCKET_PATH_BYTES = 100;
 type Handler = (req: HostRequestDto) => Promise<HostResponseDto>;
