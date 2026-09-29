@@ -21,7 +21,9 @@ export class RecordFact {
     this.#store = store; this.#clock = clock; this.#afterAppend = afterAppend; this.#reportError = reportError;
   }
 
-  execute(fact: Fact): Appended {
+  // project=false: no corre afterAppend (quien registra ya pone al día las proyecciones antes de
+  // leerlas, p. ej. el select de L1).
+  execute(fact: Fact, project = true): Appended {
     for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
       const existing = this.#store.find(fact.stream, fact.id);
       if (existing !== null) {
@@ -37,7 +39,7 @@ export class RecordFact {
           const last = outcome.records.at(-1)!;
           this.#cache.set(fact.stream.value, { version: last.version, state: outcome.records.reduce((s, r) => SessionAggregate.apply(s, r), state) });
         }
-        try { this.#afterAppend(); } catch (e) { this.#reportError(e); }
+        if (project) { try { this.#afterAppend(); } catch (e) { this.#reportError(e); } }
         return outcome;
       }
       if (outcome.reason === "diverged") throw DomainError.because(`event ${fact.id.value} diverges from the recorded one`);

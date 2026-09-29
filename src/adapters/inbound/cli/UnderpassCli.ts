@@ -4,12 +4,13 @@ import { CheckRenderer } from "./CheckRenderer.ts";
 
 type Runs = { execute(record?: boolean): Promise<DiagnosisReport> };
 type Verb = { run(args: string[]): number };
-const USAGE = "usage: underpass setup | doctor | update | events <sessions|show|tools|kpis|trace|verify|export|import|rebuild|ack-gaps> | metrics [--session <id>]";
+const USAGE = "usage: underpass setup | doctor | update | events <sessions|show|tools|kpis|trace|verify|export|import|rebuild|ack-gaps> | learning <report|mode> | metrics [--session <id>]";
 
 export class UnderpassCli {
   readonly #setup: Runs; readonly #doctor: Runs; readonly #print: (s: string) => void; readonly #events: Verb | null; readonly #metrics: Verb | null;
-  constructor(setup: Runs, doctor: Runs, print: (s: string) => void, events: Verb | null = null, metrics: Verb | null = null) {
-    this.#setup = setup; this.#doctor = doctor; this.#print = print; this.#events = events; this.#metrics = metrics;
+  readonly #learning: Verb | null;
+  constructor(setup: Runs, doctor: Runs, print: (s: string) => void, events: Verb | null = null, metrics: Verb | null = null, learning: Verb | null = null) {
+    this.#setup = setup; this.#doctor = doctor; this.#print = print; this.#events = events; this.#metrics = metrics; this.#learning = learning;
   }
 
   async run(argv: string[]): Promise<number> {
@@ -31,6 +32,7 @@ export class UnderpassCli {
     }
     if (verb === "events" && this.#events !== null) return this.#events.run(argv.slice(1));
     if (verb === "metrics" && this.#metrics !== null) return this.#metrics.run(argv.slice(1));
+    if (verb === "learning" && this.#learning !== null) return this.#learning.run(argv.slice(1));
     this.#print(USAGE);
     return 2;
   }

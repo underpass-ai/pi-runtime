@@ -12,13 +12,17 @@ export class ToolStatsProjection implements Projection {
   readonly name = ToolStatsProjection.NAME;
   readonly version = 1;
 
+  // Clave de una tool en el estado: la única fuente para quien lee tool_stats (el prior de L1,
+  // spec §2, en SelectTools y en el informe).
+  static key(server: string, tool: string): string { return `tool:${server}:${tool}`; }
+
   apply(state: ProjectionState, e: StoredEvent): void {
     const r = e.record;
     if (r.type.value !== "tool.completed") return;
     const p = r.payload.toValue() as Record<string, unknown>;
     const tool = typeof p.tool === "string" ? p.tool : "unknown";
     const server = typeof p.server === "string" ? p.server : "unknown";
-    const key = `tool:${server}:${tool}`;
+    const key = ToolStatsProjection.key(server, tool);
     const s = state.get<ToolStatsDto>(key) ?? { server, tool, n: 0, succeeded: 0, failed: 0, refused: 0, aborted: 0, durations: [], lastSeen: r.occurredAt.value };
     s.n++;
     const status = STATUSES.find((x) => x === p.status);

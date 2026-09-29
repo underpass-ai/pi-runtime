@@ -229,3 +229,46 @@ test("un colector que nunca responde no bloquea al host: /underpass-status dice 
     assert.equal(log.includes(String(port)), false, "el aviso no nombra el endpoint");
   } finally { for (const s of sockets) s.destroy(); blackHole.close(); }
 });
+
+import { Phase } from "../../../src/domain/session/Phase.ts";
+
+test("L1 en el host real: select registra tools.selected en shadow y respeta active con k del log", async () => {
+  const { readFileSync, statSync } = await import("node:fs");
+  const home = mkdtempSync(join(tmpdir(), "home-"));
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "proj-")));
+  const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", FAKE_SERVER_CMD: `${process.execPath} ${fake}` };
+  delete env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const paths = new StatePaths(env);
+  const uc = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p), new DetachedHostLauncher(hostEntry, env, (p) => paths.hostStderrOf(p)));
+  const g = await uc.execute(cwd);
+  const at = Date.now();
+  const sessionFact = (type: string, about: string) => ({ stream: "session" as const, sessionId: "s1", type, typeVersion: 1, about, occurredAtMs: at, actor: { kind: "agent", id: "pi:1" }, payload: {} });
+  try {
+    await g.record(sessionFact("session.opened", "o"));
+    const shadow = await g.select(SessionId.of("s1"), Phase.INTERACTIVE);
+    assert.deepEqual([shadow.mode, shadow.control, shadow.floor, shadow.selected.length], ["shadow", false, ["kmp_ask", "kmp_wake"], 11]);
+    await g.record({ stream: "host", type: "learning.mode_changed", typeVersion: 1, about: "mode.test", occurredAtMs: at, actor: { kind: "human", id: "underpass-cli" }, payload: { from: "shadow", to: "active", k: 4 } });
+    const active = await g.select(SessionId.of("s1"), Phase.DESIGN);
+    assert.deepEqual([active.mode, active.selected.length], ["active", 4]);
+  } finally { g.close(); }
+  const project = new GitProjectLocator().locate(cwd);
+  const pid = hostStream(paths.eventLogOf(project))[0].payload.pid as number;
+  await waitFor(() => !alive(pid));
+  const db = SqliteDatabase.open(paths.eventLogOf(project));
+  let selected: Record<string, unknown>[];
+  try { selected = new SqliteEventStore(db).readStream(StreamId.session(SessionId.of("s1"))).filter((r) => r.type.value === "tools.selected").map((r) => r.payload.toValue() as Record<string, unknown>); }
+  finally { db.close(); }
+  const keyHex = readFileSync(paths.telemetryKeyFile(), "utf8").trim();
+  assert.equal(statSync(paths.telemetryKeyFile()).mode & 0o777, 0o600, "L1 crea la clave de la instalación aunque OTLP esté desactivado");
+  const instance = TelemetryInstanceId.derive(TelemetryKey.of(keyHex), project.id).value;
+  assert.deepEqual(selected.map((p) => [p.mode, (p.context as { project: string }).project, p.k]), [["shadow", instance, 12], ["active", instance, 4]]);
+  assert.equal(JSON.stringify(selected).includes(cwd), false);
+});
+
+test("el aviso de clave de telemetría sólo repite el motivo de TelemetryKeyError; cualquier otro error, un texto fijo sin rutas", async () => {
+  const { HostComposition } = await import("../../../src/composition/HostComposition.ts");
+  const { TelemetryKeyError } = await import("../../../src/application/ports/TelemetryKeyError.ts");
+  assert.equal(HostComposition.keyProblem(TelemetryKeyError.because("telemetry key has mode 644; expected 600 or 400")), "telemetry key has mode 644; expected 600 or 400");
+  assert.equal(HostComposition.keyProblem(new Error("EACCES: permission denied, open '/home/someone/.local/state/underpass/telemetry.key'")), "unexpected error");
+  assert.equal(HostComposition.keyProblem("raw /secret/path"), "unexpected error");
+});

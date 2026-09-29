@@ -37,6 +37,7 @@ export class SessionAggregate {
         const byStatus = state.calls[server] ?? {};
         return state.with({ calls: { ...state.calls, [server]: { ...byStatus, [status]: (byStatus[status] ?? 0) + 1 } } as Record<string, Record<string, number>> });
       }
+      case "tools.selected": return state.with({ selections: state.selections + 1 });
       default: return state;
     }
   }

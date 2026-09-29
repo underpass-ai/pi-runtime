@@ -1,8 +1,8 @@
 import { ValueObject } from "../shared/ValueObject.ts";
 import { DomainError } from "../shared/DomainError.ts";
 
-const SESSION = ["session.opened", "session.closed", "phase.changed", "turn.completed", "tool.started", "tool.completed", "model.selected", "context.compacted"];
-const HOST = ["host.started", "host.stopped", "server.started", "server.exited"];
+const SESSION = ["session.opened", "session.closed", "phase.changed", "turn.completed", "tool.started", "tool.completed", "model.selected", "context.compacted", "tools.selected"];
+const HOST = ["host.started", "host.stopped", "server.started", "server.exited", "learning.mode_changed"];
 
 export class EventType extends ValueObject<string> {
   private constructor(v: string) { super(v); }

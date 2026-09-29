@@ -78,6 +78,29 @@ alongside Pi's own. Two Pi commands are added:
 - `/underpass-status` shows the project, the servers that are running, and each tool catalog's version, size and fingerprint.
 - `/underpass-phase interactive|design` switches which Underpass tools are active.
 
+### Tool learning
+
+The host learns which KMP and MADE tools are worth exposing in each phase of
+each project, from the project's own event log. It starts in `shadow`: every
+request records the selection it would have made and the model keeps the whole
+set of the phase. `node bin/underpass.ts learning report [--context <phase>]`
+shows what it learnt and how often the selection would have missed a tool the
+model used. `learning mode active [--k N]` applies it: `kmp_wake`, `kmp_ask`
+and MADE's status tools stay on, plus the `k` best candidates (12 by default,
+4 to 64); one decision in ten keeps the whole set as a control group, and
+`doctor` warns if that group does better. `learning mode shadow` or
+`learning mode off` turns it back.
+
+The project in each learning context is the same HMAC id as the OTLP export,
+so the host makes sure the per-install `telemetry.key` exists on every start,
+even without OTLP.
+
+**Upgrading to tool learning is one-way.** The first decision writes new fact
+types (`tools.selected`, `learning.mode_changed`) that older versions cannot
+read: once a project's log has them, do not go back to a version without tool
+learning. After `underpass update`, restart Pi (and with it the host) before
+running `learning mode`, so that no older host is still writing that log.
+
 ### OTLP export (optional)
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` (`https://`, or plain `http://` only for
@@ -103,7 +126,7 @@ HMAC-SHA256 of the project id under a per-install secret, never by its path.
 |---|---|
 | `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/projects/<id>/` | Per-project host socket, lock and `host.log` |
 | `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/fingerprints.json` | Recorded tool-catalog fingerprints |
-| `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/telemetry.key` | Per-install telemetry secret (`0600`, created on the first OTLP export, never rotated or printed) |
+| `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/telemetry.key` | Per-install telemetry secret (`0600`, created on the first host start, never rotated or printed) |
 | `${XDG_DATA_HOME:-~/.local/share}/pi-runtime/bin/` | Pinned `kmp-mcp` and `made-mcp` binaries |
 | `${XDG_DATA_HOME:-~/.local/share}/pi-runtime/pi-<version>/` | Pi install (override with `PI_RUNTIME_PREFIX`) |
 | `${XDG_STATE_HOME:-~/.local/state}/underpass-made/ceremonies.sqlite3` | MADE store (override with `MADE_MCP_STORE_PATH`) |

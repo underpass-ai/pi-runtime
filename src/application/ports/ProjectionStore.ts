@@ -6,7 +6,8 @@ import type { ProjectionName } from "../../domain/events/ProjectionName.ts";
 // events rebuild`. commit es un compare-and-set sobre el cursor: sólo escribe
 // (estado y cursor, en una transacción) si el cursor sigue siendo `expected`;
 // sin fila, sólo si `expected` es el cursor inicial. Devuelve false, sin
-// escribir nada, si otro escritor lo movió (o un reset lo invalidó).
+// escribir nada, si otro escritor lo movió (o un reset lo invalidó). Un cambio con valor
+// undefined borra la clave.
 // snapshot lee cursor y estado de forma consistente (una transacción de
 // lectura en SQLite).
 export interface ProjectionStore {

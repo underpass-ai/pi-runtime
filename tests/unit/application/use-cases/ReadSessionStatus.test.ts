@@ -58,3 +58,11 @@ test("sin KPIs ni exportador cableados el estado no lleva esos campos (como un h
   assert.equal("kpis" in s, false);
   assert.equal("exporter" in s, false);
 });
+
+import { ReadLearningStatus } from "../../../../src/application/use-cases/ReadLearningStatus.ts";
+
+test("con L1 cableado el estado añade la línea de aprendizaje", () => {
+  const { events, summaries } = log();
+  const s = new ReadSessionStatus(events, summaries, null, null, new ReadLearningStatus(new InMemoryProjectionStore())).execute(SessionId.of("s1"));
+  assert.deepEqual(s.learning, { mode: "shadow", selected: null, candidates: null, missRate: null });
+});

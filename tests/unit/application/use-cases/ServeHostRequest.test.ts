@@ -89,3 +89,66 @@ test("summary: un fallo que no es de dominio al refrescar da transport", async (
   const uc = new ServeHostRequest(project, emptyPool(), null, summaries);
   assert.deepEqual(await uc.execute({ id: 1, method: "summary", sessionId: "s1" }), { id: 1, ok: false, error: { kind: "transport", message: "projection store gone" } });
 });
+
+import { ToolBanditProjection } from "../../../../src/application/projections/ToolBanditProjection.ts";
+import { KnownCatalogs } from "../../../../src/application/services/KnownCatalogs.ts";
+import { LearningFactFactory } from "../../../../src/application/services/LearningFactFactory.ts";
+import { SelectTools } from "../../../../src/application/use-cases/SelectTools.ts";
+import { Actor } from "../../../../src/domain/events/Actor.ts";
+import { PhaseToolSelection } from "../../../../src/domain/session/PhaseToolSelection.ts";
+import { TelemetryInstanceId } from "../../../../src/domain/telemetry/TelemetryInstanceId.ts";
+import { SessionId } from "../../../../src/domain/events/SessionId.ts";
+import { StreamId } from "../../../../src/domain/events/StreamId.ts";
+
+test("select: decide con SelectTools, recuerda los catálogos servidos y rechaza fase o sesión inválidas", async () => {
+  const events = new InMemoryEventStore(); const store = new InMemoryProjectionStore();
+  const runner = new ProjectionRunner(events, store, [new ToolStatsProjection(), new ToolBanditProjection()]);
+  const clock = new FixedClock();
+  const record = new RecordFact(events, clock, () => runner.runOnce());
+  const catalogs = new KnownCatalogs();
+  const select = new SelectTools(store, record, new LearningFactFactory(clock, "host:1", Actor.of("host", "host:1")), PhaseToolSelection.standard(), catalogs,
+    TelemetryInstanceId.of("ecf99390f4089f4f"), () => runner.runOnce());
+  const pool = new ServerPool(project, new StdioMcpConnector(2000), new Map([["kmp", factory("kmp")]]));
+  const uc = new ServeHostRequest(project, pool, record, null, select, catalogs);
+  try {
+    assert.deepEqual(await new ServeHostRequest(project, emptyPool()).execute({ id: 1, method: "select", sessionId: "s1", phase: "design" }), { id: 1, ok: false, error: { kind: "invalid", message: "learning not available" } });
+    await uc.execute({ id: 2, method: "record", fact: opened });
+    const before = await uc.execute({ id: 3, method: "select", sessionId: "s1", phase: "interactive" });
+    assert.ok(before.ok && (before.result as { mode: string; selected: string[] }).mode === "shadow" && (before.result as { selected: string[] }).selected.length === 11);
+    await uc.execute({ id: 4, method: "catalog", server: "kmp" });
+    const after = await uc.execute({ id: 5, method: "select", sessionId: "s1", phase: "interactive" });
+    assert.deepEqual(after, { id: 5, ok: true, result: { mode: "shadow", control: false, selected: [], floor: [] } }, "el catálogo del servidor falso no tiene ninguna tool de la fase");
+    for (const req of [{ id: 6, method: "select" as const, sessionId: "s1", phase: "run" }, { id: 7, method: "select" as const, sessionId: "../x", phase: "design" }]) {
+      const bad = await uc.execute(req);
+      assert.ok(!bad.ok && bad.error.kind === "invalid", JSON.stringify(req));
+    }
+    assert.equal(events.readStream(StreamId.session(SessionId.of("s1"))).filter((r) => r.type.value === "tools.selected").length, 2);
+    assert.ok(!(await uc.execute({ id: 8, method: "catalog", server: "made" })).ok, "sin comando para made el catálogo falla");
+    const design = await uc.execute({ id: 9, method: "select", sessionId: "s1", phase: "design" });
+    assert.deepEqual(design.ok && (design.result as { selected: string[] }).selected, [], "ni KMP (catálogo falso) ni MADE (caído) aportan candidatas");
+    const stale = await uc.execute({ id: 10, method: "select", sessionId: "s1", phase: "interactive", deadlineMs: 1 });
+    assert.ok(stale.ok && (stale.result as { mode: string }).mode === "fallback", JSON.stringify(stale));
+    const onTime = await uc.execute({ id: 11, method: "select", sessionId: "s1", phase: "interactive", deadlineMs: clock.ms + 60_000 });
+    assert.ok(onTime.ok && (onTime.result as { mode: string }).mode === "shadow", JSON.stringify(onTime));
+    for (const deadlineMs of ["soon", -1, 1.5] as unknown as number[]) {
+      const bad = await uc.execute({ id: 12, method: "select", sessionId: "s1", phase: "interactive", deadlineMs });
+      assert.ok(!bad.ok && bad.error.kind === "invalid", String(deadlineMs));
+    }
+    assert.equal(events.readStream(StreamId.session(SessionId.of("s1"))).filter((r) => r.type.value === "tools.selected").length, 4, "el select fuera de plazo no registra");
+    const fresh = new ServeHostRequest(project, emptyPool(), record, null, select, null);
+    const narrowed = await fresh.execute({ id: 13, method: "select", sessionId: "s1", phase: "interactive", registered: ["kmp_ask", "kmp_time"] });
+    assert.ok(narrowed.ok, JSON.stringify(narrowed));
+    for (const registered of ["kmp_ask", [1], ["../x"]] as unknown as string[][]) {
+      const bad = await fresh.execute({ id: 14, method: "select", sessionId: "s1", phase: "interactive", registered });
+      assert.ok(!bad.ok && bad.error.kind === "invalid", JSON.stringify(registered));
+    }
+  } finally { await pool.close(); }
+});
+
+test("select: si SelectTools lanza, el host responde error (la extensión conserva el conjunto completo) y sigue sirviendo", async () => {
+  const throwing = { execute: () => { throw new Error("bandit roto"); } } as unknown as SelectTools;
+  const uc = new ServeHostRequest(project, emptyPool(), null, null, throwing, new KnownCatalogs());
+  const res = await uc.execute({ id: 1, method: "select", sessionId: "s1", phase: "design" });
+  assert.ok(!res.ok && res.error.kind !== "invalid" && !JSON.stringify(res).includes("\"result\""), JSON.stringify(res));
+  assert.equal((await uc.execute({ id: 2, method: "health" })).ok, true, "el host sigue vivo tras el fallo del selector");
+});

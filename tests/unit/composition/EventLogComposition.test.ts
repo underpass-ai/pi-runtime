@@ -120,3 +120,19 @@ test("doctor añade la sección telemetry; un endpoint inválido es FAIL sin rep
   assert.equal(checks[1].detail.value.includes("collector.internal"), false);
   assert.deepEqual(setup().composition.diagnosis().execute().filter((c) => c.section.value === "telemetry").map((c) => c.detail.value), ["no events yet", "disabled"]);
 });
+
+test("learning: report sin log no crea nada; mode crea el log y registra el hecho; report lo lee", () => {
+  const { state, out, composition, log } = setup();
+  assert.equal(composition.learning().run(["report"]), 0);
+  assert.deepEqual(out, ["mode shadow (k=12)", "no learning decisions recorded yet"]);
+  assert.equal(existsSync(state), false);
+  assert.equal(composition.learning().run(["mode", "active", "--k", "6"]), 0);
+  assert.equal(out.at(-1), "learning mode shadow -> active (k=6)");
+  assert.ok(existsSync(log));
+  assert.equal(composition.cli().run(["rebuild", "tool_bandit"]), 0);
+  assert.equal(composition.cli().run(["rebuild", "learning_eval"]), 0);
+  out.length = 0;
+  assert.equal(composition.learning().run(["report"]), 0);
+  assert.equal(out[0], "mode active (k=6)");
+  assert.equal(composition.learning().run(["mode", "fallback"]), 2);
+});

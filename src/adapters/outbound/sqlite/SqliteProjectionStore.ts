@@ -36,7 +36,8 @@ export class SqliteProjectionStore implements ProjectionStore {
       }
       if (moved === 0) return false;
       const put = this.#db.handle.prepare("INSERT INTO projection_state (consumer, key, value) VALUES (?, ?, ?) ON CONFLICT(consumer, key) DO UPDATE SET value = excluded.value");
-      for (const [k, v] of changes) put.run(name.value, k, JSON.stringify(v));
+      const drop = this.#db.handle.prepare("DELETE FROM projection_state WHERE consumer = ? AND key = ?");
+      for (const [k, v] of changes) { if (v === undefined) drop.run(name.value, k); else put.run(name.value, k, JSON.stringify(v)); }
       return true;
     });
   }

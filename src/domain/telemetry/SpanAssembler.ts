@@ -115,6 +115,10 @@ export class SpanAssembler {
       case "phase.changed": return this.#event(s, "phase.changed", ms, { "pi_runtime.phase.from": str(p.from), "pi_runtime.phase.to": str(p.to), "pi_runtime.active_tools": num(p.activeTools) });
       case "model.selected": return this.#event(s, "model.selected", ms, { "pi_runtime.model": str(p.model), "pi_runtime.provider": str(p.provider), "pi_runtime.effort": str(p.effort) });
       case "context.compacted": return this.#event(s, "context.compacted", ms, { "pi_runtime.tokens_before": num(p.tokensBefore), "pi_runtime.tokens_after": num(p.tokensAfter), "pi_runtime.reason": str(p.reason) });
+      // L1: sólo el modo, el control y los tamaños; nunca los nombres de tools como atributo.
+      case "tools.selected": return this.#event(s, "tools.selected", ms, { "pi_runtime.learning.mode": str(p.mode), "pi_runtime.learning.control": typeof p.control === "boolean" ? p.control : null,
+        "pi_runtime.learning.phase": str(obj(p.context).phase), "pi_runtime.learning.k": num(p.k), "pi_runtime.learning.candidates": Array.isArray(p.candidates) ? p.candidates.length : null,
+        "pi_runtime.learning.selected": Array.isArray(p.selected) ? p.selected.length : null });
       case "tool.started": {
         const callId = str(p.callId);
         if (!s || callId === null || s.expired.includes(callId)) return [];

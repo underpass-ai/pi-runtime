@@ -62,6 +62,6 @@ export class CliComposition {
       connect, new VerifyServerProfiles(ToolProfiles.standard()), new DiscoverMadeCapabilities(), pins.pi.version,
       eventLog.diagnosis());
 
-    return new UnderpassCli(setup, doctor, print, eventLog.cli(), eventLog.metrics());
+    return new UnderpassCli(setup, doctor, print, eventLog.cli(), eventLog.metrics(), eventLog.learning());
   }
 }
