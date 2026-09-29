@@ -78,6 +78,24 @@ alongside Pi's own. Two Pi commands are added:
 - `/underpass-status` shows the project, the servers that are running, and each tool catalog's version, size and fingerprint.
 - `/underpass-phase interactive|design` switches which Underpass tools are active.
 
+### Tool argument diagnostics
+
+Before Pi validates a KMP or MADE tool call against the tool's input schema, the
+extension checks the arguments itself. When they do not match, the model gets one
+focused error instead of TypeBox's cascade over every `oneOf` branch: each line is a
+path and what is wrong there, only for the branch the call was aiming at (a stage
+with `group` is the group branch; a `kind` or `strategy` constant picks its branch),
+with the schema's description or expected shape. For example:
+
+```text
+made_design_ceremony: the arguments do not match its input schema. Fix these and call it again:
+  - stages[0].group.repeat: unknown fields "step", "output_field", "equals"; allowed: max_iterations, until; missing required field "until" — Optional bounded repeat-until policy for the whole group state. — expected {max_iterations, until: {equals, output_field, step}}
+```
+
+Arguments that match go through untouched and Pi still validates them. The check
+tolerates what Pi coerces (numeric strings, optional nulls…) and skips the schema
+keywords it does not evaluate, so it never refuses a call Pi would accept.
+
 ### Tool learning
 
 The host learns which KMP and MADE tools are worth exposing in each phase of
@@ -178,6 +196,7 @@ npm test    # unit + architecture tests, coverage gate ≥ 80 % lines/branches/f
 - S1 + P0 implementation plan: [`docs/plans/2026-09-28-s1-distribucion-p0-contratos.md`](docs/plans/2026-09-28-s1-distribucion-p0-contratos.md)
 - P0 contract findings: [`docs/contracts/p0-findings.md`](docs/contracts/p0-findings.md)
 - S1 acceptance on a real installation: [`docs/acceptance/s1.md`](docs/acceptance/s1.md)
+- F1 (tool argument diagnostics) acceptance on a real installation: [`docs/acceptance/f1.md`](docs/acceptance/f1.md)
 - S3a (host-managed MADE authorization): [spec](docs/specs/2026-09-30-s3a-made-authorization-design.md), [plan](docs/plans/2026-09-30-s3a-made-authorization.md), [MADE issues](docs/upstream/2026-09-30-made-s3a-issues.md)
 
 The design documents are in Spanish.
