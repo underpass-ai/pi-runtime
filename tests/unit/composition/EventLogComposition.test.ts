@@ -15,6 +15,7 @@ import { Project } from "../../../src/domain/project/Project.ts";
 import { ProjectRoot } from "../../../src/domain/project/ProjectRoot.ts";
 import { ProjectId } from "../../../src/domain/project/ProjectId.ts";
 import { StreamVersion } from "../../../src/domain/events/StreamVersion.ts";
+import { OtlpConfiguration } from "../../../src/domain/telemetry/OtlpConfiguration.ts";
 import { AT, SESSION, fact } from "../../support/recordFixtures.ts";
 
 function setup() {
@@ -108,4 +109,14 @@ test("rebuild telemetry_metrics fija un inicio del acumulado en meta, rebuild ot
     assert.notEqual(new SqliteTelemetryEpochStore(db).read(), null);
     assert.equal(new SqliteProjectionStore(db).cursor(TraceExport.NAME)?.position.value, 0);
   } finally { db.close(); }
+});
+
+test("doctor añade la sección telemetry; un endpoint inválido es FAIL sin repetirlo", () => {
+  const home = mkdtempSync(join(tmpdir(), "underpass-evlog-"));
+  const paths = new StatePaths({ HOME: home, XDG_STATE_HOME: join(home, "state") });
+  const composition = new EventLogComposition(paths, Project.of(ProjectRoot.of(home)), () => {}, OtlpConfiguration.fromEnvironment({ endpoint: "http://collector.internal:4318" }));
+  const checks = composition.diagnosis().execute().filter((c) => c.section.value === "telemetry");
+  assert.deepEqual(checks.map((c) => [c.name.value, c.status.value]), [["telemetry projections", "OK"], ["otlp exporter", "FAIL"]]);
+  assert.equal(checks[1].detail.value.includes("collector.internal"), false);
+  assert.deepEqual(setup().composition.diagnosis().execute().filter((c) => c.section.value === "telemetry").map((c) => c.detail.value), ["no events yet", "disabled"]);
 });

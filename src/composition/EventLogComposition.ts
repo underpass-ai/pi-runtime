@@ -23,6 +23,7 @@ import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { TelemetryEpochs } from "../application/services/TelemetryEpochs.ts";
 import { AcknowledgeSpoolGaps } from "../application/use-cases/AcknowledgeSpoolGaps.ts";
 import { DiagnoseEventLog } from "../application/use-cases/DiagnoseEventLog.ts";
+import { DiagnoseTelemetry } from "../application/use-cases/DiagnoseTelemetry.ts";
 import { ExportEventLog } from "../application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../application/use-cases/ImportEventLog.ts";
 import { ListSessions } from "../application/use-cases/ListSessions.ts";
@@ -36,6 +37,7 @@ import { ToolStatsReport } from "../application/use-cases/ToolStatsReport.ts";
 import { VerifyEventLog } from "../application/use-cases/VerifyEventLog.ts";
 import type { Check } from "../domain/diagnosis/Check.ts";
 import type { Project } from "../domain/project/Project.ts";
+import { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts";
 import { LazyEventStore } from "./LazyEventStore.ts";
 import { LazyProjectionStore } from "./LazyProjectionStore.ts";
 import type { StatePaths } from "./StatePaths.ts";
@@ -47,9 +49,9 @@ type Stores = { events: EventStore; projections: ProjectionStore; epochs: Teleme
 // Cableado del log de eventos para el CLI. Sin log, lectura y rebuild trabajan sobre almacenes vacíos en memoria:
 // nada se crea salvo con `events import`, y aun entonces sólo tras validar el bundle.
 export class EventLogComposition {
-  readonly #log: string; readonly #spool: string; readonly #project: Project; readonly #print: (s: string) => void;
-  constructor(paths: StatePaths, project: Project, print: (s: string) => void) {
-    this.#log = paths.eventLogOf(project); this.#spool = paths.spoolDirOf(project); this.#project = project; this.#print = print;
+  readonly #log: string; readonly #spool: string; readonly #project: Project; readonly #print: (s: string) => void; readonly #telemetry: OtlpConfiguration;
+  constructor(paths: StatePaths, project: Project, print: (s: string) => void, telemetry: OtlpConfiguration = OtlpConfiguration.DISABLED) {
+    this.#log = paths.eventLogOf(project); this.#spool = paths.spoolDirOf(project); this.#project = project; this.#print = print; this.#telemetry = telemetry;
   }
 
   diagnosis(): { execute(): Check[] } {
@@ -57,7 +59,10 @@ export class EventLogComposition {
       execute: () => {
         const s = this.#open("read");
         // Sin log no hay cursores que comparar: la lista vacía evita un falso "version mismatch".
-        return new DiagnoseEventLog(s.events, s.projections, s.persisted ? this.#projections() : [], new FsSpoolInspector(this.#spool)).execute();
+        return [
+          ...new DiagnoseEventLog(s.events, s.projections, s.persisted ? this.#projections() : [], new FsSpoolInspector(this.#spool)).execute(),
+          ...new DiagnoseTelemetry(s.events, s.projections, this.#telemetry, new SystemClock()).execute(),
+        ];
       },
     };
   }
