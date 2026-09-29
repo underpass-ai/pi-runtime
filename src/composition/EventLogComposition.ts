@@ -27,8 +27,10 @@ import { ExportEventLog } from "../application/use-cases/ExportEventLog.ts";
 import { ImportEventLog } from "../application/use-cases/ImportEventLog.ts";
 import { ListSessions } from "../application/use-cases/ListSessions.ts";
 import { ProjectionLag } from "../application/use-cases/ProjectionLag.ts";
+import { QualityKpisReport } from "../application/use-cases/QualityKpisReport.ts";
 import { ReadTelemetryMetrics } from "../application/use-cases/ReadTelemetryMetrics.ts";
 import { RebuildProjection } from "../application/use-cases/RebuildProjection.ts";
+import { SessionTrace } from "../application/use-cases/SessionTrace.ts";
 import { ShowSession } from "../application/use-cases/ShowSession.ts";
 import { ToolStatsReport } from "../application/use-cases/ToolStatsReport.ts";
 import { VerifyEventLog } from "../application/use-cases/VerifyEventLog.ts";
@@ -68,7 +70,9 @@ export class EventLogComposition {
         const resolve = () => (stores ??= this.#open(mode));
         const events = new LazyEventStore(() => resolve().events); const projections = new LazyProjectionStore(() => resolve().projections);
         return new EventsCli({
-          sessions: new ListSessions(projections), show: new ShowSession(events), tools: new ToolStatsReport(projections), verify: new VerifyEventLog(events),
+          sessions: new ListSessions(projections), show: new ShowSession(events), tools: new ToolStatsReport(projections),
+          kpis: new QualityKpisReport(projections), trace: new SessionTrace(events), metrics: new ReadTelemetryMetrics(events, projections),
+          verify: new VerifyEventLog(events),
           exportLog: new ExportEventLog(events, this.#project.id), importLog: new ImportEventLog(events, this.#project.id),
           rebuild: new RebuildProjection(new ProjectionRunner(events, projections, this.#projections()), projections, this.#epochs(resolve)),
           lag: new ProjectionLag(events, projections, this.#projections()), ackGaps: new AcknowledgeSpoolGaps(new FsSpoolGapMarkers(this.#spool)), readFile: (p) => readFileSync(p, "utf8"), print: this.#print,
