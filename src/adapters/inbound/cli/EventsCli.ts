@@ -1,5 +1,6 @@
 import { SessionSummaryProjection } from "../../../application/projections/SessionSummaryProjection.ts";
 import { ToolStatsProjection } from "../../../application/projections/ToolStatsProjection.ts";
+import type { AcknowledgeSpoolGaps } from "../../../application/use-cases/AcknowledgeSpoolGaps.ts";
 import type { ExportEventLog } from "../../../application/use-cases/ExportEventLog.ts";
 import type { ImportEventLog } from "../../../application/use-cases/ImportEventLog.ts";
 import type { ListSessions } from "../../../application/use-cases/ListSessions.ts";
@@ -17,9 +18,9 @@ import { CanonicalJson } from "../../../domain/shared/CanonicalJson.ts";
 
 type Deps = {
   sessions: ListSessions; show: ShowSession; tools: ToolStatsReport; verify: VerifyEventLog; exportLog: ExportEventLog; importLog: ImportEventLog;
-  rebuild: RebuildProjection; lag: ProjectionLag; readFile: (path: string) => string; print: (s: string) => void;
+  rebuild: RebuildProjection; lag: ProjectionLag; ackGaps: AcknowledgeSpoolGaps; readFile: (path: string) => string; print: (s: string) => void;
 };
-const USAGE = "usage: underpass events sessions [--since t]|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>";
+const USAGE = "usage: underpass events sessions [--since t]|show <session>|tools|verify [--stream s]|export [--since n]|import <file>|rebuild <projection>|ack-gaps";
 const opt = (args: string[], flag: string): string | null => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] ?? "" : null; };
 
 export class EventsCli {
@@ -80,6 +81,12 @@ export class EventsCli {
           d.rebuild.execute(ProjectionName.of(arg));
           d.print(`rebuilt ${arg}`);
           return 0;
+        case "ack-gaps": {
+          const acknowledged = d.ackGaps.execute();
+          if (acknowledged.length === 0) d.print("no spool gap markers to acknowledge");
+          else { for (const m of acknowledged) d.print(`acknowledged ${m}`); d.print(`acknowledged ${acknowledged.length} spool gap marker(s)`); }
+          return 0;
+        }
         default:
           return this.#usage();
       }

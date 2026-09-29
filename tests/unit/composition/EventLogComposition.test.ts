@@ -77,3 +77,15 @@ test("sin log, lectura y rebuild no crean nada; tras import, los verbos de lectu
   assert.equal(out[out.length - 1].split("  ")[0], "s1");
   assert.equal(readdirSync(join(state, "pi-runtime", "projects")).length, 1);
 });
+
+test("ack-gaps borra los marcadores del spool del proyecto (sin crear el log) y doctor vuelve a OK", () => {
+  const { state, out, composition, spool, log } = setup();
+  mkdirSync(spool, { recursive: true }); writeFileSync(join(spool, "9.gap"), ""); writeFileSync(join(spool, "9.jsonl"), "{}\n");
+  assert.equal(composition.diagnosis().execute().find((c) => c.name.value === "fact spool")!.status.value, "FAIL");
+  assert.equal(composition.cli().run(["ack-gaps"]), 0);
+  assert.deepEqual(out, ["acknowledged 9.gap", "acknowledged 1 spool gap marker(s)"]);
+  assert.deepEqual(readdirSync(spool), ["9.jsonl"]);
+  assert.equal(existsSync(log), false);
+  assert.equal(composition.diagnosis().execute().find((c) => c.name.value === "fact spool")!.status.value, "WARN");
+  assert.ok(existsSync(state));
+});

@@ -17,6 +17,7 @@ import type { ServerCommandFactory } from "../application/ports/ServerCommandFac
 import type { ServerLifecycleListener } from "../application/ports/ServerLifecycleListener.ts";
 import { SessionSummaryProjection } from "../application/projections/SessionSummaryProjection.ts";
 import { ToolStatsProjection } from "../application/projections/ToolStatsProjection.ts";
+import { OrphanSpoolAdoption } from "../application/services/OrphanSpoolAdoption.ts";
 import { HostFactFactory } from "../application/services/HostFactFactory.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { ServerPool } from "../application/services/ServerPool.ts";
@@ -29,6 +30,7 @@ import { BinaryName } from "../domain/distribution/BinaryName.ts";
 import type { Fact } from "../domain/events/Fact.ts";
 import type { CatalogFingerprint } from "../domain/mcp/CatalogFingerprint.ts";
 import { PackageInfo } from "./PackageInfo.ts";
+import { RepoFile } from "./RepoFile.ts";
 import { StatePaths } from "./StatePaths.ts";
 
 export class HostComposition {
@@ -54,14 +56,10 @@ export class HostComposition {
     const serve = new ServeHostRequest(project, pool, record, new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce())));
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
     safeRecord(hostFacts.hostStarted(PackageInfo.version(), process.pid, HostComposition.#catalogs(paths)));
-    // Spools de procesos de Pi muertos: se adoptan al arrancar y en cada tick.
-    const orphans = new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record);
-    const adopt = () => {
-      try {
-        const r = orphans.execute();
-        if (r.files > 0) console.error(`fact spool: adopted ${r.files} orphan spool(s): ${r.recorded} recorded, ${r.invalid} invalid, ${r.retained} retained`);
-      } catch (e) { console.error(`fact spool: ${(e as Error).message}`); }
-    };
+    // Spools de procesos de Pi muertos: se adoptan al arrancar y en cada tick,
+    // con retroceso por fichero para los que fallan (ver OrphanSpoolAdoption).
+    const orphans = new OrphanSpoolAdoption(new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record), clock, (l) => console.error(l));
+    const adopt = () => { try { orphans.tick(); } catch (e) { console.error(`fact spool: ${(e as Error).message}`); } };
     adopt();
 
     const idleMs = Number(env.UNDERPASS_HOST_IDLE_MS ?? 60_000);
@@ -95,7 +93,7 @@ export class HostComposition {
 
   // Cableado de producción de los servidores del host (público para probarlo).
   static commands(env: Record<string, string | undefined>, paths: StatePaths): Map<string, ServerCommandFactory> {
-    const pins = new JsonPinSetSource(new URL("../../pins.json", import.meta.url).pathname).load();
+    const pins = new JsonPinSetSource(RepoFile.path("pins.json")).load();
     const bin = (n: BinaryName) => join(paths.binDir(), pins.pinFor(n).installedFileName());
     const made = new LazyMadeServerCommandFactory(bin(BinaryName.MADE), paths.madeStore(), new FsMadeConfigurationRepository(paths.madeConfigRoot()), env);
     return new Map<string, ServerCommandFactory>([["kmp", new KmpServerCommandFactory(bin(BinaryName.KMP), env)], ["made", made]]);

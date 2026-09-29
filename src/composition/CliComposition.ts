@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { NodeEntropySource } from "../adapters/outbound/crypto/NodeEntropySource.ts";
 import { FsBinaryInstallation } from "../adapters/outbound/fs/FsBinaryInstallation.ts";
 import { FsFingerprintRepository } from "../adapters/outbound/fs/FsFingerprintRepository.ts";
@@ -28,13 +27,14 @@ import { BinaryName } from "../domain/distribution/BinaryName.ts";
 import { Target } from "../domain/distribution/Target.ts";
 import { ServerName } from "../domain/mcp/ServerName.ts";
 import { EventLogComposition } from "./EventLogComposition.ts";
+import { RepoFile } from "./RepoFile.ts";
 import { StatePaths } from "./StatePaths.ts";
 
 export class CliComposition {
   static build(env: Record<string, string | undefined>, print: (s: string) => void): UnderpassCli {
-    const repoRoot = new URL("../../", import.meta.url).pathname;
+    const repoRoot = RepoFile.path("");
     const paths = new StatePaths(env);
-    const pins = new JsonPinSetSource(join(repoRoot, "pins.json")).load();
+    const pins = new JsonPinSetSource(RepoFile.path("pins.json")).load();
     const installation = new FsBinaryInstallation(paths.binDir());
     const target = Target.detect(process.platform, process.arch);
     const install = new InstallPinnedBinaries(pins, target, new GithubReleaseDownloader(), new NodeFileDigester(), installation);

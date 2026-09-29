@@ -150,8 +150,8 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - Las tools de KMP y MADE que pasan por `PiToolFactory` añaden el servidor, el código de negativa y el tipo de error (`refused`, `rpc`, `transport`, `aborted`).
 - **Envío:** método IPC `record`, de solo escritura y con esquema cerrado. Es sin espera: la sesión de Pi nunca se bloquea por el log.
 - **Spool de respaldo:** si el host no responde, los hechos van a `.../projects/<id>/spool/<pid>.jsonl` (0600, tope de 10 MB, un fichero por proceso). Al reconectar se reenvían en orden y se borran tras confirmarse. Hay un único sink (y un único drain) por proceso y fichero de spool, compartido entre sesiones; los envíos directos se encadenan, y en cuanto uno acaba en el spool los siguientes van detrás de él.
-- **Adopción de spools huérfanos (R9):** si el proceso de Pi muere con hechos en su spool, nadie volvería a reenviarlos. El host, al arrancar y en cada tick de 5 s, reclama los `<pid>.jsonl` cuyo pid ya no existe con un rename atómico a `<pid>.jsonl.draining`, registra cada hecho por `RecordFact` (idempotente, así que un drain a medias se puede repetir), cuenta los inválidos y borra el fichero. Los `.draining` que dejó un host muerto se recogen igual; los marcadores `.gap` se conservan para `doctor`.
-- Si se pierde el spool (por ejemplo, un disco lleno), queda un hueco y se avisa en `doctor`. Nunca se inventan eventos.
+- **Adopción de spools huérfanos (R9):** si el proceso de Pi muere con hechos en su spool, nadie volvería a reenviarlos. El host, al arrancar y en cada tick de 5 s, reclama los `<pid>.jsonl` cuyo pid ya no existe con un rename atómico a `<pid>.jsonl.draining`, registra cada hecho por `RecordFact` (idempotente, así que un drain a medias se puede repetir), cuenta los inválidos y borra el fichero. Los `.draining` que dejó un host muerto se recogen igual; los marcadores `.gap` se conservan para `doctor`. **Revisado:** un `.draining` que no se puede registrar (por ejemplo, el log bloqueado) no se reintenta en cada tick: el servicio de adopción del host guarda un retroceso por fichero (5 s tras el primer fallo, doblando hasta un tope de 5 min) que se reinicia al adoptarlo, y en `host.log` sólo deja constancia de los cambios de estado (el primer fallo, la recuperación y cada adopción), no de cada reintento.
+- Si se pierde el spool (por ejemplo, un disco lleno), queda un hueco y se avisa en `doctor`. Nunca se inventan eventos **Revisado:** el hueco queda como marcador `<pid>.gap` y `doctor` falla mientras exista, indicando el remedio: revisar los hechos perdidos y ejecutar `underpass events ack-gaps`, que lista los marcadores del spool del proyecto, los borra e imprime cuántos reconoció (sin abrir ni crear el log).
 
 ### 3.2. En el host
 
@@ -176,7 +176,7 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - Si la `version` de una proyección no coincide con la del cursor, se borra su estado y se reconstruye reproduciendo desde 0 en una transacción.
 - **Cuarentena:** un evento que hace fallar la proyección 3 veces se aparta con su motivo y la proyección continúa.
 - **Proyecciones de E1:**
-  - `session_summary`: por sesión, fase, duración, turnos, tokens, coste, llamadas por servidor y estado, y fallos.
+  - `session_summary`: por sesión, fase, duración, turnos, tokens, coste, llamadas por servidor y estado, y fallos. **Revisado (versión 2):** un `session.opened` sobre una sesión aún abierta (reapertura implícita tras caerse Pi) o tras `session.closed` (resume) no reinicia nada: `openedAt` conserva la primera apertura, `closedAt` se borra hasta el siguiente cierre y los contadores siguen acumulando sin contar dos veces; el agregado `SessionAggregate` hace lo mismo (sigue abierta y acumula).
   - `tool_stats`: por tool y servidor, `n`, éxitos, fallos, negativas, abortos, duraciones p50 y p95 (reservorio acotado) y la última vez vista. Es el equivalente del `ToolStats` de underpass-runtime y la base común de O1 y L1.
 - **Puntos de extensión para después:** O1 añadirá proyecciones de métricas y un exportador; L1, las proyecciones de posteriores y de decisiones. Las dos leen por su propio cursor, y reentrenar consiste en subir la `version`.
 
@@ -190,6 +190,7 @@ SQLite con `STRICT`, WAL, `synchronous=FULL`, `busy_timeout=10000` y escrituras 
 - `underpass events verify [--stream]`
 - `underpass events export [--since] > bundle.jsonl` y `underpass events import bundle.jsonl` (si el `project_id` de la cabecera no es el del proyecto, se importa igual y se avisa)
 - `underpass events rebuild <projection>`
+- `underpass events ack-gaps`: reconoce los huecos del spool (borra los `.gap` tras revisarlos) para que `doctor` deje de fallar por ellos.
 - `/underpass-status` en Pi añade la sesión actual (turnos, tokens, coste, llamadas y fallos) y el estado del log (posición y verificación). **Revisado (R3/R9):** el método IPC `summary` devuelve el resumen de la sesión junto con el estado del log (`logPosition` y si la cadena del stream de la sesión está intacta), en una sola llamada.
 - `underpass doctor` añade: log presente, cadena íntegra, proyecciones al día, spool vacío y cuarentena vacía.
 

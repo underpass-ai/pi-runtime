@@ -4,7 +4,7 @@ import { CheckRenderer } from "./CheckRenderer.ts";
 
 type Runs = { execute(record?: boolean): Promise<DiagnosisReport> };
 type Events = { run(args: string[]): number };
-const USAGE = "usage: underpass setup | doctor | update | events <sessions|show|tools|verify|export|import|rebuild>";
+const USAGE = "usage: underpass setup | doctor | update | events <sessions|show|tools|verify|export|import|rebuild|ack-gaps>";
 
 export class UnderpassCli {
   readonly #setup: Runs; readonly #doctor: Runs; readonly #print: (s: string) => void; readonly #events: Events | null;

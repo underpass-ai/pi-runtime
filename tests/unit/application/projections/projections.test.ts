@@ -83,3 +83,27 @@ test("lecturas sobre un store vacío devuelven vacío/null (rutas de fallo)", ()
   assert.deepEqual(new ListSessions(store).execute(), []);
   assert.deepEqual(new ToolStatsReport(store).execute(), []);
 });
+
+test("reapertura implícita (session.opened con la sesión abierta tras caerse Pi): openedAt es el primero, closedAt se borra y los contadores siguen sin reiniciarse ni duplicarse", () => {
+  const events = new InMemoryEventStore(); const store = new InMemoryProjectionStore();
+  const runner = new ProjectionRunner(events, store, [new SessionSummaryProjection()]);
+  const turn = (about: string, ms: number) => fact("turn.completed", about, { model: "m1", tokens: { input: 1, output: 1 }, cost: 0.5 }, SESSION, ms);
+  events.append(SESSION, StreamVersion.NONE, [fact("session.opened", "o1", { reason: "startup" }, SESSION, 1000), turn("t1", 2000)], AT);
+  runner.runOnce();
+  events.append(SESSION, StreamVersion.of(2), [fact("session.opened", "o2", { reason: "resume" }, SESSION, 3000)], AT);
+  runner.runOnce();
+  const reopened = new ReadSessionSummary(store).execute(SessionId.of("s1"))!;
+  assert.deepEqual([reopened.openedAt, reopened.closedAt, reopened.turns], ["1970-01-01T00:00:01.000Z", null, 1]);
+  events.append(SESSION, StreamVersion.of(3), [turn("t2", 4000), fact("session.closed", "c", { reason: "quit" }, SESSION, 5000)], AT);
+  runner.runOnce();
+  const s = new ReadSessionSummary(store).execute(SessionId.of("s1"))!;
+  assert.deepEqual([s.openedAt, s.closedAt, s.turns, s.tokens.input, s.cost], ["1970-01-01T00:00:01.000Z", "1970-01-01T00:00:05.000Z", 2, 2, 1]);
+  // Reconstruir desde cero da lo mismo que el procesamiento incremental.
+  const rebuilt = new InMemoryProjectionStore();
+  new ProjectionRunner(events, rebuilt, [new SessionSummaryProjection()]).runOnce();
+  assert.deepEqual(new ReadSessionSummary(rebuilt).execute(SessionId.of("s1")), s);
+});
+
+test("session_summary va por la versión 2: el cambio de openedAt reconstruye los resúmenes ya persistidos", () => {
+  assert.equal(new SessionSummaryProjection().version, 2);
+});

@@ -71,3 +71,14 @@ test("SessionState.EMPTY tiene los valores iniciales esperados y with() sólo ca
   assert.equal(s.turns, 3);
   assert.equal(s.open, false);
 });
+
+test("el agregado coincide con la proyección en una reapertura implícita: sigue abierto, acumula sin reiniciar y cierra al final", () => {
+  const records = ContinuationSealer.seal(null, [
+    fact("session.opened", "o1"), fact("turn.completed", "t1", { tokens: { input: 1 }, cost: 0.5 }),
+    fact("session.opened", "o2", { reason: "resume" }), fact("turn.completed", "t2", { tokens: { input: 1 }, cost: 0.5 }), fact("session.closed", "c"),
+  ], AT);
+  const reopened = SessionAggregate.fold(records.slice(0, 4));
+  assert.deepEqual([reopened.open, reopened.turns, reopened.tokensIn, reopened.cost], [true, 2, 2, 1]);
+  const closed = SessionAggregate.apply(reopened, records[4]);
+  assert.deepEqual([closed.open, closed.everOpened, closed.turns], [false, true, 2]);
+});
