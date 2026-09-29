@@ -1,0 +1,21 @@
+{
+  "name": "pi-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.19.0" },
+  "bin": { "underpass": "./bin/underpass.ts" },
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": [
+      "./src/adapters/inbound/pi/entry/host.ts",
+      "./src/adapters/inbound/pi/entry/kmp.ts",
+      "./src/adapters/inbound/pi/entry/made.ts"
+    ]
+  },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typebox": "*" },
+  "scripts": {
+    "test": "bash scripts/test.sh",
+    "test:contract": "node --test --test-reporter=spec \"tests/contract/*.test.ts\""
+  }
+}

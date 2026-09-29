@@ -1,0 +1,7 @@
+{ "lockfileVersion": 3, "packages": {
+  "": { "name": "@earendil-works/pi-coding-agent", "version": "0.87.1" },
+  "node_modules/jiti": { "version": "2.7.0" },
+  "node_modules/chalk": { "version": "5.4.1" },
+  "node_modules/foo/node_modules/chalk": { "version": "4.1.2" },
+  "node_modules/bar/node_modules/chalk": { "version": "4.1.2" },
+  "node_modules/@scope/pkg": { "version": "1.0.0", "link": true } } }

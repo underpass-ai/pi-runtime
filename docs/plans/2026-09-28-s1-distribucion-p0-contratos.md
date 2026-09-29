@@ -5473,6 +5473,8 @@ gh pr create -R underpass-ai/kmp --base main --title "feat(lifecycle): Pi as a n
 
 - [ ] **Step 9:** Tras el merge y la release de KMP, en `underpass-pi` se sube el pin de `kmp-mcp` y `KmpCliLifecycle.setup()` pasa a añadir `--pi`. Es un commit aparte (`feat(dist): kmp-mcp <ver> con --pi`) con los sha256 nuevos y su test.
 
+  > **Nota (revisión final, 2026-09-29):** el paso `kmp-mcp setup` se retiró de `SetupInstallation` (y `setup()` del puerto `KmpLifecycle`): sin flag de host reconciliaba los hosts de KMP de Claude/Codex del usuario. Vuelve en este Step 9 como `kmp-mcp setup --pi`, y se ejecuta **después** de `pi install`, no antes.
+
 ---
 
 ### Task 14: Aceptación de extremo a extremo de S1
