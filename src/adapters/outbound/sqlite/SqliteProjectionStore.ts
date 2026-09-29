@@ -20,11 +20,24 @@ export class SqliteProjectionStore implements ProjectionStore {
       .map((r) => [String(r.key), JSON.parse(String(r.value))]));
   }
 
-  commit(name: ProjectionName, cursor: ProjectionCursor, changes: Map<string, unknown>): void {
-    this.#db.transaction(() => {
+  snapshot(name: ProjectionName): { cursor: ProjectionCursor | null; state: Map<string, unknown> } {
+    return this.#db.read(() => ({ cursor: this.cursor(name), state: this.load(name) }));
+  }
+
+  // Compare-and-set del cursor dentro de la transacción de escritura: si no
+  // cuadra no se toca nada (ni estado ni cursor).
+  commit(name: ProjectionName, expected: ProjectionCursor, next: ProjectionCursor, changes: Map<string, unknown>): boolean {
+    return this.#db.transaction(() => {
+      let moved = Number(this.#db.handle.prepare("UPDATE cursors SET projection_version = ?, position = ? WHERE consumer = ? AND projection_version = ? AND position = ?")
+        .run(next.version, next.position.value, name.value, expected.version, expected.position.value).changes);
+      if (moved === 0 && expected.position.equals(GlobalPosition.START)) {
+        moved = Number(this.#db.handle.prepare("INSERT INTO cursors (consumer, projection_version, position) VALUES (?, ?, ?) ON CONFLICT(consumer) DO NOTHING")
+          .run(name.value, next.version, next.position.value).changes);
+      }
+      if (moved === 0) return false;
       const put = this.#db.handle.prepare("INSERT INTO projection_state (consumer, key, value) VALUES (?, ?, ?) ON CONFLICT(consumer, key) DO UPDATE SET value = excluded.value");
       for (const [k, v] of changes) put.run(name.value, k, JSON.stringify(v));
-      this.#setCursor(name, cursor);
+      return true;
     });
   }
 
@@ -32,7 +45,8 @@ export class SqliteProjectionStore implements ProjectionStore {
     this.#db.transaction(() => {
       this.#db.handle.prepare("DELETE FROM projection_state WHERE consumer = ?").run(name.value);
       this.#db.handle.prepare("DELETE FROM projection_quarantine WHERE consumer = ?").run(name.value);
-      this.#setCursor(name, ProjectionCursor.of(version, GlobalPosition.START));
+      this.#db.handle.prepare(`INSERT INTO cursors (consumer, projection_version, position) VALUES (?, ?, 0)
+        ON CONFLICT(consumer) DO UPDATE SET projection_version = excluded.projection_version, position = 0`).run(name.value, version);
     });
   }
 
@@ -43,10 +57,5 @@ export class SqliteProjectionStore implements ProjectionStore {
   quarantined(name: ProjectionName): { position: GlobalPosition; reason: string }[] {
     return (this.#db.handle.prepare("SELECT global_position, reason FROM projection_quarantine WHERE consumer = ? ORDER BY global_position").all(name.value) as Row[])
       .map((r) => ({ position: GlobalPosition.of(Number(r.global_position)), reason: String(r.reason) }));
-  }
-
-  #setCursor(name: ProjectionName, cursor: ProjectionCursor): void {
-    this.#db.handle.prepare(`INSERT INTO cursors (consumer, projection_version, position) VALUES (?, ?, ?)
-      ON CONFLICT(consumer) DO UPDATE SET projection_version = excluded.projection_version, position = excluded.position`).run(name.value, cursor.version, cursor.position.value);
   }
 }

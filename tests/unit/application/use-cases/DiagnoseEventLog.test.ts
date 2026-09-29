@@ -38,9 +38,9 @@ test("proyección atrasada o de otra versión avisa con su detalle", () => {
   const events = new InMemoryEventStore(); const store = new InMemoryProjectionStore(); const projs: Projection[] = [new SessionSummaryProjection()];
   events.append(SESSION, StreamVersion.NONE, [fact("session.opened", "o"), fact("turn.completed", "t1")], AT);
   assert.match(row(new DiagnoseEventLog(events, store, projs, spool()).execute(), "projections").detail.value, /session_summary version mismatch/);
-  store.commit(projs[0].name, ProjectionCursor.of(projs[0].version, GlobalPosition.of(1)), new Map());
+  store.reset(projs[0].name, projs[0].version); store.commit(projs[0].name, ProjectionCursor.of(projs[0].version, GlobalPosition.START), ProjectionCursor.of(projs[0].version, GlobalPosition.of(1)), new Map());
   assert.equal(row(new DiagnoseEventLog(events, store, projs, spool()).execute(), "projections").detail.value, "session_summary at 1/2 (behind)");
-  store.commit(projs[0].name, ProjectionCursor.of(projs[0].version + 1, GlobalPosition.of(2)), new Map());
+  store.reset(projs[0].name, projs[0].version + 1); store.commit(projs[0].name, ProjectionCursor.of(projs[0].version + 1, GlobalPosition.START), ProjectionCursor.of(projs[0].version + 1, GlobalPosition.of(2)), new Map());
   assert.match(row(new DiagnoseEventLog(events, store, projs, spool()).execute(), "projections").detail.value, /version mismatch/);
 });
 

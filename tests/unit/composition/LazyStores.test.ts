@@ -30,8 +30,9 @@ test("LazyProjectionStore no resuelve hasta el primer uso y delega cada método"
   let resolved = 0; const inner = new InMemoryProjectionStore(); const name = ProjectionName.of("p");
   const s = new LazyProjectionStore(() => { resolved++; return inner; });
   assert.equal(resolved, 0);
-  s.commit(name, ProjectionCursor.of(1, GlobalPosition.of(2)), new Map([["k", 1]]));
+  assert.equal(s.commit(name, ProjectionCursor.of(1, GlobalPosition.START), ProjectionCursor.of(1, GlobalPosition.of(2)), new Map([["k", 1]])), true);
   assert.equal(s.cursor(name)!.position.value, 2);
+  assert.equal(s.snapshot(name).cursor!.position.value, 2);
   assert.deepEqual([...s.load(name)], [["k", 1]]);
   s.quarantine(name, GlobalPosition.of(1), "x");
   assert.equal(s.quarantined(name).length, 1);

@@ -25,8 +25,8 @@ test("log vacío: nada atrasado; con eventos sin proyectar: todas desde 0; al d�
 test("cursor parcial informa su posición; cursor de otra versión cuenta desde 0", () => {
   const events = new InMemoryEventStore(); const store = new InMemoryProjectionStore(); const p = new SessionSummaryProjection();
   events.append(SESSION, StreamVersion.NONE, [fact("session.opened", "o"), fact("turn.completed", "t")], AT);
-  store.commit(p.name, ProjectionCursor.of(p.version, GlobalPosition.of(1)), new Map());
+  store.reset(p.name, p.version); store.commit(p.name, ProjectionCursor.of(p.version, GlobalPosition.START), ProjectionCursor.of(p.version, GlobalPosition.of(1)), new Map());
   assert.deepEqual(new ProjectionLag(events, store, [p]).execute(), [{ projection: "session_summary", position: 1, last: 2 }]);
-  store.commit(p.name, ProjectionCursor.of(p.version + 1, GlobalPosition.of(2)), new Map());
+  store.reset(p.name, p.version + 1); store.commit(p.name, ProjectionCursor.of(p.version + 1, GlobalPosition.START), ProjectionCursor.of(p.version + 1, GlobalPosition.of(2)), new Map());
   assert.deepEqual(new ProjectionLag(events, store, [p]).execute(), [{ projection: "session_summary", position: 0, last: 2 }]);
 });

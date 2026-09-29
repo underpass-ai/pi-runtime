@@ -1,3 +1,9 @@
+import { CanonicalJson } from "../../domain/shared/CanonicalJson.ts";
+
+// Estado de una proyección durante una pasada. set valida el valor como JSON
+// canónico: un valor que no es JSON (BigInt, NaN, Date, Map…) falla dentro de
+// apply, y así toma el camino de reintento y cuarentena en vez de romper el
+// commit. Se guarda la forma JSON, igual que la que devolverá SQLite.
 export class ProjectionState {
   readonly #values: Map<string, unknown>;
   readonly #pending = new Map<string, unknown>();
@@ -9,7 +15,7 @@ export class ProjectionState {
     const v = this.#pending.has(key) ? this.#pending.get(key) : this.#values.get(key);
     return v === undefined ? undefined : (structuredClone(v) as T);
   }
-  set(key: string, value: unknown): void { this.#pending.set(key, structuredClone(value)); }
+  set(key: string, value: unknown): void { this.#pending.set(key, CanonicalJson.of(value).toValue()); }
   keys(): string[] { return [...new Set([...this.#values.keys(), ...this.#pending.keys()])]; }
 
   accept(): void {

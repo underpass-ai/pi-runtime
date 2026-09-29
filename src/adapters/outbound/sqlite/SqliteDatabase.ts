@@ -45,5 +45,12 @@ export class SqliteDatabase {
     }
   }
 
+  // Transacción de lectura (BEGIN diferido): en WAL todas las lecturas de fn
+  // ven la misma instantánea.
+  read<T>(fn: () => T): T {
+    this.#db.exec("BEGIN");
+    try { return fn(); } finally { this.#db.exec("COMMIT"); }
+  }
+
   close(): void { this.#db.close(); }
 }

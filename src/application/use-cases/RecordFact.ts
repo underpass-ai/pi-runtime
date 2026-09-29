@@ -11,10 +11,15 @@ import type { EventStore } from "../ports/EventStore.ts";
 const ATTEMPTS = 3;
 
 export class RecordFact {
-  readonly #store: EventStore; readonly #clock: Clock; readonly #afterAppend: () => void;
+  readonly #store: EventStore; readonly #clock: Clock; readonly #afterAppend: () => void; readonly #reportError: (e: unknown) => void;
   readonly #cache = new Map<string, { version: StreamVersion; state: SessionState }>();
 
-  constructor(store: EventStore, clock: Clock, afterAppend: () => void = () => {}) { this.#store = store; this.#clock = clock; this.#afterAppend = afterAppend; }
+  // afterAppend (el runner de proyecciones) corre tras un append ya durable:
+  // si falla, el hecho SÍ está registrado. Se informa por reportError y se
+  // devuelve el append; lanzar haría que Pi lo reenviara al spool.
+  constructor(store: EventStore, clock: Clock, afterAppend: () => void = () => {}, reportError: (e: unknown) => void = () => {}) {
+    this.#store = store; this.#clock = clock; this.#afterAppend = afterAppend; this.#reportError = reportError;
+  }
 
   execute(fact: Fact): Appended {
     for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
@@ -32,7 +37,7 @@ export class RecordFact {
           const last = outcome.records.at(-1)!;
           this.#cache.set(fact.stream.value, { version: last.version, state: outcome.records.reduce((s, r) => SessionAggregate.apply(s, r), state) });
         }
-        this.#afterAppend();
+        try { this.#afterAppend(); } catch (e) { this.#reportError(e); }
         return outcome;
       }
       if (outcome.reason === "diverged") throw DomainError.because(`event ${fact.id.value} diverges from the recorded one`);

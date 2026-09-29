@@ -8,4 +8,5 @@ export class ProjectionCursor {
     if (!Number.isInteger(version) || version < 1) throw DomainError.because(`invalid projection version ${version}`);
     return new ProjectionCursor(version, position);
   }
+  equals(o: ProjectionCursor): boolean { return o.version === this.version && o.position.equals(this.position); }
 }

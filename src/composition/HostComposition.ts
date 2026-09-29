@@ -43,7 +43,7 @@ export class HostComposition {
     const events = new SqliteEventStore(db);
     const projectionStore = new SqliteProjectionStore(db);
     const runner = new ProjectionRunner(events, projectionStore, [new SessionSummaryProjection(), new ToolStatsProjection()]);
-    const record = new RecordFact(events, clock, () => runner.runOnce());
+    const record = new RecordFact(events, clock, () => runner.runOnce(), (e) => console.error(`projections: ${(e as Error)?.message ?? String(e)}`));
     const hostFacts = new HostFactFactory(clock, String(process.pid));
     const safeRecord = (f: Fact) => { try { record.execute(f); } catch (e) { console.error(`event log: ${(e as Error).message}`); } };
     const listener: ServerLifecycleListener = { started: (s, id) => safeRecord(hostFacts.serverStarted(s, id)), exited: (s) => safeRecord(hostFacts.serverExited(s)) };

@@ -39,3 +39,13 @@ test("reintenta ante conflicto de versión y se rinde tras 3", () => {
   const always = withAppend(() => AppendConflict.version(StreamVersion.NONE, StreamVersion.of(1)));
   assert.throws(() => new RecordFact(always, new FixedClock()).execute(fact("turn.completed", "t2")), /after 3 attempts/);
 });
+
+test("un fallo de las proyecciones tras un append durable no convierte el registro en fallo: se informa y se devuelve el append", () => {
+  const store = new InMemoryEventStore(); const reported: unknown[] = [];
+  const uc = new RecordFact(store, new FixedClock(), () => { throw new Error("projection commit failed"); }, (e) => reported.push(e));
+  const r = uc.execute(fact("session.opened", "o"));
+  assert.equal(r.records.length, 1);
+  assert.equal(store.readStream(SESSION).length, 1);
+  assert.deepEqual(reported.map((e) => (e as Error).message), ["projection commit failed"]);
+  assert.doesNotThrow(() => new RecordFact(store, new FixedClock(), () => { throw new Error("x"); }).execute(fact("turn.completed", "t")));
+});
