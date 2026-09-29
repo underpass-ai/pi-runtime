@@ -70,7 +70,9 @@ export class SelectTools {
     let selection: ToolSelection;
     try { selection = this.#decide(context, setting, bandit, candidates, floor, slot); }
     catch { selection = ToolSelection.of({ context, mode: LearningMode.FALLBACK, control: false, size: setting.size, candidates, selected: candidates, floor, seed: slot.id, schemaBytes: this.#bytes(floor, candidates, candidates) }); }
-    try { this.#record.execute(this.#facts.toolsSelected(session, slot, selection)); } catch { return fallback; }
+    // Sin correr las proyecciones tras el append: el siguiente select las pone al día antes de
+    // leer, y así la respuesta sale antes (no se ensancha la carrera residual de spec §7).
+    try { this.#record.execute(this.#facts.toolsSelected(session, slot, selection), false); } catch { return fallback; }
     return { mode: selection.mode.value as SelectionDto["mode"], control: selection.control, selected: names(selection.selected), floor: names(selection.floor) };
   }
 

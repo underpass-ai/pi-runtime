@@ -15,11 +15,11 @@ test("shadow: miss de las candidatas usadas fuera de la selección y ahorro en t
   const l = log().addAll([
     selection("d1", { mode: "shadow" }), turn("t1"), used("c1", "kmp_time", "succeeded"), used("c2", "kmp_time", "failed"), used("c3", "kmp_trace", "succeeded"),
     used("c4", "kmp_ask", "succeeded"), used("c5", "bash", "succeeded"),
-    selection("d2", { mode: "shadow", schemaBytes: { full: 1000, exposed: 400 } }), used("c6", "made_get_help", "succeeded"), fact("session.closed", "x"),
-    used("c7", "kmp_trace", "succeeded"),
+    selection("d2", { mode: "shadow", schemaBytes: { full: 1000, exposed: 400 } }), used("c6", "made_get_help", "succeeded"),
   ]);
-  assert.deepEqual(evalOf(l)!.shadow, { decisions: 2, used: 3, missed: 2, fullTools: 12, exposedTools: 8, fullBytes: 2000, exposedBytes: 1000 });
   assert.deepEqual(l.store.load(LearningEvalProjection.NAME).get(LearningEvalProjection.sessionKey("s1")), { context: DESIGN, mode: "shadow", control: false, selected: 2, candidates: 4 });
+  l.addAll([fact("session.closed", "x"), used("c7", "kmp_trace", "succeeded")]);
+  assert.deepEqual(evalOf(l)!.shadow, { decisions: 2, used: 3, missed: 2, fullTools: 12, exposedTools: 8, fullBytes: 2000, exposedBytes: 1000 });
 });
 
 test("active: tratado frente a control con éxito a la primera, turnos y negativas de KMP y MADE", () => {
@@ -62,4 +62,25 @@ test("una sesión que sólo acumula decisiones sin hechos de Pi guarda como much
   const open = l.store.load(LearningEvalProjection.NAME).get(LearningEvalProjection.OPEN_KEY) as Record<string, { windows: { atMs: number }[] }>;
   assert.equal(open["session:s1"].windows.length, 32);
   assert.equal(open["session:s1"].windows[0].atMs, 1_008, "se cierran las más antiguas");
+});
+
+// Estado acotado: la línea de /underpass-status de una sesión (session|<id>) vive mientras la
+// sesión tenga una decisión abierta; se borra al cerrarse, reabrirse sin decisión o abandonarse.
+test("session|<id> se borra al cerrar o abandonar la sesión, también al reconstruir", () => {
+  const S3 = StreamId.session(SessionId.of("s3"));
+  const sessions = (l: LearningLog) => [...l.store.load(LearningEvalProjection.NAME).keys()].filter((k) => k.startsWith("session|")).sort();
+  const facts = [
+    selection("d1", { mode: "shadow" }), fact("session.opened", "o2", {}, S2), selection("d2", { mode: "shadow" }, S2), fact("session.opened", "o3", {}, S3), selection("d3", { mode: "shadow" }, S3),
+  ];
+  const l = log().addAll(facts);
+  assert.deepEqual(sessions(l), ["session|s1", "session|s2", "session|s3"]);
+  l.add(fact("session.closed", "x"));
+  assert.deepEqual(sessions(l), ["session|s2", "session|s3"], "cerrada: fuera");
+  l.add(turn("t2", S3), 5_000 + 12 * 3_600_000).add(turn("t3", S3), 5_000 + 24 * 3_600_000);
+  assert.deepEqual(sessions(l), ["session|s3"], "s2 sin hechos en 24 h: abandonada y fuera; s3 sigue viva");
+  const rebuilt = new LearningLog([new LearningEvalProjection()]);
+  for (const f of [fact("session.opened", "o"), ...facts, fact("session.closed", "x")]) rebuilt.write(f);
+  rebuilt.write(turn("t2", S3), 5_000 + 12 * 3_600_000).write(turn("t3", S3), 5_000 + 24 * 3_600_000);
+  rebuilt.runner.rebuild(LearningEvalProjection.NAME);
+  assert.deepEqual(rebuilt.store.load(LearningEvalProjection.NAME), l.store.load(LearningEvalProjection.NAME));
 });

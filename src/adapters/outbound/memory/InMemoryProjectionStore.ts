@@ -16,7 +16,7 @@ export class InMemoryProjectionStore implements ProjectionStore {
     const current = this.#cursors.get(name.value);
     if (current === undefined ? !expected.position.equals(GlobalPosition.START) : !current.equals(expected)) return false;
     const s = this.#state.get(name.value) ?? new Map<string, unknown>();
-    for (const [k, v] of changes) s.set(k, structuredClone(v));
+    for (const [k, v] of changes) { if (v === undefined) s.delete(k); else s.set(k, structuredClone(v)); }
     this.#state.set(name.value, s);
     this.#cursors.set(name.value, next);
     return true;

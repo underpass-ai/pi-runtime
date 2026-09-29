@@ -16,3 +16,16 @@ test("set guarda una copia JSON del valor: mutar el original no cambia el estado
   s.accept();
   assert.deepEqual([...s.changes().keys(), ...s.keys()].sort(), ["a", "v", "v"]);
 });
+
+test("delete quita la clave: get devuelve undefined, keys no la lista y el cambio viaja como undefined (borrado)", () => {
+  const s = new ProjectionState(new Map<string, unknown>([["a", 1], ["b", 2]]));
+  s.delete("a"); s.set("c", 3); s.delete("c");
+  assert.equal(s.get("a"), undefined);
+  assert.deepEqual(s.keys().sort(), ["b"]);
+  s.accept();
+  assert.deepEqual([...s.changes()].sort(), [["a", undefined], ["c", undefined]]);
+  s.set("a", 4); s.accept();
+  assert.deepEqual([s.get("a"), s.changes().get("a")], [4, 4], "volver a escribir después de borrar");
+  s.delete("b"); s.discard();
+  assert.equal(s.get("b"), 2, "discard deshace el borrado pendiente");
+});

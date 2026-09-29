@@ -216,3 +216,21 @@ test("registered: candidatas y mínimo se limitan a las tools que Pi tiene regis
   assert.deepEqual([none.floor, none.selected], [[], []]);
   assert.equal(h.select.execute(S1, Phase.DESIGN, null, null).selected.length, 12, "sin el campo, el comportamiento anterior");
 });
+
+// El select no pone al día las proyecciones tras registrar tools.selected (el siguiente select
+// lo hace antes de leer): la respuesta sale antes y no se ensancha la carrera residual de §7.
+test("registrar tools.selected no corre las proyecciones; el siguiente select sí las pone al día", () => {
+  const events = new InMemoryEventStore(); const store = new InMemoryProjectionStore();
+  const runner = new ProjectionRunner(events, store, [new ToolBanditProjection(), new LearningEvalProjection()]);
+  const clock = new FixedClock(1_000); let after = 0; let refreshes = 0;
+  const record = new RecordFact(events, clock, () => { after++; runner.runOnce(); });
+  const select = new SelectTools(store, record, new LearningFactFactory(clock, "host:1", Actor.of("host", "host:1")), PhaseToolSelection.standard(), new KnownCatalogs(),
+    TelemetryInstanceId.of(PROJECT), () => { refreshes++; runner.runOnce(); });
+  record.execute(fact("session.opened", "o"));
+  after = 0;
+  select.execute(S1, Phase.INTERACTIVE);
+  assert.deepEqual([after, refreshes], [0, 1]);
+  assert.equal(store.load(LearningEvalProjection.NAME).get(LearningEvalProjection.sessionKey("s1")), undefined, "aún sin proyectar");
+  select.execute(S1, Phase.INTERACTIVE);
+  assert.ok(store.load(LearningEvalProjection.NAME).get(LearningEvalProjection.sessionKey("s1")) !== undefined, "el siguiente select la proyectó antes de decidir");
+});

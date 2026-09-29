@@ -15,9 +15,13 @@ const MAX_OPEN = 32;
 // decisión anterior a él, y una ventana sólo se cierra cuando llega un hecho de Pi posterior
 // al inicio de la siguiente (Pi entrega sus hechos en orden). Estado en `key`, como JSON.
 export class SelectionWindows<T extends { atMs: number }> {
-  readonly #key: string; readonly #close: (state: ProjectionState, window: T) => void;
-  // close: lo que la proyección hace al cerrarse una ventana (p. ej. los 0 suaves).
-  constructor(key: string, close: (state: ProjectionState, window: T) => void) { this.#key = key; this.#close = close; }
+  readonly #key: string; readonly #close: (state: ProjectionState, window: T) => void; readonly #forget: (state: ProjectionState, stream: string) => void;
+  // close: lo que la proyección hace al cerrarse una ventana (p. ej. los 0 suaves). forget: lo
+  // que hace cuando una sesión se queda sin ventanas abiertas (cierre, reapertura o abandono),
+  // para que su estado por sesión no crezca sin límite.
+  constructor(key: string, close: (state: ProjectionState, window: T) => void, forget: (state: ProjectionState, stream: string) => void = () => {}) {
+    this.#key = key; this.#close = close; this.#forget = forget;
+  }
 
   // opened: la ventana que abre este hecho si es un tools.selected válido. attribute recibe
   // la ventana a la que pertenece un hecho de Pi; lo que cambie en ella se guarda.
@@ -28,7 +32,7 @@ export class SelectionWindows<T extends { atMs: number }> {
     for (const [stream, s] of Object.entries(all)) {
       if (now < s.lastMs + ABANDONED_AFTER_MS) continue;
       for (const w of s.windows) this.#close(state, w);
-      delete all[stream]; changed = true;
+      delete all[stream]; changed = true; this.#forget(state, stream);
     }
     if (r.stream.isSession()) {
       const stream = r.stream.value; const at = r.occurredAt.epochMs();
@@ -52,7 +56,7 @@ export class SelectionWindows<T extends { atMs: number }> {
       }
       if (s.windows.length > 0 || all[stream] !== undefined) {
         s.lastMs = now; changed = true;
-        if (s.windows.length > 0) all[stream] = s; else delete all[stream];
+        if (s.windows.length > 0) all[stream] = s; else { delete all[stream]; this.#forget(state, stream); }
       }
     }
     if (changed) state.set(this.#key, all);

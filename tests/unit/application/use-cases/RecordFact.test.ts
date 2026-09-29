@@ -49,3 +49,13 @@ test("un fallo de las proyecciones tras un append durable no convierte el regist
   assert.deepEqual(reported.map((e) => (e as Error).message), ["projection commit failed"]);
   assert.doesNotThrow(() => new RecordFact(store, new FixedClock(), () => { throw new Error("x"); }).execute(fact("turn.completed", "t")));
 });
+
+test("execute(fact, false) registra sin correr las proyecciones tras el append", () => {
+  const store = new InMemoryEventStore(); let after = 0;
+  const uc = new RecordFact(store, new FixedClock(), () => { after++; });
+  uc.execute(fact("session.opened", "o"), false);
+  assert.equal(after, 0);
+  assert.equal(store.readStream(SESSION).length, 1);
+  uc.execute(fact("turn.completed", "t"));
+  assert.equal(after, 1);
+});

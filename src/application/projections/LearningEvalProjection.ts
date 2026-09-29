@@ -1,5 +1,6 @@
 import { ProjectionName } from "../../domain/events/ProjectionName.ts";
 import type { StoredEvent } from "../../domain/events/StoredEvent.ts";
+import { StreamId } from "../../domain/events/StreamId.ts";
 import { LearningContext } from "../../domain/learning/LearningContext.ts";
 import { LearningMode } from "../../domain/learning/LearningMode.ts";
 import type { EvalGroupDto } from "../dto/EvalGroupDto.ts";
@@ -39,7 +40,10 @@ export class LearningEvalProjection implements Projection {
   static readonly OPEN_KEY = "open";
   readonly name = LearningEvalProjection.NAME;
   readonly version = LearningEvalProjection.VERSION;
-  readonly #windows = new SelectionWindows<Window>(LearningEvalProjection.OPEN_KEY, () => {});
+  // session|<id> (la línea de /underpass-status) vive mientras la sesión tenga una ventana
+  // abierta: al cerrarse, reabrirse sin decisión o abandonarse, se borra (estado acotado).
+  readonly #windows = new SelectionWindows<Window>(LearningEvalProjection.OPEN_KEY, () => {},
+    (state, stream) => state.delete(LearningEvalProjection.sessionKey(StreamId.of(stream).sessionId().value)));
 
   static contextKey(context: string): string { return `context|${context}`; }
   static sessionKey(sessionId: string): string { return `session|${sessionId}`; }

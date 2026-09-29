@@ -21,6 +21,14 @@ for (const [label, open] of [["sqlite", () => new SqliteProjectionStore(SqliteDa
     assert.deepEqual([s.cursor(n)!.version, s.cursor(n)!.position.value, s.load(n).size, s.quarantined(n).length], [2, 0, 0, 0]);
   });
 
+  test(`${label}: un cambio undefined en commit borra la clave`, () => {
+    const s = open(); const n = ProjectionName.of("p"); const at = (p: number) => ProjectionCursor.of(1, GlobalPosition.of(p));
+    s.commit(n, at(0), at(1), new Map<string, unknown>([["a", 1], ["b", 2]]));
+    assert.equal(s.commit(n, at(1), at(2), new Map<string, unknown>([["a", undefined], ["missing", undefined], ["c", 3]])), true);
+    assert.deepEqual(Object.fromEntries(s.load(n)), { b: 2, c: 3 });
+    assert.deepEqual(Object.fromEntries(s.snapshot(n).state), { b: 2, c: 3 });
+  });
+
   test(`${label}: commit con compare-and-set; un cursor obsoleto no escribe nada`, () => {
     const s = open(); const n = ProjectionName.of("p"); const at = (p: number, v = 1) => ProjectionCursor.of(v, GlobalPosition.of(p));
     assert.equal(s.commit(n, at(2), at(3), new Map([["k", 1]])), false, "sin fila sólo se acepta el cursor inicial");
