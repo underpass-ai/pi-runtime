@@ -6,6 +6,7 @@ import { SessionId } from "../../../domain/events/SessionId.ts";
 import type { ServerName } from "../../../domain/mcp/ServerName.ts";
 import type { ToolDescriptor } from "../../../domain/mcp/ToolDescriptor.ts";
 import { HostCallError } from "../../../application/ports/HostCallError.ts";
+import { ArgumentDiagnostician } from "../../../domain/arguments/ArgumentDiagnostician.ts";
 
 // Lo que Pi 0.87.1 pasa como quinto argumento a execute: sólo lo que S3a usa.
 type ToolContext = { hasUI?: boolean; ui?: { confirm(title: string, message: string, opts?: { signal?: AbortSignal }): Promise<boolean> } };
@@ -38,11 +39,25 @@ export class PiToolFactory {
   create(server: ServerName, tool: ToolDescriptor, gateway: () => Promise<HostGateway>, context: () => CallContextDto | null = () => null) {
     const max = this.#maxText;
     const name = tool.name.value;
+    const diagnostician = ArgumentDiagnostician.for(tool.schema);
     return {
       name,
       label: name,
       description: tool.description.value,
       parameters: this.#toSchema(tool.schema.toJson()),
+      // F1: Pi 0.87.1 llama a esto antes de validar contra `parameters`, y lo que lance le llega
+      // al modelo como resultado de error. Si los argumentos no casan con el esquema, en vez de la
+      // cascada de TypeBox el modelo recibe un diagnóstico con ruta de la rama que quería. Si
+      // casan (o el diagnóstico falla), pasan sin tocar: Pi valida después igual que antes.
+      prepareArguments(args: unknown): unknown {
+        let message: string | null = null;
+        try {
+          const diagnosis = diagnostician.diagnose(args);
+          if (!diagnosis.clean()) message = diagnosis.render(tool.name);
+        } catch { message = null; }
+        if (message !== null) throw new Error(message);
+        return args;
+      },
       async execute(_id: string, params: Record<string, unknown>, signal?: AbortSignal, _onUpdate?: unknown, ctx?: ToolContext) {
         if (signal?.aborted) throw new Error(`${name} aborted; outcome unknown`);
         const base = context();
