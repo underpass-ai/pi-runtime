@@ -11,6 +11,7 @@ test("rutas de estado bajo XDG y fuera del proyecto", () => {
   assert.equal(s.socketOf(p), `/h/.local/state/pi-runtime/projects/${p.id}/host.sock`);
   assert.equal(s.binDir(), "/h/.local/share/pi-runtime/bin");
   assert.equal(s.hostLogOf(p), `/h/.local/state/pi-runtime/projects/${p.id}/host.log`);
+  assert.equal(s.hostStderrOf(p), `/h/.local/state/pi-runtime/projects/${p.id}/host.stderr.log`);
   assert.equal(new StatePaths({ HOME: "/h", XDG_STATE_HOME: "/s", XDG_DATA_HOME: "/d" }).fingerprintsFile(), "/s/pi-runtime/fingerprints.json");
   assert.equal(new StatePaths({ HOME: "/h", XDG_DATA_HOME: "/d" }).binDir(), "/d/pi-runtime/bin");
 });
