@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { McpConnection } from "../../src/application/ports/McpConnection.ts";
 import { SemVer } from "../../src/domain/distribution/SemVer.ts";
+import { CanonicalJson } from "../../src/domain/shared/CanonicalJson.ts";
 import { ProtocolVersion } from "../../src/domain/mcp/ProtocolVersion.ts";
 import { RefusalCode } from "../../src/domain/mcp/RefusalCode.ts";
 import { ServerIdentity } from "../../src/domain/mcp/ServerIdentity.ts";
@@ -12,7 +13,7 @@ import { ToolRefusal } from "../../src/domain/mcp/ToolRefusal.ts";
 import { ToolSuccess } from "../../src/domain/mcp/ToolSuccess.ts";
 
 type Grant = { grant_id: string; actions: string[]; scope: Record<string, unknown>; valid_from: string; valid_until?: string; grantee_id: string; delegation_depth: number };
-const canon = (o: unknown) => JSON.stringify(o, Object.keys(o as object).sort());
+const canon = (o: unknown) => CanonicalJson.of(o).text;
 const refuse = (code: string, message: string) => ToolRefusal.of(RefusalCode.of(code), message, false);
 
 // MADE 0.8.0 en modo embebido, en memoria y sólo en lo que S3a toca: un único principal dueño
@@ -25,6 +26,9 @@ export class FakeMade implements McpConnection {
   readonly grants = new Map<string, Grant>(); readonly revoked = new Set<string>(); readonly calls: string[] = [];
   readonly #decisions = new Map<string, Record<string, unknown>>(); #n = 0;
   now: () => number; failIssue = false; failDecisions = false; failRevoke = false;
+  // Interruptores de las ramas raras: una negativa de negocio que no es de autorización, una
+  // decisión registrada que no es deny y una página de decisiones que trae otra decisión.
+  refuseBusiness = false; decisionOutcome = "deny"; foreignDecisions = false; decisionAction: string | null = null;
   constructor(now: () => number = () => Date.now()) { this.now = now; }
 
   catalog(): Promise<ToolCatalog> { throw new Error("not needed"); }
@@ -40,6 +44,7 @@ export class FakeMade implements McpConnection {
         if (this.failDecisions) return refuse("unavailable", "store busy");
         const after = (args.after_decision_id as string | undefined) ?? "";
         const page = [...this.#decisions.keys()].sort().filter((id) => id > after).slice(0, Number(args.limit ?? 100)).map((id) => this.#decisions.get(id));
+        if (this.foreignDecisions) return ToolSuccess.of({ decisions: page.map((d) => ({ ...d, decision_id: "f".repeat(64) })), next_after_decision_id: null }, "");
         return ToolSuccess.of({ decisions: page, next_after_decision_id: null }, "");
       }
       case "made_issue_authorization_grant": {
@@ -68,6 +73,7 @@ export class FakeMade implements McpConnection {
   }
 
   #business(tool: string, args: Record<string, unknown>): ToolOutcome {
+    if (this.refuseBusiness) return refuse("invalid_argument", "invalid definition");
     const action = tool.replace(/^made_/, "");
     const yaml = typeof args.definition_yaml === "string" ? args.definition_yaml : null;
     const name = yaml === null ? null : /^name: (.+)$/m.exec(yaml)?.[1] ?? null;
@@ -75,7 +81,7 @@ export class FakeMade implements McpConnection {
     const scope = name === null ? { kind: "global" } : { kind: "definition", name, version };
     if (this.live(action, scope).length > 0) return ToolSuccess.of({ tool, ok: true }, `${tool} ok`);
     const id = createHash("sha256").update(`decision-${this.#n++}`).digest("hex");
-    this.#decisions.set(id, { decision_id: id, action, scope, outcome: "deny", denial_reason: "no_matching_grant", principal: { principal_id: this.owner } });
+    this.#decisions.set(id, { decision_id: id, action: this.decisionAction ?? action, scope, outcome: this.decisionOutcome, denial_reason: "no_matching_grant", principal: { principal_id: this.owner } });
     return refuse("refused", `authorization decision ${id} denied the operation`);
   }
 }

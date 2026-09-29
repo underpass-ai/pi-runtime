@@ -16,5 +16,12 @@ export class IssuedGrants {
   }
 
   add(grant: MadeGrant): void { this.#bySession.set(grant.session.value, [...(this.#bySession.get(grant.session.value) ?? []), grant]); }
+  // Saca de la caché los grants de esta acción y alcance: MADE ya no los honra (revocados por
+  // fuera, otro store, una sesión reabierta) y el siguiente intento debe emitir otro.
+  evict(session: SessionId, action: MadeAction, scope: MadeScope): void {
+    const kept = (this.#bySession.get(session.value) ?? []).filter((g) => !(g.action.equals(action) && g.scope.equals(scope)));
+    this.#bySession.set(session.value, kept);
+  }
+
   forget(session: SessionId): void { this.#bySession.delete(session.value); }
 }
