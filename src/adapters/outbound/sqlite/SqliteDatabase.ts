@@ -22,7 +22,7 @@ export class SqliteDatabase {
   static open(path: string): SqliteDatabase {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const db = new DatabaseSync(path);
-    db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=10000;");
+    db.exec("PRAGMA busy_timeout=10000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
     db.exec(SCHEMA);
     return new SqliteDatabase(db);
   }
@@ -32,7 +32,10 @@ export class SqliteDatabase {
   transaction<T>(fn: () => T): T {
     this.#db.exec("BEGIN IMMEDIATE");
     try { const result = fn(); this.#db.exec("COMMIT"); return result; }
-    catch (e) { this.#db.exec("ROLLBACK"); throw e; }
+    catch (e) {
+      if (this.#db.isTransaction) { try { this.#db.exec("ROLLBACK"); } catch { /* preserve original error below */ } }
+      throw e;
+    }
   }
 
   close(): void { this.#db.close(); }

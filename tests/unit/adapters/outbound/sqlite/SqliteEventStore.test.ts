@@ -25,7 +25,10 @@ test("dos procesos concurrentes: ningún hueco, un único opened y la cadena ín
   const records = store.readStream(SESSION);
   assert.ok(StreamVerifier.verify(records).isIntact());
   assert.equal(records.filter((r) => r.type.value === "session.opened").length, 1);
-  assert.ok(records.length >= 49);
+  // Determinista: cada uno de los 25+25 intentos del fixture retiene el bucle hasta que su propio
+  // `append` tiene éxito exactamente una vez (con un event_id único por proceso e iteración), así
+  // que se escriben exactamente 50 registros nuevos sin importar el orden de intercalado.
+  assert.equal(records.length, 50);
 });
 
 test("la base se reabre con el mismo contenido y la transacción deshace si hay error", () => {
