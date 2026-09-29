@@ -88,6 +88,9 @@ test("shadow: tras 300 decisiones miss < 10 % y ahorro > 50 %; al cambiar la uti
   assert.ok(missRate(300) < 0.1, `miss rate de las últimas ${WINDOW} decisiones: ${missRate(300)}`);
   const report = new LearningReport(env.store).execute().contexts[0];
   assert.equal(report.shadow.decisions, 300);
+  // El ahorro en tools es estructural: con k fijo, 1 − (mínimo + k) / (mínimo + candidatas) no
+  // depende de lo aprendido. Esta aserción comprueba el cableado y la aritmética del informe, no
+  // la calidad del aprendizaje (eso lo miden el miss rate y la adaptación).
   assert.ok(report.shadow.toolSavings! > 0.5, `ahorro: ${report.shadow.toolSavings}`);
   assert.ok(report.shadow.missRate! < 0.1, `miss rate acumulado: ${report.shadow.missRate}`);
   let adaptedAfter: number | null = null;

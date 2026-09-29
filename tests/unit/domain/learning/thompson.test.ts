@@ -64,3 +64,16 @@ test("Thompson con semilla fija: reproducible, k mejores, empates por nombre y t
   assert.deepEqual(ThompsonSelector.select(candidates, flat, k, constant).map(String), ["kmp_t00", "kmp_t01", "kmp_t02", "kmp_t03"], "empates por nombre");
   assert.deepEqual(ThompsonSelector.select(tools(4).reverse(), flat, k, SeededRandom.from(seed(1))).map(String), ["kmp_t00", "kmp_t01", "kmp_t02", "kmp_t03"]);
 });
+
+test("fromJson reconstruye igual que observar una a una: se queda con las últimas 200 y valida cada observación", () => {
+  const raw = Array.from({ length: 450 }, (_, i) => [i % 3 === 0 ? 1 : 0, i % 2 === 0 ? 1 : 0.2]);
+  const oneByOne = raw.reduce((b, [r, w]) => b.observe(r, w), SlidingBeta.EMPTY);
+  const rebuilt = SlidingBeta.fromJson(raw);
+  assert.deepEqual(rebuilt.toJson(), oneByOne.toJson());
+  assert.deepEqual([rebuilt.n, rebuilt.alpha(), rebuilt.beta()], [200, oneByOne.alpha(), oneByOne.beta()]);
+  assert.deepEqual(rebuilt.toJson()[0], raw[250]);
+  const input = [[1, 1]]; const b = SlidingBeta.fromJson(input); input[0][0] = 0;
+  assert.equal(b.alpha(), 2, "no comparte el array de entrada");
+  assert.throws(() => SlidingBeta.fromJson([...raw, [1, 0]]), DomainError, "una observación inválida al final también se rechaza");
+  assert.throws(() => SlidingBeta.fromJson([[1, 0], ...raw]), DomainError, "y una que caería fuera de la ventana también");
+});

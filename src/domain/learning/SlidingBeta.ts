@@ -13,18 +13,25 @@ export class SlidingBeta {
   private constructor(observations: readonly Observation[]) { this.#observations = observations; }
   static readonly EMPTY = new SlidingBeta([]);
 
+  // O(n): valida cada observación (también las que caen fuera de la ventana, como al observar
+  // una a una) y construye el array de una vez, sin copiar la ventana en cada paso.
   static fromJson(raw: unknown): SlidingBeta {
     if (!Array.isArray(raw)) throw DomainError.because("bandit observations must be an array");
-    return raw.reduce((beta: SlidingBeta, o: unknown) => {
+    const observations = raw.map((o: unknown): Observation => {
       if (!Array.isArray(o) || o.length !== 2) throw DomainError.because("a bandit observation is [reward, weight]");
-      return beta.observe(o[0] as number, o[1] as number);
-    }, SlidingBeta.EMPTY);
+      return SlidingBeta.#valid(o[0] as number, o[1] as number);
+    });
+    return new SlidingBeta(observations.slice(-SlidingBeta.WINDOW));
   }
 
   observe(reward: number, weight: number): SlidingBeta {
+    return new SlidingBeta([...this.#observations, SlidingBeta.#valid(reward, weight)].slice(-SlidingBeta.WINDOW));
+  }
+
+  static #valid(reward: number, weight: number): Observation {
     if (reward !== 0 && reward !== 1) throw DomainError.because(`reward must be 0 or 1, got ${reward}`);
     if (typeof weight !== "number" || !(weight > 0 && weight <= 1)) throw DomainError.because(`weight must be in (0, 1], got ${weight}`);
-    return new SlidingBeta([...this.#observations, [reward, weight] as const].slice(-SlidingBeta.WINDOW));
+    return [reward, weight] as const;
   }
 
   get n(): number { return this.#observations.length; }
