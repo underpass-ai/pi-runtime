@@ -20,6 +20,8 @@ type GrantState = "active" | "expired" | "revoked";
 export class MadeGrantLedger {
   readonly #grants = new Map<string, MadeGrant>(); readonly #revoked = new Set<string>();
   readonly #sessions = new Map<string, SessionMark>(); readonly #confirmations = new Map<string, number>();
+  // Grants emitidos antes de un session.closed de su sesión: huérfanos aunque la sesión se reabra.
+  readonly #closedOver = new Set<string>();
   private constructor() {}
 
   static of(records: Iterable<EventRecord>): MadeGrantLedger {
@@ -53,7 +55,10 @@ export class MadeGrantLedger {
       // La actividad es de Pi: la auditoría de MADE y los tipos opacos no alargan la vida de la sesión.
       if (r.type.known() && !r.type.madeAudit()) mark.lastMs = Math.max(mark.lastMs, r.recordedAt.epochMs());
       if (r.type.value === "session.opened") mark.closed = false;
-      if (r.type.value === "session.closed") mark.closed = true;
+      if (r.type.value === "session.closed") {
+        mark.closed = true;
+        for (const g of this.#grants.values()) if (g.session.value === sid) this.#closedOver.add(g.id.value);
+      }
       this.#sessions.set(sid, mark);
       if (r.type.value === "made.grant_issued") {
         try { const g = MadeGrant.fromFact(r.stream.sessionId(), p, r.occurredAt); this.#grants.set(g.id.value, g); } catch { /* payload inesperado */ }
@@ -75,13 +80,14 @@ export class MadeGrantLedger {
   // Los vigentes de una sesión: los que el cierre debe revocar.
   live(session: SessionId, now: Timestamp): MadeGrant[] { return this.grants().filter((g) => g.session.equals(session) && this.state(g, now) === "active"); }
 
-  // Sin revocar y con la sesión cerrada (session_closed), abandonada o el grant caducado (expired_cleanup).
+  // Sin revocar y con la sesión cerrada o emitidos antes de un cierre suyo, aunque luego se reabriera
+  // (session_closed), o con la sesión abandonada o el grant caducado (expired_cleanup).
   orphans(now: Timestamp): { grant: MadeGrant; reason: RevocationReason }[] {
     const out: { grant: MadeGrant; reason: RevocationReason }[] = [];
     for (const g of this.grants()) {
       if (this.#revoked.has(g.id.value)) continue;
       const mark = this.#sessions.get(g.session.value);
-      if (mark?.closed) out.push({ grant: g, reason: RevocationReason.SESSION_CLOSED });
+      if (mark?.closed || this.#closedOver.has(g.id.value)) out.push({ grant: g, reason: RevocationReason.SESSION_CLOSED });
       else if (mark === undefined || now.epochMs() >= mark.lastMs + ABANDONED_AFTER_MS || g.expired(now)) out.push({ grant: g, reason: RevocationReason.EXPIRED_CLEANUP });
     }
     return out;

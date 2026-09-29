@@ -113,16 +113,19 @@ test("el libro: vigentes por sesión, estados, confirmaciones y huérfanos por c
   assert.equal(one.state(e, clock.now()), "revoked");
 });
 
-test("un payload inesperado se ignora y una sesión reabierta deja de estar cerrada", () => {
+test("un payload inesperado se ignora; una sesión reabierta deja de estar cerrada, pero sus grants de antes del cierre siguen huérfanos", () => {
   const clock = new ManualClock(10_000); const { events, record, grant } = log(clock);
   record.execute(opened("s1", 10_000));
   record.execute(fact("made.grant_issued", "grant.bad", { grantId: "nope" }, StreamId.session(sid("s1")), 10_000));
   const g = grant("s1", "get_status", MadeScope.GLOBAL, MadeActionClass.AUTO);
   record.execute(closed("s1", 10_001));
   record.execute(opened("s1", 10_002));
-  const ledger = MadeGrantLedger.read(events);
-  assert.deepEqual(ledger.grants().map((x) => x.id.value), [g.id.value]);
-  assert.deepEqual(ledger.orphans(clock.now()), []);
+  clock.ms = 10_003;
+  const after = grant("s1", "list_contracts", MadeScope.GLOBAL, MadeActionClass.AUTO);
+  for (const ledger of [MadeGrantLedger.read(events), MadeGrantLedger.forSession(events, sid("s1"))]) {
+    assert.deepEqual(ledger.grants().map((x) => x.id.value), [g.id.value, after.id.value]);
+    assert.deepEqual(ledger.orphans(clock.now()).map((o) => [o.grant.id.value, o.reason.value]), [[g.id.value, "session_closed"]], "el emitido tras reabrir sigue vivo");
+  }
 });
 
 // Como en L1 y los spans: la auditoría de MADE la registra el host, no es actividad de Pi.

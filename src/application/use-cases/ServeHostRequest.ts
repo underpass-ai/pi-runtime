@@ -22,13 +22,15 @@ import type { ServerPool } from "../services/ServerPool.ts";
 import type { CallMadeTool } from "./CallMadeTool.ts";
 import { CallServerTool } from "./CallServerTool.ts";
 import type { DeclineMadeConfirmation } from "./DeclineMadeConfirmation.ts";
+import type { RevokeMadeGrants } from "./RevokeMadeGrants.ts";
 import { ReadServerCatalog } from "./ReadServerCatalog.ts";
 import type { ReadSessionStatus } from "./ReadSessionStatus.ts";
 import type { RecordFact } from "./RecordFact.ts";
 import type { SelectTools } from "./SelectTools.ts";
 
 // S3a: la autorización de MADE gestionada por el host.
-type MadeRequests = { call: CallMadeTool; decline: DeclineMadeConfirmation };
+// revoke: al registrarse un session.closed, los grants de esa sesión se revocan en segundo plano.
+type MadeRequests = { call: CallMadeTool; decline: DeclineMadeConfirmation; revoke?: RevokeMadeGrants };
 
 export class ServeHostRequest {
   readonly #project: Project; readonly #pool: ServerPool; readonly #responses = new HostResponseMapper();
@@ -45,7 +47,10 @@ export class ServeHostRequest {
       const record = this.#record;
       if (record === null) return this.#responses.invalid(req.id, "event log not available");
       return this.#guarded(req.id, () => {
-        const r = record.execute(new FactMapper().toDomain(req.fact));
+        const fact = new FactMapper().toDomain(req.fact);
+        const r = record.execute(fact);
+        // La respuesta a Pi no espera: RevokeMadeGrants nunca lanza y el apagado la espera con tope.
+        if (fact.type.value === "session.closed" && fact.stream.isSession()) void this.#made?.revoke?.execute(fact.stream.sessionId());
         return { recorded: r.records.length, idempotent: r.idempotent };
       });
     }

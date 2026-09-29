@@ -11,6 +11,7 @@ import { MadeOwner } from "../application/services/MadeOwner.ts";
 import { PendingConfirmations } from "../application/services/PendingConfirmations.ts";
 import { CallMadeTool } from "../application/use-cases/CallMadeTool.ts";
 import { DeclineMadeConfirmation } from "../application/use-cases/DeclineMadeConfirmation.ts";
+import { RevokeMadeGrants } from "../application/use-cases/RevokeMadeGrants.ts";
 import { MadeActionPolicy } from "../domain/made/MadeActionPolicy.ts";
 import { ServerName } from "../domain/mcp/ServerName.ts";
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
@@ -82,6 +83,8 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // Tope de la exportación final en el apagado: una petición de trazas y otra de métricas,
 // cada una con OTEL_EXPORTER_OTLP_TIMEOUT, y nunca más de 30 s aunque el timeout sea mayor.
 const flushDeadline = (timeoutMs: number) => Math.min(2 * timeoutMs + 1_000, 30_000);
+// Tope de la espera a las revocaciones de MADE en curso durante el apagado.
+const REVOKE_DEADLINE_MS = 5_000;
 
 export class HostComposition {
   static async run(projectCwd: string, env: Record<string, string | undefined>, commands?: Map<string, ServerCommandFactory>): Promise<void> {
@@ -120,10 +123,12 @@ export class HostComposition {
     const madeConnection = () => pool.connection(ServerName.MADE);
     const madeFacts = new MadeFactFactory(clock, Actor.of("host", hostActor));
     const confirmations = new PendingConfirmations(new NodeEntropySource(), clock);
+    // Una sola caché de grants: la que CallMadeTool llena es la que la revocación olvida al cerrar.
+    const owner = new MadeOwner(madeConnection); const issued = new IssuedGrants();
     const made = {
-      call: new CallMadeTool({ connection: madeConnection, owner: new MadeOwner(madeConnection), policy: MadeActionPolicy.standard(), confirmations, grants: new IssuedGrants(),
-        record, facts: madeFacts, clock, log }),
+      call: new CallMadeTool({ connection: madeConnection, owner, policy: MadeActionPolicy.standard(), confirmations, grants: issued, record, facts: madeFacts, clock, log }),
       decline: new DeclineMadeConfirmation(confirmations, record, madeFacts),
+      revoke: new RevokeMadeGrants(events, owner, record, madeFacts, clock, issued, log),
     };
     const serve = new ServeHostRequest(project, pool, record, status, select, catalogs, made);
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
@@ -136,6 +141,9 @@ export class HostComposition {
     const orphans = new OrphanSpoolAdoption(new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record), clock, (level, line) => (level === "warn" ? log.warn(line) : log.info(line)));
     const adopt = () => { try { orphans.tick(); } catch (e) { log.error("fact spool adoption failed", { error: message(e) }); } };
     adopt();
+    // S3a §4: los grants que un host anterior dejó vivos (sesión cerrada o abandonada) se revocan al
+    // arrancar, después de adoptar los spools: un session.closed que esperaba en uno ya cuenta.
+    void made.revoke.execute();
     void telemetry?.tickTraces();
 
     const idleMs = Number(env.UNDERPASS_HOST_IDLE_MS ?? 60_000);
@@ -154,7 +162,11 @@ export class HostComposition {
     const shutdown = async (reason: "idle" | "signal") => {
       clearInterval(timer); clearInterval(projectionTimer); if (metricsTimer !== null) clearInterval(metricsTimer);
       try {
-        await server.close(); await pool.close(); safeRecord(hostFacts.hostStopped(reason));
+        await server.close();
+        // Las revocaciones en curso (cierres de sesión, barrido de arranque) terminan antes de cerrar
+        // el pool y la base de datos, con tope: MADE nunca retiene el apagado.
+        if (!(await Deadline.within(made.revoke.settled(), REVOKE_DEADLINE_MS))) log.warn("made revocations timed out; orphans are revoked on the next start");
+        await pool.close(); safeRecord(hostFacts.hostStopped(reason));
         try { runner.runOnce(); } catch (e) { log.error("projections failed", { error: message(e) }); }
         if (telemetry !== null && otlp.settings !== null && !(await Deadline.within(telemetry.flush(), flushDeadline(otlp.settings.timeoutMs)))) {
           log.warn("otlp final flush timed out; remaining telemetry is exported on the next start");
