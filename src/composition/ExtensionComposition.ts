@@ -11,6 +11,7 @@ import type { PiExtensionApi } from "../adapters/inbound/pi/PiExtensionApi.ts";
 import type { FactSink } from "../application/ports/FactSink.ts";
 import type { HostGateway } from "../application/ports/HostGateway.ts";
 import { PiToolFactory } from "../adapters/inbound/pi/PiToolFactory.ts";
+import type { PiArgumentValidator } from "../adapters/inbound/pi/PiArgumentValidator.ts";
 import { ServerToolsExtension } from "../adapters/inbound/pi/ServerToolsExtension.ts";
 import { ConnectToProjectHost } from "../application/use-cases/ConnectToProjectHost.ts";
 import { SelectPhaseTools } from "../application/use-cases/SelectPhaseTools.ts";
@@ -74,7 +75,7 @@ export class ExtensionComposition {
     try { return new JsonPinSetSource(RepoFile.path("pins.json")).load().pi.version.value; } catch { return null; }
   }
 
-  static server(pi: PiExtensionApi, server: ServerName, toSchema: (json: Record<string, unknown>) => unknown): void {
-    new ServerToolsExtension(server, this.#shared(), new PiToolFactory(toSchema)).register(pi);
+  static server(pi: PiExtensionApi, server: ServerName, toSchema: (json: Record<string, unknown>) => unknown, piAccepts?: PiArgumentValidator): void {
+    new ServerToolsExtension(server, this.#shared(), new PiToolFactory(toSchema, undefined, piAccepts)).register(pi);
   }
 }
