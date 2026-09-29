@@ -143,3 +143,67 @@ en `revoked`. `underpass made revoke-orphans` → `no orphan MADE grants`, exit 
 
 No se hizo (paso 7 del brief, opcional y a mano con un modelo real): lo cubren
 las sesiones por el SDK de arriba.
+
+## Repetición tras la revisión final
+
+Fecha: 2026-09-29. Mismo montaje que arriba (proyecto git desechable,
+`XDG_STATE_HOME`, `MADE_MCP_STORE_PATH`, `MADE_SETUP_CONFIG_ROOT` y
+`KMP_MCP_DATA_DIR` temporales bajo `/tmp/claude-1000/s3s`, `0700`), con el
+checkout principal en `--detach` en `daf4e4b` (producto de la ola de arreglos
+de la revisión final: tools `never` rechazadas por el host y fuera del
+catálogo de Pi, excepción global cerrada, grant `confirm` consumido tras su
+llamada, censo del store compartido y pregunta de la TUI con el alcance
+citado). Mismas versiones: Pi 0.87.1, Node v22.23.2, `kmp-mcp` 0.24.0,
+`made-mcp` 0.8.0. Ninguna sesión de Pi ni host abiertos antes; al terminar, el
+host del proyecto temporal parado por PID, el checkout principal devuelto a
+`main` (`e55b26f`) con `git status --short` vacío y el estado temporal borrado.
+El store real de MADE no contiene ninguno de los nombres de definición de esta
+repetición ni del contrato.
+
+`made-config.ts`: `made config created` y `authorization bootstrap OK`.
+
+`doctor`, antes de ninguna sesión y al final (exit 0; el único aviso, al
+principio, es `WARN event log — no events recorded yet`):
+
+```text
+[made-auth]
+  OK   host authorization — the host owns the MADE policy and can grant exact actions
+  OK   orphan grants — none
+  OK   shared store — no other MADE client has issued grants in this store; any client that opens it (e.g. the Claude Code plugin) acts as the same principal
+```
+
+Sesión aceptada (`S3A_CONFIRM=accept`, exit 0), con el check nuevo
+`noAdminTools` (ninguna de las cinco tools de administración de la
+autorización está entre las tools de Pi, registradas o activas):
+
+```text
+checks: designed, validated, explained, askedOnce, publish, statusMadeLine, noExtensionErrors, noAdminTools — todos true
+asked:  MADE: publish_ceremony_definition | Definition "pr_review_two_reviewers" v1.0
+        Allow this call?
+made:   made: 3 active grants · 1 confirmations
+admin:  []
+tools:  made_design_ceremony:ok made_validate_ceremony_draft:ok made_explain_ceremony_draft:ok made_publish_ceremony_definition:ok
+```
+
+`made: 3 active grants`: el grant `confirm` ya no cuenta, porque se revocó en
+cuanto volvió la publicación. Tras el cierre, `underpass made grants`
+(ids acortados, sin caducidad ni sesión):
+
+```text
+pi-runtime-5897…  revoked (session_closed)  auto     design_ceremony  global
+pi-runtime-ed65…  revoked (session_closed)  auto     validate_ceremony_draft  definition pr_review_two_reviewers v1.0
+pi-runtime-d5e1…  revoked (session_closed)  auto     explain_ceremony_draft  definition pr_review_two_reviewers v1.0
+pi-runtime-6f33…  revoked (consumed)  confirm  publish_ceremony_definition  definition pr_review_two_reviewers v1.0
+```
+
+Sesión rechazada (`S3A_CONFIRM=decline`, `pr_review_decline`) y sin UI
+(`S3A_CONFIRM=noui`, `pr_review_noui`): exit 0, todos los checks en `true`
+(`noAdminTools` incluido), una pregunta y ninguna respectivamente, y la
+publicación vuelve como `needs_confirmation_declined` y
+`needs_confirmation_no_ui`. `events show` de cada una: 25 líneas, 4 hechos
+`made.*` y **0** coincidencias de `instructions`, `Review the change`,
+`definition_yaml`, `objective`, `hmac`, `$HOME` o `/tmp`.
+
+Al final, `underpass made grants`: los 10 grants revocados (9 `auto` con
+`session_closed` y el `confirm` con `consumed`); `underpass made revoke-orphans`
+→ `no orphan MADE grants`, exit 0.
