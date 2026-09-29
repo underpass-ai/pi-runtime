@@ -17,6 +17,13 @@ test("el dashboard de Grafana es JSON válido, sólo usa métricas del catálogo
     assert.ok(p.title && p.type && p.targets.length > 0, p.title);
     for (const t of p.targets) assert.ok(t.refId && t.expr, p.title);
   }
+  // Fuente de datos elegible: variable DS_PROMETHEUS (tipo datasource) usada por cada panel y cada consulta.
+  const raw = JSON.parse(file("pi-runtime.dashboard.json")) as { templating: { list: { name: string; type: string; query: string }[] }; panels: { title: string; datasource: { type: string; uid: string }; targets: { datasource?: { type: string; uid: string } }[] }[] };
+  assert.deepEqual(raw.templating.list.filter((v) => v.name === "DS_PROMETHEUS").map((v) => [v.type, v.query]), [["datasource", "prometheus"]]);
+  for (const p of raw.panels) {
+    assert.deepEqual(p.datasource, { type: "prometheus", uid: "${DS_PROMETHEUS}" }, p.title);
+    for (const t of p.targets) assert.deepEqual(t.datasource, { type: "prometheus", uid: "${DS_PROMETHEUS}" }, p.title);
+  }
   const exprs = dash.panels.flatMap((p) => p.targets.map((t) => t.expr)).join("\n");
   assert.deepEqual(referenced(exprs).filter((m) => !KNOWN.has(m)), []);
   const covered = referenced(exprs).map((m) => m.replace(/_(bucket|sum|count)$/, ""));
