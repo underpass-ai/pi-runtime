@@ -2,7 +2,7 @@ import { DomainError } from "../shared/DomainError.ts";
 import type { Timestamp } from "../events/Timestamp.ts";
 import type { SpanAttributes } from "./SpanAttributes.ts";
 
-const NAMES = ["phase.changed", "model.selected", "context.compacted"];
+const NAMES = ["phase.changed", "model.selected", "context.compacted", "tools.selected"];
 
 // Evento dentro del span de sesión (spec §4).
 export class SpanEvent {

@@ -12,9 +12,10 @@ import { DomainError } from "../../domain/shared/DomainError.ts";
 import type { FactDto } from "../dto/FactDto.ts";
 
 // §1.3: sólo se aceptan los pares (tipo, type_version) conocidos. En v1, los
-// tipos de §1.2 y sólo type_version 1 (los upcasters llegarán con una v2).
+// tipos de §1.2 y sólo type_version 1 (los upcasters llegarán con una v2). L1 añade
+// tools.selected (sesión) y learning.mode_changed (host), también en v1.
 const V1_TYPES = new Set(["session.opened", "session.closed", "phase.changed", "turn.completed", "tool.started", "tool.completed",
-  "model.selected", "context.compacted", "host.started", "host.stopped", "server.started", "server.exited"]);
+  "model.selected", "context.compacted", "host.started", "host.stopped", "server.started", "server.exited", "tools.selected", "learning.mode_changed"]);
 
 export class FactMapper {
   toDomain(dto: FactDto): Fact {
