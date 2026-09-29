@@ -10,7 +10,7 @@ export class FsSpoolInspector implements SpoolInspector {
     if (!existsSync(this.#dir)) return { pendingFiles: 0, gaps: 0 };
     const names = readdirSync(this.#dir);
     return {
-      pendingFiles: names.filter((n) => n.endsWith(".jsonl") && statSync(join(this.#dir, n)).size > 0).length,
+      pendingFiles: names.filter((n) => (n.endsWith(".jsonl") || n.endsWith(".jsonl.draining")) && statSync(join(this.#dir, n)).size > 0).length,
       gaps: names.filter((n) => n.endsWith(".gap")).length,
     };
   }

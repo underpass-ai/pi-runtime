@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { FactDto } from "../../../application/dto/FactDto.ts";
 import type { FactSpool } from "../../../application/ports/FactSpool.ts";
@@ -7,7 +7,9 @@ import type { FactSpool } from "../../../application/ports/FactSpool.ts";
 // número de hechos y el tamaño viven en memoria (se leen del disco una vez al
 // crear el spool): pending() y append() no releen el fichero. Si no cabe o no
 // se puede escribir, se marca `<pid>.gap` (si se puede) y el hecho se descarta
-// sin lanzar.
+// sin lanzar. removeFirst escribe el resto en `<pid>.jsonl.tmp` y lo renombra
+// encima: un corte a mitad deja el fichero viejo entero (reenvío idempotente
+// por event_id), nunca uno truncado.
 export class FsFactSpool implements FactSpool {
   readonly #file: string; readonly #gap: string; readonly #maxBytes: number;
   #count: number; #bytes: number;
@@ -32,7 +34,9 @@ export class FsFactSpool implements FactSpool {
     const rest = this.#read().slice(n);
     if (rest.length === 0) { rmSync(this.#file, { force: true }); this.#count = 0; this.#bytes = 0; return; }
     const text = rest.map((f) => `${JSON.stringify(f)}\n`).join("");
-    writeFileSync(this.#file, text, { mode: 0o600 });
+    const tmp = `${this.#file}.tmp`;
+    writeFileSync(tmp, text, { mode: 0o600 });
+    renameSync(tmp, this.#file);
     this.#count = rest.length; this.#bytes = Buffer.byteLength(text);
   }
 

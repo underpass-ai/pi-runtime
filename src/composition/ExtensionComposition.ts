@@ -7,6 +7,8 @@ import { EventCaptureExtension } from "../adapters/inbound/pi/EventCaptureExtens
 import { HostExtension } from "../adapters/inbound/pi/HostExtension.ts";
 import { PiEventFactMapper } from "../adapters/inbound/pi/PiEventFactMapper.ts";
 import type { PiExtensionApi } from "../adapters/inbound/pi/PiExtensionApi.ts";
+import type { FactSink } from "../application/ports/FactSink.ts";
+import type { HostGateway } from "../application/ports/HostGateway.ts";
 import { PiToolFactory } from "../adapters/inbound/pi/PiToolFactory.ts";
 import { ServerToolsExtension } from "../adapters/inbound/pi/ServerToolsExtension.ts";
 import { ConnectToProjectHost } from "../application/use-cases/ConnectToProjectHost.ts";
@@ -51,10 +53,17 @@ export class ExtensionComposition {
     const host = this.#shared();
     const paths = new StatePaths(process.env); const locator = new GitProjectLocator();
     new EventCaptureExtension(
-      (cwd) => new HostFactSink(() => host.gateway(), new FsFactSpool(paths.spoolDirOf(locator.locate(cwd)), process.pid)),
+      (cwd) => this.factSink(paths.spoolDirOf(locator.locate(cwd)), process.pid, () => host.gateway()),
       new PiEventFactMapper(`pi:${process.pid}`, PackageInfo.version()),
     ).register(pi);
     host.register(pi);
+  }
+
+  // Un único HostFactSink (y FsFactSpool) por proceso y fichero de spool,
+  // compartido entre sesiones (/new, /resume, /fork) y realms de jiti: su
+  // #flushing serializa todos los drains del mismo `<pid>.jsonl`.
+  static factSink(spoolDir: string, pid: number, gateway: () => Promise<HostGateway>): FactSink {
+    return SharedInstance.get(`pi-runtime.fact-sink@${PackageInfo.version()}:${spoolDir}:${pid}`, () => new HostFactSink(gateway, new FsFactSpool(spoolDir, pid)));
   }
 
   static server(pi: PiExtensionApi, server: ServerName, toSchema: (json: Record<string, unknown>) => unknown): void {

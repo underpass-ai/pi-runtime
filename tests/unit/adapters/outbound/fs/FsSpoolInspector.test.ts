@@ -15,3 +15,9 @@ test("cuenta los .jsonl no vacíos y los .gap", () => {
 test("un directorio inexistente no tiene nada pendiente", () => {
   assert.deepEqual(new FsSpoolInspector(join(tmpdir(), "no-such-spool-dir-e1", "spool")).inspect(), { pendingFiles: 0, gaps: 0 });
 });
+
+test("un spool reclamado por el host a medio adoptar (.jsonl.draining) sigue pendiente; el temporal de removeFirst no cuenta", () => {
+  const dir = mkdtempSync(join(tmpdir(), "spool-inspect-"));
+  writeFileSync(join(dir, "4.jsonl.draining"), "{}\n"); writeFileSync(join(dir, "5.jsonl.tmp"), "{}\n");
+  assert.deepEqual(new FsSpoolInspector(dir).inspect(), { pendingFiles: 1, gaps: 0 });
+});

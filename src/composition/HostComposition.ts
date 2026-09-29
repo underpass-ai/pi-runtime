@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { FsOwnerLock } from "../adapters/outbound/fs/FsOwnerLock.ts";
+import { FsOrphanSpoolSource } from "../adapters/outbound/fs/FsOrphanSpoolSource.ts";
 import { FsMadeConfigurationRepository } from "../adapters/outbound/fs/FsMadeConfigurationRepository.ts";
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
 import { JsonPinSetSource } from "../adapters/outbound/fs/JsonPinSetSource.ts";
@@ -18,6 +19,7 @@ import { ToolStatsProjection } from "../application/projections/ToolStatsProject
 import { HostFactFactory } from "../application/services/HostFactFactory.ts";
 import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { ServerPool } from "../application/services/ServerPool.ts";
+import { AdoptOrphanSpools } from "../application/use-cases/AdoptOrphanSpools.ts";
 import { ReadSessionSummary } from "../application/use-cases/ReadSessionSummary.ts";
 import { ReadSessionStatus } from "../application/use-cases/ReadSessionStatus.ts";
 import { RecordFact } from "../application/use-cases/RecordFact.ts";
@@ -50,10 +52,19 @@ export class HostComposition {
     const serve = new ServeHostRequest(project, pool, record, new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce())));
     const server = await UnixSocketHostServer.start(paths.socketOf(project), (req) => serve.execute(req));
     safeRecord(hostFacts.hostStarted(PackageInfo.version(), process.pid));
+    // Spools de procesos de Pi muertos: se adoptan al arrancar y en cada tick.
+    const orphans = new AdoptOrphanSpools(new FsOrphanSpoolSource(paths.spoolDirOf(project)), record);
+    const adopt = () => {
+      try {
+        const r = orphans.execute();
+        if (r.files > 0) console.error(`fact spool: adopted ${r.files} orphan spool(s): ${r.recorded} recorded, ${r.invalid} invalid, ${r.retained} retained`);
+      } catch (e) { console.error(`fact spool: ${(e as Error).message}`); }
+    };
+    adopt();
 
     const idleMs = Number(env.UNDERPASS_HOST_IDLE_MS ?? 60_000);
     let idleSince = Date.now();
-    const projectionTimer = setInterval(() => { try { runner.runOnce(); } catch (e) { console.error(`projections: ${(e as Error).message}`); } }, 5_000);
+    const projectionTimer = setInterval(() => { adopt(); try { runner.runOnce(); } catch (e) { console.error(`projections: ${(e as Error).message}`); } }, 5_000);
     let stopping = false;
     // host.stopped se registra tras cerrar el pool (y con él los server.exited)
     // y siempre antes de cerrar la base de datos.

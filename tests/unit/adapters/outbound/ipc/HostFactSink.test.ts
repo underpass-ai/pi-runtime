@@ -107,3 +107,27 @@ test("un spool que no se puede escribir ni leer nunca lanza hacia Pi ni deja pro
     assert.deepEqual(unhandled, []);
   } finally { process.off("unhandledRejection", onUnhandled); }
 });
+
+test("envíos directos serializados: N+1 no adelanta a un N que acaba fallando; desde el fallo todo va al spool en orden", async () => {
+  const spool = new MemSpool(); const sent: string[] = [];
+  const gateway = async () => ({ record: async (f: FactDto) => {
+    if (f.about === "opened") { await new Promise((r) => setTimeout(r, 20)); throw new HostCallError("transport", "closed"); }
+    sent.push(f.about);
+  } }) as never;
+  const sink = new HostFactSink(gateway, spool as never);
+  sink.record(dto("opened")); sink.record(dto("turn")); sink.record(dto("tool"));
+  await new Promise((r) => setTimeout(r, 40));
+  assert.deepEqual([sent, spool.items.map((f) => f.about)], [[], ["opened", "turn", "tool"]]);
+});
+
+test("envíos directos serializados: con el host sano salen en orden de llegada aunque el primero tarde más", async () => {
+  const spool = new MemSpool(); const sent: string[] = [];
+  const gateway = async () => ({ record: async (f: FactDto) => {
+    if (f.about === "slow") await new Promise((r) => setTimeout(r, 15));
+    sent.push(f.about);
+  } }) as never;
+  const sink = new HostFactSink(gateway, spool as never);
+  sink.record(dto("slow")); sink.record(dto("fast"));
+  await sink.flush();
+  assert.deepEqual([sent, spool.pending()], [["slow", "fast"], 0]);
+});

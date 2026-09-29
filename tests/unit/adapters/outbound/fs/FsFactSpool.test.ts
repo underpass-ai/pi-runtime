@@ -64,3 +64,17 @@ test("un directorio sin permiso de escritura no lanza al añadir", async () => {
     assert.equal(s.pending(), 0);
   } finally { chmodSync(dir, 0o700); }
 });
+
+test("removeFirst reescribe con temporal + rename: fichero nuevo, 0600 y sin restos", async () => {
+  const { readdirSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "spool-"));
+  const s = new FsFactSpool(dir, 12);
+  s.append(dto(1)); s.append(dto(2)); s.append(dto(3));
+  const before = statSync(join(dir, "12.jsonl")).ino;
+  s.removeFirst(1);
+  const after = statSync(join(dir, "12.jsonl"));
+  assert.notEqual(after.ino, before, "el resto se escribe en un temporal y se renombra encima");
+  assert.equal(after.mode & 0o777, 0o600);
+  assert.deepEqual(readdirSync(dir), ["12.jsonl"]);
+  assert.deepEqual(s.readAll().map((d) => d.about), ["a2", "a3"]);
+});
