@@ -9,6 +9,7 @@ import type { PiExtensionApi } from "./PiExtensionApi.ts";
 export const HOST_READY = "underpass:host-ready";
 export const PHASE_CHANGED = "underpass:phase-changed";
 const isOurs = (n: string) => n.startsWith("kmp_") || n.startsWith("made_");
+const pct = (v: number | null) => (v === null ? "-" : `${(v * 100).toFixed(0)}%`);
 
 export class HostExtension {
   readonly #connect: (cwd: string) => Promise<HostGateway>; readonly #select: SelectPhaseTools;
@@ -74,6 +75,10 @@ export class HostExtension {
             const status = await g.summary(SessionId.of(sid)); const s = status.summary;
             if (s) lines.push(`session: ${s.turns} turns, ${s.tokens.input}+${s.tokens.output} tokens, $${s.cost.toFixed(4)}, ${Object.entries(s.calls).map(([k, v]) => `${k} ${Object.entries(v).map(([st, n]) => `${st}:${n}`).join("/")}`).join(", ") || "no calls"}, failures ${s.failures}`);
             lines.push(`log: position ${status.logPosition}, session chain ${status.sessionChainIntact ? "intact" : "BROKEN"}`);
+            const k = status.kpis;
+            if (k) lines.push(`kpis: first-try ${pct(k.firstTrySuccess)}, refusals ${pct(k.refusalRate)}, cache ${pct(k.cacheRatio)}, compactions ${k.compactions}`);
+            const x = status.exporter;
+            if (x) lines.push(x.state === "disabled" ? "otlp: disabled" : x.state === "ok" ? `otlp: ok, lag ${x.lag}` : `otlp: failing since ${x.since}`);
           } catch { lines.push("session: summary unavailable"); }
         }
         ctx.ui.notify(lines.join("\n"), "info");

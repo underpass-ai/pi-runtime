@@ -14,6 +14,8 @@ import { SqliteDatabase } from "../../../src/adapters/outbound/sqlite/SqliteData
 import { SqliteEventStore } from "../../../src/adapters/outbound/sqlite/SqliteEventStore.ts";
 import { StreamId } from "../../../src/domain/events/StreamId.ts";
 import { SessionId } from "../../../src/domain/events/SessionId.ts";
+import { TelemetryInstanceId } from "../../../src/domain/telemetry/TelemetryInstanceId.ts";
+import { TelemetryKey } from "../../../src/domain/telemetry/TelemetryKey.ts";
 
 const hostEntry = new URL("../../fixtures/test-host.ts", import.meta.url).pathname;
 const fake = new URL("../../fixtures/fake-mcp-server.ts", import.meta.url).pathname;
@@ -84,4 +86,146 @@ test("el host adopta al arrancar el spool de un proceso de Pi muerto y lo borra 
   try { assert.deepEqual(new SqliteEventStore(db).readStream(StreamId.session(SessionId.of("orphan"))).map((r) => r.type.value), ["session.opened", "turn.completed", "session.closed"]); }
   finally { db.close(); }
   assert.equal(existsSync(join(spoolDir, `${dead}.jsonl`)), false);
+});
+
+test("con OTEL_EXPORTER_OTLP_ENDPOINT el host exporta la traza de su arranque al apagarse y escribe host.log en JSON", async () => {
+  const { createServer } = await import("node:http");
+  const { existsSync, readFileSync, statSync } = await import("node:fs");
+  const { hostname } = await import("node:os");
+  const received: { path: string; body: { resourceSpans?: { scopeSpans: { spans: { name: string; spanId: string; traceId: string; parentSpanId?: string }[] }[] }[]; resourceMetrics?: { scopeMetrics: { metrics: { name: string }[] }[] }[] } }[] = [];
+  const collector = createServer((req, res) => {
+    let data = "";
+    req.on("data", (c) => { data += c; });
+    req.on("end", () => { received.push({ path: req.url ?? "", body: JSON.parse(data) }); res.writeHead(200).end("{}"); });
+  });
+  await new Promise<void>((r) => collector.listen(0, "127.0.0.1", () => r()));
+  const port = (collector.address() as { port: number }).port;
+  const home = mkdtempSync(join(tmpdir(), "home-"));
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "proj-")));
+  const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", FAKE_SERVER_CMD: `${process.execPath} ${fake}`,
+    OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${port}`, OTEL_EXPORTER_OTLP_HEADERS: "authorization=Bearer%20t0p-s3cr3t", OTEL_EXPORTER_OTLP_TIMEOUT: "2000" };
+  const paths = new StatePaths(env);
+  try {
+    const uc = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p), new DetachedHostLauncher(hostEntry, env, (p) => paths.hostStderrOf(p)));
+    const g = await uc.execute(cwd);
+    try {
+      await g.call(ServerName.KMP, ToolName.of("kmp_echo"), { x: 1 });
+      const status = await g.summary(SessionId.of("s1"));
+      assert.equal(status.exporter?.state, "ok", "con endpoint válido el exportador está activo");
+      assert.equal(status.kpis, null, "una sesión que el log no conoce no tiene KPIs");
+    } finally { g.close(); }
+    const project = new GitProjectLocator().locate(cwd);
+    const pid = hostStream(paths.eventLogOf(project))[0].payload.pid as number;
+    await waitFor(() => !alive(pid));
+
+    const spans = received.filter((r) => r.path === "/v1/traces").flatMap((r) => r.body.resourceSpans![0].scopeSpans[0].spans);
+    assert.deepEqual(spans.map((s) => s.name).sort(), ["host", "mcp_server"]);
+    const host = spans.find((s) => s.name === "host")!; const server = spans.find((s) => s.name === "mcp_server")!;
+    assert.equal(server.parentSpanId, host.spanId);
+    assert.equal(server.traceId, host.traceId);
+    const metrics = received.filter((r) => r.path === "/v1/metrics").flatMap((r) => r.body.resourceMetrics![0].scopeMetrics[0].metrics.map((m) => m.name));
+    assert.ok(metrics.includes("pi_runtime_server_starts_total"));
+    // Recurso: el proyecto sale como HMAC con la clave de la instalación (0600), también como service.instance.id.
+    const keyFile = paths.telemetryKeyFile();
+    assert.equal(statSync(keyFile).mode & 0o777, 0o600);
+    const keyHex = readFileSync(keyFile, "utf8").trim();
+    const instance = TelemetryInstanceId.derive(TelemetryKey.of(keyHex), project.id).value;
+    assert.notEqual(instance, project.id.value);
+    for (const r of received) {
+      const resource = (r.body.resourceSpans ?? r.body.resourceMetrics)![0] as unknown as { resource: { attributes: { key: string; value: { stringValue: string } }[] } };
+      const attrs = Object.fromEntries(resource.resource.attributes.map((a) => [a.key, a.value.stringValue]));
+      assert.deepEqual([attrs["pi_runtime.project"], attrs["service.instance.id"]], [instance, instance], r.path);
+    }
+    const wire = JSON.stringify(received);
+    for (const secret of [cwd, home, "t0p-s3cr3t", keyHex, project.id.value, ...(hostname().length > 3 ? [hostname()] : [])]) assert.equal(wire.includes(secret), false, secret);
+    assert.ok(existsSync(paths.hostStderrOf(project)), "stdout/stderr del proceso van a host.stderr.log");
+    const logText = existsSync(paths.hostLogOf(project)) ? readFileSync(paths.hostLogOf(project), "utf8") : "";
+    for (const line of logText.split("\n").filter(Boolean)) {
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      assert.ok(typeof entry.ts === "string" && typeof entry.level === "string" && typeof entry.msg === "string", line);
+    }
+    assert.equal(logText.includes("t0p-s3cr3t"), false);
+    assert.equal(logText.includes(keyHex), false, "la clave nunca va al log");
+    assert.deepEqual(hostStream(paths.eventLogOf(project)).map((e) => e.type).at(-1), "host.stopped");
+  } finally { collector.closeAllConnections(); collector.close(); }
+});
+
+test("con un endpoint OTLP inválido el host no exporta, lo avisa una vez sin repetir el valor y /underpass-status dice disabled", async () => {
+  const { readFileSync } = await import("node:fs");
+  const home = mkdtempSync(join(tmpdir(), "home-"));
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "proj-")));
+  const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", FAKE_SERVER_CMD: `${process.execPath} ${fake}`,
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector.internal.example:4318", OTEL_EXPORTER_OTLP_HEADERS: "authorization=t0p-s3cr3t" };
+  const paths = new StatePaths(env);
+  const uc = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p), new DetachedHostLauncher(hostEntry, env, (p) => paths.hostStderrOf(p)));
+  const g = await uc.execute(cwd);
+  try { assert.deepEqual((await g.summary(SessionId.of("s1"))).exporter, { state: "disabled", lag: 0, since: null }); } finally { g.close(); }
+  const project = new GitProjectLocator().locate(cwd);
+  const pid = hostStream(paths.eventLogOf(project))[0].payload.pid as number;
+  await waitFor(() => !alive(pid));
+  const lines = readFileSync(paths.hostLogOf(project), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+  const warned = lines.filter((l) => l.msg === "otlp exporter disabled: invalid configuration");
+  assert.equal(warned.length, 1);
+  assert.equal(warned[0].level, "warn");
+  assert.equal(typeof warned[0].reason, "string");
+  const text = JSON.stringify(lines);
+  for (const secret of ["collector.internal.example", "t0p-s3cr3t", cwd, home]) assert.equal(text.includes(secret), false, secret);
+  assert.deepEqual(hostStream(paths.eventLogOf(project)).map((e) => e.type).at(-1), "host.stopped");
+});
+
+test("una clave de telemetría insegura desactiva la exportación: se avisa una vez, sin ruta ni clave", async () => {
+  const { mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
+  const home = mkdtempSync(join(tmpdir(), "home-"));
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "proj-")));
+  const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", FAKE_SERVER_CMD: `${process.execPath} ${fake}`,
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:9" };
+  const paths = new StatePaths(env);
+  const keyHex = "ab".repeat(32);
+  mkdirSync(paths.root(), { recursive: true, mode: 0o700 });
+  writeFileSync(paths.telemetryKeyFile(), `${keyHex}\n`, { mode: 0o644 });
+  const uc = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p), new DetachedHostLauncher(hostEntry, env, (p) => paths.hostStderrOf(p)));
+  const g = await uc.execute(cwd);
+  try { assert.deepEqual((await g.summary(SessionId.of("s1"))).exporter, { state: "disabled", lag: 0, since: null }); } finally { g.close(); }
+  const project = new GitProjectLocator().locate(cwd);
+  const pid = hostStream(paths.eventLogOf(project))[0].payload.pid as number;
+  await waitFor(() => !alive(pid));
+  const lines = readFileSync(paths.hostLogOf(project), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+  const warned = lines.filter((l) => l.msg === "otlp exporter disabled: telemetry key unavailable");
+  assert.deepEqual(warned.map((l) => [l.level, l.reason]), [["warn", "telemetry key has mode 644; expected 600 or 400"]]);
+  const text = JSON.stringify(lines);
+  for (const secret of [keyHex, home, cwd]) assert.equal(text.includes(secret), false, secret);
+});
+
+test("un colector que nunca responde no bloquea al host: /underpass-status dice failing y el apagado termina", async () => {
+  const { createServer } = await import("node:net");
+  const { readFileSync } = await import("node:fs");
+  const sockets: import("node:net").Socket[] = [];
+  const blackHole = createServer((s) => { sockets.push(s); s.on("error", () => {}); });
+  await new Promise<void>((r) => blackHole.listen(0, "127.0.0.1", () => r()));
+  const port = (blackHole.address() as { port: number }).port;
+  const home = mkdtempSync(join(tmpdir(), "home-"));
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "proj-")));
+  const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", FAKE_SERVER_CMD: `${process.execPath} ${fake}`,
+    OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${port}`, OTEL_EXPORTER_OTLP_TIMEOUT: "300" };
+  const paths = new StatePaths(env);
+  try {
+    const uc = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p), new DetachedHostLauncher(hostEntry, env, (p) => paths.hostStderrOf(p)));
+    const g = await uc.execute(cwd);
+    try {
+      // Una sesión cerrada deja un span completo: el siguiente tick (5 s) intenta enviarlo.
+      const fact = (type: string, about: string) => ({ stream: "session" as const, sessionId: "s1", type, typeVersion: 1, about, occurredAtMs: Date.now(), actor: { kind: "agent", id: "pi:1" }, payload: { reason: "startup" } });
+      await g.record(fact("session.opened", "o")); await g.record(fact("session.closed", "c"));
+      let state = "";
+      const until = Date.now() + 10_000;
+      while (state !== "failing" && Date.now() < until) { state = (await g.summary(SessionId.of("s1"))).exporter?.state ?? ""; await new Promise((r) => setTimeout(r, 50)); }
+      assert.equal(state, "failing");
+    } finally { g.close(); }
+    const project = new GitProjectLocator().locate(cwd);
+    const pid = hostStream(paths.eventLogOf(project))[0].payload.pid as number;
+    await waitFor(() => !alive(pid));
+    assert.deepEqual(hostStream(paths.eventLogOf(project)).map((e) => e.type).at(-1), "host.stopped");
+    const log = readFileSync(paths.hostLogOf(project), "utf8");
+    assert.match(log, /otlp export failing; retrying with backoff/);
+    assert.equal(log.includes(String(port)), false, "el aviso no nombra el endpoint");
+  } finally { for (const s of sockets) s.destroy(); blackHole.close(); }
 });

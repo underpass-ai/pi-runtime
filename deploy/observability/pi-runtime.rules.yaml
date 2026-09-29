@@ -1,0 +1,48 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pi-runtime
+  labels:
+    app.kubernetes.io/name: pi-runtime
+    app.kubernetes.io/part-of: underpass
+spec:
+  groups:
+    - name: pi-runtime.tools
+      rules:
+        - alert: PiRuntimeToolFailureRateHigh
+          expr: |
+            sum(rate(pi_runtime_tool_invocations_total{status="failed"}[10m]))
+              / clamp_min(sum(rate(pi_runtime_tool_invocations_total[10m])), 1e-9) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: More than 5 % of tool invocations failed over the last 10 minutes
+            description: Refused and aborted calls do not count as failures. Check failing tools by server in the Pi Runtime dashboard.
+        - alert: PiRuntimeToolRefusalsHigh
+          expr: sum(rate(pi_runtime_tool_refused_total[10m])) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Tool calls are being refused more than 0.5 times per second
+            description: Check refusal reasons by tool; a policy or schema change may be rejecting calls.
+        - alert: PiRuntimeToolLatencyP95High
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(pi_runtime_tool_duration_ms_bucket[10m]))) > 2000
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Tool p95 latency above 2 seconds over the last 10 minutes
+            description: Compare p50 and p95 by tool in the dashboard to find the slow tool or MCP server.
+    - name: pi-runtime.presence
+      rules:
+        - alert: PiRuntimeTelemetryAbsent
+          expr: absent(pi_runtime_sessions_total)
+          for: 30m
+          labels:
+            severity: info
+          annotations:
+            summary: No pi-runtime session metrics received for 30 minutes
+            description: Informational. Expected when nobody uses Pi or the OTLP exporter is disabled.

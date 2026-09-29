@@ -62,3 +62,12 @@ test("events delega en su CLI y devuelve su código; sin CLI de eventos muestra 
   assert.equal(await bare.run(["events", "sessions"]), 2);
   assert.match(out.join("\n"), /events/);
 });
+
+test("metrics delega en su CLI con el resto de argumentos; sin él, uso", async () => {
+  const out: string[] = []; const seen: string[][] = [];
+  const cli = new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s), null, { run: (a) => { seen.push(a); return 0; } });
+  assert.equal(await cli.run(["metrics", "--session", "s1"]), 0);
+  assert.deepEqual(seen, [["--session", "s1"]]);
+  assert.equal(await new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s)).run(["metrics"]), 2);
+  assert.match(out.at(-1)!, /\| metrics \[--session <id>\]$/);
+});

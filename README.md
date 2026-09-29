@@ -78,12 +78,32 @@ alongside Pi's own. Two Pi commands are added:
 - `/underpass-status` shows the project, the servers that are running, and each tool catalog's version, size and fingerprint.
 - `/underpass-phase interactive|design` switches which Underpass tools are active.
 
+### OTLP export (optional)
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` (`https://`, or plain `http://` only for
+`localhost`, `127.0.0.1` or `[::1]`) before starting `pi`, and the host sends
+traces and metrics as OTLP/HTTP JSON. `OTEL_EXPORTER_OTLP_HEADERS`,
+`OTEL_EXPORTER_OTLP_TIMEOUT` and `OTEL_RESOURCE_ATTRIBUTES` are honoured.
+Two things to know before you turn it on:
+
+- **It backfills the whole history.** Traces come from the project's event
+  log, so the first export sends every session already recorded. Some
+  backends drop spans older than their ingestion window; those are lost there,
+  not locally.
+- **Delivery is at least once.** A pass with more than 512 spans goes out as
+  several POSTs; if a later one fails, the retry resends the chunks already
+  accepted, with identical trace and span ids.
+
+The project is identified by `service.instance.id` = `pi_runtime.project` =
+HMAC-SHA256 of the project id under a per-install secret, never by its path.
+
 ## Where things live
 
 | Path | Contents |
 |---|---|
 | `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/projects/<id>/` | Per-project host socket, lock and `host.log` |
 | `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/fingerprints.json` | Recorded tool-catalog fingerprints |
+| `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/telemetry.key` | Per-install telemetry secret (`0600`, created on the first OTLP export, never rotated or printed) |
 | `${XDG_DATA_HOME:-~/.local/share}/pi-runtime/bin/` | Pinned `kmp-mcp` and `made-mcp` binaries |
 | `${XDG_DATA_HOME:-~/.local/share}/pi-runtime/pi-<version>/` | Pi install (override with `PI_RUNTIME_PREFIX`) |
 | `${XDG_STATE_HOME:-~/.local/state}/underpass-made/ceremonies.sqlite3` | MADE store (override with `MADE_MCP_STORE_PATH`) |
