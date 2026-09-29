@@ -1,3 +1,4 @@
+import type { CallContextDto } from "../../../application/dto/CallContextDto.ts";
 import type { SelectionDto } from "../../../application/dto/SelectionDto.ts";
 import type { HostGateway } from "../../../application/ports/HostGateway.ts";
 import type { SelectPhaseTools } from "../../../application/use-cases/SelectPhaseTools.ts";
@@ -48,6 +49,11 @@ export class HostExtension {
     opening.catch(() => { if (this.#gateway === opening) this.#gateway = null; });
     this.#gateway = opening;
     return opening;
+  }
+
+  // Sesión y fase en curso para cada llamada a una tool (S3a); sin sesión, null.
+  callContext(): CallContextDto | null {
+    return this.#sessionId === null ? null : { sessionId: this.#sessionId, phase: this.#phase.value };
   }
 
   // Vuelve al conjunto completo de la fase. Si deshace una reducción de L1, la siguiente
@@ -169,6 +175,8 @@ export class HostExtension {
             if (x) lines.push(x.state === "disabled" ? "otlp: disabled" : x.state === "ok" ? `otlp: ok, lag ${x.lag}` : `otlp: failing since ${x.since}`);
             const l = status.learning;
             if (l) lines.push(`learning: ${l.mode} · ${l.selected ?? "-"}/${l.candidates ?? "-"} tools · miss ${pct(l.missRate)}`);
+            const m = status.made;
+            if (m) lines.push(`made: ${m.activeGrants} active grants · ${m.confirmations} confirmations`);
           } catch { lines.push("session: summary unavailable"); }
         }
         ctx.ui.notify(lines.join("\n"), "info");

@@ -14,6 +14,7 @@ import { LazyMadeServerCommandFactory } from "../adapters/outbound/process/LazyM
 import { PiCliPackageManager } from "../adapters/outbound/process/PiCliPackageManager.ts";
 import { PiCliRuntimeInspector } from "../adapters/outbound/process/PiCliRuntimeInspector.ts";
 import { UnderpassCli } from "../adapters/inbound/cli/UnderpassCli.ts";
+import { SqliteMadePolicyCensus } from "../adapters/outbound/sqlite/SqliteMadePolicyCensus.ts";
 import { BootstrapMadeAuthorization } from "../application/use-cases/BootstrapMadeAuthorization.ts";
 import { DiagnoseInstallation } from "../application/use-cases/DiagnoseInstallation.ts";
 import { DiscoverMadeCapabilities } from "../application/use-cases/DiscoverMadeCapabilities.ts";
@@ -60,8 +61,8 @@ export class CliComposition {
     const setup = new SetupInstallation(install, ensure, new BootstrapMadeAuthorization(new MadeCliAuthorizationBootstrapper(madeBin)), piPackages, store, repoRoot);
     const doctor = new DiagnoseInstallation(verify, new PiCliRuntimeInspector(), piPackages, kmp, new FsFingerprintRepository(paths.fingerprintsFile()),
       connect, new VerifyServerProfiles(ToolProfiles.standard()), new DiscoverMadeCapabilities(), pins.pi.version,
-      eventLog.diagnosis());
+      eventLog.diagnosis(), eventLog.madeAuthorization(new SqliteMadePolicyCensus(), store));
 
-    return new UnderpassCli(setup, doctor, print, eventLog.cli(), eventLog.metrics(), eventLog.learning());
+    return new UnderpassCli(setup, doctor, print, eventLog.cli(), eventLog.metrics(), eventLog.learning(), eventLog.made(() => connect(ServerName.MADE)));
   }
 }

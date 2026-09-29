@@ -36,3 +36,9 @@ test("el cableado de producción del host: kmp y made con binarios fijados bajo 
   assert.equal(cmd.env.MADE_MCP_STORE_PATH, store.value);
   assert.equal(cmd.env.MADE_MCP_BACKEND, "embedded");
 });
+
+test("el tick de adopción sólo lanza el barrido de grants de MADE cuando adoptó algún spool", () => {
+  const sweeps: number[] = [];
+  for (const adopted of [0, 2, 0, 1]) HostComposition.adoptionTick(() => adopted, () => { sweeps.push(adopted); });
+  assert.deepEqual(sweeps, [2, 1]);
+});

@@ -86,10 +86,13 @@ export class SpanAssembler {
   }
 
   // Un hecho de sesión: si la sesión lleva 24 h sin hechos se cierra antes como abandonada
-  // (igual que la habría cerrado expire en vivo); después se anota su actividad.
+  // (igual que la habría cerrado expire en vivo); después se anota su actividad. La auditoría
+  // de MADE (S3a §4) y los tipos que esta versión no conoce los registra el host, no Pi: no son
+  // actividad de la sesión, así que no alargan su vida ni mueven su fin.
   #session(r: EventRecord): Span[] {
     const idle = this.#state.sessions[r.stream.value];
     const before = idle && r.recordedAt.epochMs() >= (idle.lastRecordedAtMs ?? idle.startMs) + ABANDONED_AFTER_MS ? this.#expireSession(r.stream, r.recordedAt.epochMs()) : [];
+    if (!r.type.known() || r.type.madeAudit()) return before;
     const out = [...before, ...this.#sessionFact(r)];
     const s = this.#state.sessions[r.stream.value];
     if (s) { s.lastMs = Math.max(s.lastMs ?? s.startMs, r.occurredAt.epochMs()); s.lastRecordedAtMs = Math.max(s.lastRecordedAtMs ?? 0, r.recordedAt.epochMs()); }

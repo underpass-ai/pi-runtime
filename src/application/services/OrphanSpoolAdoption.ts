@@ -14,7 +14,8 @@ export class OrphanSpoolAdoption {
   #claimError: string | null = null;
   constructor(adopt: AdoptOrphanSpools, clock: Clock, log: (level: "info" | "warn", line: string) => void) { this.#adopt = adopt; this.#clock = clock; this.#log = log; }
 
-  tick(): void {
+  // Cuántos spools adoptó en esta pasada (el host barre los grants de MADE sólo si hubo alguno).
+  tick(): number {
     const now = this.#clock.now().epochMs();
     let claims: string[];
     try { claims = this.#adopt.claims(); }
@@ -22,7 +23,7 @@ export class OrphanSpoolAdoption {
       const message = (e as Error)?.message ?? String(e);
       if (message !== this.#claimError) this.#log("warn", `fact spool: ${message}`);
       this.#claimError = message;
-      return;
+      return 0;
     }
     if (this.#claimError !== null) { this.#claimError = null; this.#log("info", "fact spool: orphan adoption recovered"); }
     for (const known of [...this.#backoff.keys()]) if (!claims.includes(known)) this.#backoff.delete(known);
@@ -42,5 +43,6 @@ export class OrphanSpoolAdoption {
       if (!previous) this.#log("warn", `fact spool: ${claim} retained (${r.failure}); retrying with backoff from 5s up to 5min`);
     }
     if (files > 0) this.#log("info", `fact spool: adopted ${files} orphan spool(s): ${recorded} recorded, ${invalid} invalid`);
+    return files;
   }
 }

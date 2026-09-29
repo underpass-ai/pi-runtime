@@ -8,7 +8,8 @@ if (process.env.FAKE_STDERR_FLOOD) { const chunk = "x".repeat(8192); for (let i 
 const out = (o: unknown) => process.stdout.write(JSON.stringify(o) + "\n");
 const reply = (id: unknown, result: unknown) => out({ jsonrpc: "2.0", id, result });
 const error = (id: unknown, code: number, message: string) => out({ jsonrpc: "2.0", id, error: { code, message } });
-const tools = ["echo", "fail", "slow", "die"].map((n) => ({ name: `${flavor}_${n}`, description: n, inputSchema: { type: "object" } }));
+const extra = (process.env.FAKE_EXTRA_TOOLS ?? "").split(",").filter((n) => n !== "");
+const tools = ["echo", "fail", "slow", "die", ...extra].map((n) => ({ name: `${flavor}_${n}`, description: n, inputSchema: { type: "object" } }));
 
 for await (const line of createInterface({ input: process.stdin })) {
   const msg = JSON.parse(line);

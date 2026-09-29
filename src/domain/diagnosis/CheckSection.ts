@@ -10,9 +10,10 @@ export class CheckSection extends ValueObject<string> {
   static readonly EVENTS = new CheckSection("events");
   static readonly TELEMETRY = new CheckSection("telemetry");
   static readonly LEARNING = new CheckSection("learning");
+  static readonly MADE_AUTH = new CheckSection("made-auth");
   static of(raw: string): CheckSection {
     if (typeof raw !== "string") throw DomainError.because(`unknown check section ${raw}`);
-    const found = [CheckSection.PI, CheckSection.KMP, CheckSection.MADE, CheckSection.HOST, CheckSection.EVENTS, CheckSection.TELEMETRY, CheckSection.LEARNING].find((s) => s.value === raw);
+    const found = [CheckSection.PI, CheckSection.KMP, CheckSection.MADE, CheckSection.HOST, CheckSection.EVENTS, CheckSection.TELEMETRY, CheckSection.LEARNING, CheckSection.MADE_AUTH].find((s) => s.value === raw);
     if (!found) throw DomainError.because(`unknown check section ${raw}`);
     return found;
   }

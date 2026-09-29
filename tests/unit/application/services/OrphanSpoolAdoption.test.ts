@@ -101,3 +101,15 @@ test("un fallo al reclamar se registra una vez por cambio de estado, no en cada 
   at(20_000);
   assert.equal(log.length, 3);
 });
+
+test("tick devuelve cuántos spools adoptó en esa pasada (0 si ninguno, si falla o si el reclamo falla)", () => {
+  const source = new MemSource(); const clock = new FixedClock(0); const broken = new Set<string>();
+  const record = { execute: (f: Fact) => { if (broken.has(f.stream.sessionId().value)) throw new Error("locked"); } };
+  const adoption = new OrphanSpoolAdoption(new AdoptOrphanSpools(source, record as never), clock, () => {});
+  assert.equal(adoption.tick(), 0);
+  source.files.set("1.jsonl.draining", [dto("a")]); source.files.set("2.jsonl.draining", [dto("b")]); source.files.set("3.jsonl.draining", [dto("c")]); broken.add("c");
+  assert.equal(adoption.tick(), 2);
+  assert.equal(adoption.tick(), 0, "el que falla sigue en retroceso");
+  source.failClaim = "EACCES";
+  assert.equal(adoption.tick(), 0);
+});

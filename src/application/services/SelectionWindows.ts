@@ -34,7 +34,9 @@ export class SelectionWindows<T extends { atMs: number }> {
       for (const w of s.windows) this.#close(state, w);
       delete all[stream]; changed = true; this.#forget(state, stream);
     }
-    if (r.stream.isSession()) {
+    // La auditoría de MADE (la registra el host en el acto) y los tipos que esta versión no conoce
+    // no son hechos de Pi: ni se atribuyen a una ventana ni cierran las anteriores.
+    if (r.stream.isSession() && r.type.known() && !r.type.madeAudit()) {
       const stream = r.stream.value; const at = r.occurredAt.epochMs();
       const s = all[stream] ?? { lastMs: now, windows: [] };
       switch (r.type.value) {

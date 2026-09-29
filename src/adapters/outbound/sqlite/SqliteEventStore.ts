@@ -78,7 +78,7 @@ export class SqliteEventStore implements EventStore {
 
   #toRecord(r: Row): EventRecord {
     return EventRecord.restore({
-      id: EventId.of(String(r.event_id)), stream: StreamId.of(String(r.stream)), version: StreamVersion.of(Number(r.version)), type: EventType.of(String(r.type)),
+      id: EventId.of(String(r.event_id)), stream: StreamId.of(String(r.stream)), version: StreamVersion.of(Number(r.version)), type: EventType.stored(String(r.type)),
       typeVersion: TypeVersion.of(Number(r.type_version)), occurredAt: Timestamp.parse(String(r.occurred_at)), recordedAt: Timestamp.parse(String(r.recorded_at)),
       actor: Actor.of(String(r.actor_kind), String(r.actor_id)), correlationId: EventId.of(String(r.correlation_id)),
       causationId: r.causation_id === null ? null : EventId.of(String(r.causation_id)), payload: CanonicalJson.parse(String(r.payload)),

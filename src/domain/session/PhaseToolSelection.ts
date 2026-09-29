@@ -19,6 +19,8 @@ export class PhaseToolSelection {
   }
   // Lo que la fase permite de KMP y MADE, por nombre (candidatas de L1 antes de quitar el mínimo).
   allowed(phase: Phase): ToolName[] { return [...(this.#byPhase.get(phase.value) ?? [])].sort().map((n) => ToolName.of(n)); }
+  // Si la fase expone esta tool (S3a: la fase manda sobre lo que el host concede).
+  exposes(phase: Phase, tool: ToolName): boolean { return this.#byPhase.get(phase.value)?.has(tool.value) ?? false; }
   select(phase: Phase, registered: ToolName[], foreign: string[]): string[] {
     const wanted = this.#byPhase.get(phase.value)!;
     return [...foreign, ...registered.filter((t) => wanted.has(t.value)).map((t) => t.value)];

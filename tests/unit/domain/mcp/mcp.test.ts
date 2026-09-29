@@ -51,6 +51,10 @@ test("ToolCatalog: huella estable y sensible a esquemas; rechaza duplicados", ()
   assert.ok(a.has(ToolName.of("kmp_a")));
   assert.deepEqual(a.names().map(String), ["kmp_a", "kmp_b"]);
   assert.throws(() => ToolCatalog.of(ServerName.KMP, identity, [tool("kmp_a"), tool("kmp_a")]), /duplicate/);
+  const only = a.filter((n) => n.value !== "kmp_b");
+  assert.deepEqual(only.names().map(String), ["kmp_a"]);
+  assert.ok(only.server.equals(ServerName.KMP) && only.identity === identity);
+  assert.deepEqual(a.names().map(String), ["kmp_a", "kmp_b"], "el original no cambia");
 });
 
 test("resultados", () => {

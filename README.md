@@ -14,7 +14,7 @@ Authority is split, and nothing is decided twice:
 | MADE | Decisions: definitions, state, claims, leases, budget, grants, approvals, receipts |
 | Pi | Reasoning: the conversation, session tree and compaction |
 | KMP | Memory: durable facts, relations, validity, provenance, labels |
-| Host | Bridging: one deterministic process per project that runs the MCP servers and hands their tools to Pi. It keeps no state machine, budget, authorization or validator of its own. |
+| Host | Bridging: one deterministic process per project that runs the MCP servers and hands their tools to Pi. It keeps no state machine, budget or validator of its own, and never decides authorization: MADE does, and the host only asks it for exact, audited grants. |
 
 Formerly `underpass-pi`.
 
@@ -101,6 +101,36 @@ read: once a project's log has them, do not go back to a version without tool
 learning. After `underpass update`, restart Pi (and with it the host) before
 running `learning mode`, so that no older host is still writing that log.
 
+### MADE authorization
+
+`made-mcp` runs embedded with a single principal, the trusted host, which owns the
+authorization policy. When MADE denies a call, the host reads the decision (the
+exact action and scope) and acts on its class:
+
+- **Reads and drafts** (`design_ceremony`, `validate_ceremony_draft`,
+  `explain_ceremony_draft`, `diff_ceremony_definitions`, `list_contracts`…) are
+  granted on their own, for that exact action and scope, until the session closes
+  (12 h at most), and the call is retried once.
+- **Writes** (`publish_ceremony_definition`, starting or advancing ceremonies…)
+  ask for confirmation in Pi's TUI; if you accept, the host grants that one action
+  for five minutes, runs the confirmed call and revokes the grant as soon as the call
+  returns, so it covers that call only. Without a UI (`pi -p`) they are refused.
+- **Authorization admin** tools are never granted to the model: they are left out of
+  the MADE tools Pi sees, and the host refuses them without reaching MADE. Nothing is
+  granted for a tool the current phase does not expose, and only `design_ceremony`,
+  `list_contracts` and `diff_ceremony_definitions` are ever granted a global scope.
+
+Grants are revoked when the session closes; a host that starts revokes those a
+previous one left behind. `node bin/underpass.ts made grants` lists them and
+`made revoke-orphans` cleans up by hand. `doctor` checks it under `[made-auth]` and
+`/underpass-status` shows `made: <n> active grants · <m> confirmations`. Every grant,
+revocation and confirmation is a fact in the project's event log.
+
+Like tool learning, this adds fact types (`made.grant_issued`, `made.grant_revoked`,
+`made.confirmation`) that versions before it cannot read. From this version on,
+the log readers keep fact types they do not know as opaque records, so later
+versions can add types without breaking this one.
+
 ### OTLP export (optional)
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` (`https://`, or plain `http://` only for
@@ -148,5 +178,6 @@ npm test    # unit + architecture tests, coverage gate ≥ 80 % lines/branches/f
 - S1 + P0 implementation plan: [`docs/plans/2026-09-28-s1-distribucion-p0-contratos.md`](docs/plans/2026-09-28-s1-distribucion-p0-contratos.md)
 - P0 contract findings: [`docs/contracts/p0-findings.md`](docs/contracts/p0-findings.md)
 - S1 acceptance on a real installation: [`docs/acceptance/s1.md`](docs/acceptance/s1.md)
+- S3a (host-managed MADE authorization): [spec](docs/specs/2026-09-30-s3a-made-authorization-design.md), [plan](docs/plans/2026-09-30-s3a-made-authorization.md), [MADE issues](docs/upstream/2026-09-30-made-s3a-issues.md)
 
 The design documents are in Spanish.
