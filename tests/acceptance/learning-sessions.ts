@@ -14,10 +14,19 @@
 // Con LEARNING_EXPECT=shadow, todas las peticiones deben ver el conjunto completo de la
 // fase; con LEARNING_EXPECT=active (y LEARNING_K), al menos una debe verlo reducido a
 // mínimo + k como mucho. Siempre: nada fuera de la fase y la línea `learning:` en el estado.
+// Ruling R7: cada tools.selected de la sesión (leído del log del proyecto) sólo nombra tools
+// que Pi tenía registradas, y en las peticiones reducidas lo activo nuestro es el mínimo más
+// lo seleccionado por la última decisión.
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { GitProjectLocator } from "../../src/adapters/outbound/git/GitProjectLocator.ts";
+import { SqliteDatabase } from "../../src/adapters/outbound/sqlite/SqliteDatabase.ts";
+import { SqliteEventStore } from "../../src/adapters/outbound/sqlite/SqliteEventStore.ts";
+import { StatePaths } from "../../src/composition/StatePaths.ts";
+import { SessionId } from "../../src/domain/events/SessionId.ts";
+import { StreamId } from "../../src/domain/events/StreamId.ts";
 import { Phase } from "../../src/domain/session/Phase.ts";
 import { PhaseToolSelection } from "../../src/domain/session/PhaseToolSelection.ts";
 
@@ -74,20 +83,32 @@ const pick = (n: number) => () => {
   const tool = candidates.length > 0 ? candidates[n % candidates.length] : "kmp_ask";
   return ai.fauxAssistantMessage(ai.fauxToolCall(tool, { about, question: `${sentinel} ${n}` }, { id: `call${n}${sentinel.slice(10, 18)}` }), { stopReason: "toolUse" });
 };
-const perRequest: { request: number; active: number; outsidePhase: string[]; missingFloor: string[] }[] = [];
+const perRequest: { request: number; active: number; outsidePhase: string[]; missingFloor: string[]; names: string[] }[] = [];
 for (let n = 1; n <= requests; n++) {
   faux.setResponses([pick(n), ai.fauxAssistantMessage(`done ${n}`)]);
   await session.prompt(`request ${n}`);
   const active = ours(session.getActiveToolNames());
-  perRequest.push({ request: n, active: active.length, outsidePhase: active.filter((t) => !allowed.has(t)), missingFloor: floor.filter((t) => !active.includes(t)) });
+  perRequest.push({ request: n, active: active.length, outsidePhase: active.filter((t) => !allowed.has(t)), missingFloor: floor.filter((t) => !active.includes(t)), names: active });
 }
 
 await session.prompt("/underpass-status");
 const sid = session.sessionManager.getSessionId();
+const registered = new Set(ours(session.getAllTools().map((t: { name: string }) => t.name)));
 await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 session.dispose();
 
 const learning = notes.join("\n").split("\n").find((l) => l.startsWith("learning: ")) ?? null;
+// Decisiones de esta sesión en el log del proyecto (sólo nombres de tools y modos).
+const db = SqliteDatabase.openReadOnly(new StatePaths(process.env).eventLogOf(new GitProjectLocator().locate(cwd)));
+let decisions: { mode: string; control: boolean; phase: string; candidates: string[]; selected: string[]; floor: string[] }[];
+try {
+  decisions = new SqliteEventStore(db).readStream(StreamId.session(SessionId.of(sid))).filter((r) => r.type.value === "tools.selected").map((r) => {
+    const p = r.payload.toValue() as { mode: string; control: boolean; context: { phase: string }; candidates: string[]; selected: string[]; floor: string[] };
+    return { mode: p.mode, control: p.control, phase: p.context.phase, candidates: p.candidates, selected: p.selected, floor: p.floor };
+  });
+} finally { db.close(); }
+const unregistered = [...new Set(decisions.flatMap((d) => [...d.candidates, ...d.selected, ...d.floor]).filter((t) => !registered.has(t)))];
+const treated = decisions.filter((d) => d.mode === "active" && !d.control && d.phase === phase.value);
 const checks = {
   phaseApplied: full.length > 0 && full.every((t) => allowed.has(t)),
   neverOutsidePhase: perRequest.every((r) => r.outsidePhase.length === 0),
@@ -97,6 +118,9 @@ const checks = {
     ? perRequest.some((r) => r.active < full.length && r.active <= floor.length + k)
     : perRequest.every((r) => r.active === full.length),
   noExtensionErrors: extensionErrors.length === 0,
+  decisionsOnlyRegistered: decisions.length > 0 && unregistered.length === 0,
+  narrowedOnlyToSelection: perRequest.filter((r) => r.active < full.length).every((r) => treated.some((d) => r.names.every((t) => d.floor.includes(t) || d.selected.includes(t)))),
 };
-console.log(JSON.stringify({ sessionId: sid, sentinel, phase: phase.value, fullSet: full.length, perRequest, learning, extensionErrors, checks }, null, 2));
+const summary = { decisions: decisions.length, treated: treated.length, unregistered, registered: registered.size };
+console.log(JSON.stringify({ sessionId: sid, sentinel, phase: phase.value, fullSet: full.length, perRequest: perRequest.map(({ names, ...r }) => r), learning, extensionErrors, summary, checks }, null, 2));
 process.exit(Object.values(checks).every(Boolean) ? 0 : 1);
