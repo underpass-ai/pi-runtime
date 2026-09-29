@@ -17,7 +17,7 @@ export class EventRecordMapper {
       payload: r.payload.toValue(), prevHash: r.prevHash?.value ?? null, hash: r.hash.value };
   }
   toDomain(d: EventRecordDto): EventRecord {
-    return EventRecord.restore({ id: EventId.of(d.eventId), stream: StreamId.of(d.stream), version: StreamVersion.of(d.version), type: EventType.of(d.type),
+    return EventRecord.restore({ id: EventId.of(d.eventId), stream: StreamId.of(d.stream), version: StreamVersion.of(d.version), type: EventType.stored(d.type),
       typeVersion: TypeVersion.of(d.typeVersion), occurredAt: Timestamp.parse(d.occurredAt), recordedAt: Timestamp.parse(d.recordedAt), actor: Actor.of(d.actor?.kind, d.actor?.id),
       correlationId: EventId.of(d.correlationId), causationId: d.causationId === null ? null : EventId.of(d.causationId), payload: CanonicalJson.of(d.payload),
       prevHash: d.prevHash === null ? null : EventHash.of(d.prevHash), hash: EventHash.of(d.hash) });
