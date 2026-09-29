@@ -20,11 +20,13 @@ function truncate(text: string, max: number): string {
 function abortable<T>(work: () => Promise<T>, signal: AbortSignal | undefined, tool: string): Promise<T> {
   let onAbort: (() => void) | undefined;
   return new Promise<T>((resolve, reject) => {
-    work().then(resolve, reject);
+    // Escucha antes de empezar y mira si ya llegó: addEventListener sobre una señal abortada no dispara.
     if (signal) {
       onAbort = () => reject(new Error(`${tool} aborted; outcome unknown`));
+      if (signal.aborted) { onAbort(); return; }
       signal.addEventListener("abort", onAbort, { once: true });
     }
+    work().then(resolve, reject);
   }).finally(() => { if (signal && onAbort) signal.removeEventListener("abort", onAbort); });
 }
 
@@ -54,7 +56,7 @@ export class PiToolFactory {
             // repite con el token y lo que responda el host es la respuesta (nunca otra pregunta).
             const request = base !== null && HostCallError.is(e) && e.code === "needs_confirmation" ? e.confirmation : undefined;
             if (request === undefined) throw e;
-            r = await send(await PiToolFactory.#confirm(request, base!, gateway, ctx, signal));
+            r = await send(await PiToolFactory.#confirm(name, request, base!, gateway, ctx, signal));
           }
           return { content: [{ type: "text" as const, text: truncate(r.text, max) }], details: r.structured };
         } catch (e) {
@@ -67,7 +69,7 @@ export class PiToolFactory {
 
   // El token si el usuario acepta; si rechaza o no hay UI, lo comunica al host (que lo registra)
   // y lanza la negativa correspondiente. El aviso al host nunca impide la negativa.
-  static async #confirm(request: ConfirmationRequestDto, base: CallContextDto, gateway: () => Promise<HostGateway>, ctx: ToolContext | undefined, signal?: AbortSignal): Promise<string> {
+  static async #confirm(name: string, request: ConfirmationRequestDto, base: CallContextDto, gateway: () => Promise<HostGateway>, ctx: ToolContext | undefined, signal?: AbortSignal): Promise<string> {
     const what = `MADE ${request.action} on ${request.scopeSummary}`;
     const tell = async (outcome: "declined" | "no_ui") => { try { await (await gateway()).confirmation(SessionId.of(base.sessionId), request.token, outcome); } catch { /* sólo auditoría */ } };
     if (ctx?.hasUI !== true || ctx.ui === undefined) {
@@ -76,6 +78,8 @@ export class PiToolFactory {
     }
     let accepted = false;
     try { accepted = await ctx.ui.confirm(`MADE: ${request.action}`, `${request.scopeSummary}. Allow this call?`, signal ? { signal } : undefined); } catch { accepted = false; }
+    // Pi resuelve el diálogo a false cuando la llamada se aborta: eso no es un rechazo del usuario.
+    if (signal?.aborted) throw new Error(`${name} aborted; outcome unknown`);
     if (!accepted) {
       await tell("declined");
       throw new HostCallError("refused", `the user declined ${what}`, "needs_confirmation_declined");

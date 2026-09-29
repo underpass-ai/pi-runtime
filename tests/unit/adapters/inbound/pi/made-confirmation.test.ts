@@ -95,3 +95,29 @@ test("callContext: null sin sesión; la sesión y la fase en curso después", as
   await handlers.get("session_shutdown")!({}, {});
   assert.equal(host.callContext(), null);
 });
+
+test("un abort durante el diálogo no es un rechazo: no se avisa al host y el error es el del abort", async () => {
+  const host = hostFake(); const ac = new AbortController(); let seen: AbortSignal | undefined;
+  const ctx = { hasUI: true, ui: { confirm: (_t: string, _m: string, opts?: { signal?: AbortSignal }) => new Promise<boolean>((resolve) => {
+    seen = opts?.signal; opts?.signal?.addEventListener("abort", () => resolve(false), { once: true }); queueMicrotask(() => ac.abort());
+  }) } };
+  await assert.rejects(publish(host).execute("c", {}, ac.signal, undefined, ctx), (e: Error) => e.message === "made_publish_ceremony_definition aborted; outcome unknown");
+  assert.equal(seen, ac.signal, "la señal de la llamada llega a ctx.ui.confirm");
+  assert.deepEqual(host.told, []);
+  assert.equal(host.calls.length, 1);
+});
+
+test("un abort entre la aceptación y el reenvío no envía la llamada con el token", async () => {
+  const host = hostFake(); const ac = new AbortController();
+  const ctx = { hasUI: true, ui: { confirm: async () => { ac.abort(); return true; } } };
+  await assert.rejects(publish(host).execute("c", {}, ac.signal, undefined, ctx), /aborted; outcome unknown/);
+  assert.equal(host.calls.length, 1, "el token no se consume");
+  assert.deepEqual(host.told, []);
+});
+
+test("abortable detecta una señal ya abortada cuando empieza a esperar al host", async () => {
+  const ac = new AbortController();
+  const gateway = async () => { ac.abort(); return { call: async () => ({ structured: {}, text: "late" }) } as never; };
+  const tool = new PiToolFactory((j) => j).create(ServerName.MADE, new McpToolMapper().toDomain({ name: "made_list_contracts", inputSchema: { type: "object" } }), gateway);
+  await assert.rejects(tool.execute("c", {}, ac.signal), /made_list_contracts aborted; outcome unknown/);
+});
