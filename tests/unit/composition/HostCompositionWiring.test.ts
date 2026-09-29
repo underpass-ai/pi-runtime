@@ -23,7 +23,7 @@ test("el cableado de producción del host: kmp y made con binarios fijados bajo 
   assert.deepEqual([...commands.keys()], ["kmp", "made"]);
 
   const kmp = commands.get("kmp")!.commandFor(project);
-  assert.equal(kmp.command, join(home, "data/underpass-pi/bin", pins.pinFor(BinaryName.KMP).installedFileName()));
+  assert.equal(kmp.command, join(home, "data/pi-runtime/bin", pins.pinFor(BinaryName.KMP).installedFileName()));
   assert.equal(kmp.cwd, "/repo");
 
   const made = commands.get("made")!;
@@ -32,7 +32,7 @@ test("el cableado de producción del host: kmp y made con binarios fijados bajo 
   assert.equal(store.value, join(home, ".local/state/underpass-made/ceremonies.sqlite3"), "XDG_STATE_HOME vacío cae al valor por defecto");
   new FsMadeConfigurationRepository(paths.madeConfigRoot()).create(store, MadeConfiguration.generateFor(store, new Uint8Array(32).fill(9)));
   const cmd = made.commandFor(project);
-  assert.equal(cmd.command, join(home, "data/underpass-pi/bin", pins.pinFor(BinaryName.MADE).installedFileName()));
+  assert.equal(cmd.command, join(home, "data/pi-runtime/bin", pins.pinFor(BinaryName.MADE).installedFileName()));
   assert.equal(cmd.env.MADE_MCP_STORE_PATH, store.value);
   assert.equal(cmd.env.MADE_MCP_BACKEND, "embedded");
 });

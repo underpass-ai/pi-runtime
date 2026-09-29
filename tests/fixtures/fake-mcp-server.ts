@@ -24,7 +24,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   if (name === `${flavor}_echo`) reply(msg.id, { content: [{ type: "text", text: JSON.stringify(args) }], structuredContent: args, isError: false });
   else if (name === `${flavor}_fail` && flavor === "kmp") reply(msg.id, { content: [{ type: "text", text: "nf" }], structuredContent: { error: { code: "not_found", message: "no such ref" } }, isError: true });
   else if (name === `${flavor}_fail`) reply(msg.id, { content: [{ type: "text", text: "refused: no grant" }], structuredContent: { code: "refused", message: "no grant", retryable: false }, isError: true });
-  else if (name === `${flavor}_slow`) { await new Promise((r) => setTimeout(r, 300)); reply(msg.id, { content: [{ type: "text", text: "slow" }], structuredContent: {}, isError: false }); }
+  else if (name === `${flavor}_slow`) { await new Promise((r) => setTimeout(r, Number(process.env.FAKE_SLOW_MS ?? 300))); reply(msg.id, { content: [{ type: "text", text: "slow" }], structuredContent: {}, isError: false }); }
   else if (name === `${flavor}_die`) { process.stderr.write("dying now\n"); process.exit(3); }
   else error(msg.id, -32602, "unknown tool");
 }

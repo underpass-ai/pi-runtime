@@ -27,6 +27,7 @@ import { ToolProfiles } from "../domain/contracts/ToolProfiles.ts";
 import { BinaryName } from "../domain/distribution/BinaryName.ts";
 import { Target } from "../domain/distribution/Target.ts";
 import { ServerName } from "../domain/mcp/ServerName.ts";
+import { EventLogComposition } from "./EventLogComposition.ts";
 import { StatePaths } from "./StatePaths.ts";
 
 export class CliComposition {
@@ -54,9 +55,12 @@ export class CliComposition {
       return connector.open(s, made.commandFor(project));
     };
 
+    const eventLog = new EventLogComposition(paths, project, print);
     const setup = new SetupInstallation(install, ensure, new BootstrapMadeAuthorization(new MadeCliAuthorizationBootstrapper(madeBin)), piPackages, store, repoRoot);
     const doctor = new DiagnoseInstallation(verify, new PiCliRuntimeInspector(), piPackages, kmp, new FsFingerprintRepository(paths.fingerprintsFile()),
-      connect, new VerifyServerProfiles(ToolProfiles.standard()), new DiscoverMadeCapabilities(), pins.pi.version);
-    return new UnderpassCli(setup, doctor, print);
+      connect, new VerifyServerProfiles(ToolProfiles.standard()), new DiscoverMadeCapabilities(), pins.pi.version,
+      eventLog.diagnosis());
+
+    return new UnderpassCli(setup, doctor, print, eventLog.cli());
   }
 }

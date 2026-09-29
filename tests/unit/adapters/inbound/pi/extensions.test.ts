@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HOST_READY, HostExtension } from "../../../../../src/adapters/inbound/pi/HostExtension.ts";
+import { HOST_READY, HostExtension, PHASE_CHANGED } from "../../../../../src/adapters/inbound/pi/HostExtension.ts";
+import { EventCaptureExtension } from "../../../../../src/adapters/inbound/pi/EventCaptureExtension.ts";
+import { PiEventFactMapper } from "../../../../../src/adapters/inbound/pi/PiEventFactMapper.ts";
+import { HostFactSink } from "../../../../../src/adapters/outbound/ipc/HostFactSink.ts";
+import type { FactDto } from "../../../../../src/application/dto/FactDto.ts";
 import { ServerToolsExtension } from "../../../../../src/adapters/inbound/pi/ServerToolsExtension.ts";
 import { PiToolFactory } from "../../../../../src/adapters/inbound/pi/PiToolFactory.ts";
 import { HostCallError } from "../../../../../src/application/ports/HostCallError.ts";
@@ -43,6 +47,8 @@ function gatewayFake(closed: { v: boolean }) {
     catalog: async (s: ServerName) => catalog(s, s.equals(ServerName.KMP) ? ["kmp_ask", "kmp_ingest"] : ["made_claim_ceremony_step", "made_design_ceremony"]),
     call: async (_s: ServerName, t: { value: string }) => { if (t.value === "kmp_ingest") throw new HostCallError("refused", "nope", "invalid_argument"); return { structured: { ok: 1 }, text: "x".repeat(20) }; },
     health: async () => ({ project: "/repo", started: ["kmp"] }),
+    record: async () => {},
+    summary: async () => ({ summary: null, logPosition: 0, sessionChainIntact: true }),
     close: () => { closed.v = true; },
     onClose: () => {},
   };
@@ -254,4 +260,84 @@ test("una reconexión fallida no se queda cacheada: la siguiente llamada vuelve 
   assert.equal(attempts, 3);
   await pi.fire("session_shutdown");
   await assert.rejects(host.gateway(), /not connected yet/);
+});
+
+test("applyPhase emite PHASE_CHANGED con la fase y las tools activas", async () => {
+  const pi = new FakePi(); const closed = { v: false }; const seen: unknown[] = [];
+  const host = new HostExtension(async () => gatewayFake(closed), new SelectPhaseTools(PhaseToolSelection.standard()));
+  pi.events.on(PHASE_CHANGED, (d) => seen.push(d));
+  host.register(pi as never);
+  new ServerToolsExtension(ServerName.KMP, host, new PiToolFactory((j) => j)).register(pi as never);
+  await pi.fire("session_start");
+  await pi.commands.get("underpass-phase")!.handler("design", pi.ctx);
+  assert.deepEqual(seen.at(-1), { phase: "design", activeTools: pi.getActiveTools() });
+  assert.ok((seen.at(-1) as { activeTools: string[] }).activeTools.includes("kmp_ask"));
+  await pi.fire("session_shutdown");
+});
+
+const summaryOf = (turns: number) => ({ sessionId: "s1", openedAt: null, closedAt: null, phase: null, model: null, turns,
+  tokens: { input: 10, output: 3, cacheRead: 0, cacheWrite: 0 }, cost: 0.5, calls: { kmp: { succeeded: 2, failed: 1 } }, failures: 1, lastEventAt: "x" });
+
+test("underpass-status añade la línea de sesión con el resumen del host", async () => {
+  const pi = new FakePi(); const asked: string[] = [];
+  const gw = { ...gatewayFake({ v: false }), summary: async (id: { value: string }) => { asked.push(id.value); return { summary: summaryOf(4), logPosition: 12, sessionChainIntact: true }; } };
+  const host = new HostExtension(async () => gw, new SelectPhaseTools(PhaseToolSelection.standard()));
+  host.register(pi as never);
+  await pi.fire("session_start");
+  await pi.commands.get("underpass-status")!.handler("", { ...pi.ctx, sessionManager: { getSessionId: () => "s1" } });
+  assert.deepEqual(asked, ["s1"]);
+  assert.match(pi.notes.at(-1)!, /session: 4 turns, 10\+3 tokens, \$0\.5000, kmp succeeded:2\/failed:1, failures 1/);
+  assert.match(pi.notes.at(-1)!, /log: position 12, session chain intact/);
+});
+
+test("underpass-status sin resumen, sin llamadas o con summary que rechaza no falla", async () => {
+  const pi = new FakePi(); let mode = "null";
+  const gw = { ...gatewayFake({ v: false }), summary: async () => {
+    if (mode === "reject") throw new HostCallError("invalid", "bad id");
+    return mode === "null" ? { summary: null, logPosition: 0, sessionChainIntact: true } : { summary: { ...summaryOf(0), calls: {} }, logPosition: 7, sessionChainIntact: false };
+  } };
+  const host = new HostExtension(async () => gw, new SelectPhaseTools(PhaseToolSelection.standard()));
+  host.register(pi as never);
+  await pi.fire("session_start");
+  const ctx = { ...pi.ctx, sessionManager: { getSessionId: () => "s1" } };
+  await pi.commands.get("underpass-status")!.handler("", ctx);
+  assert.doesNotMatch(pi.notes.at(-1)!, /session:/);
+  assert.match(pi.notes.at(-1)!, /log: position 0, session chain intact/);
+  mode = "empty";
+  await pi.commands.get("underpass-status")!.handler("", ctx);
+  assert.match(pi.notes.at(-1)!, /session: 0 turns.*no calls/);
+  assert.match(pi.notes.at(-1)!, /log: position 7, session chain BROKEN/);
+  mode = "reject";
+  await pi.commands.get("underpass-status")!.handler("", ctx);
+  assert.match(pi.notes.at(-1)!, /session: summary unavailable/);
+  await pi.commands.get("underpass-status")!.handler("", pi.ctx); // sin sessionManager: sin línea de sesión
+  assert.doesNotMatch(pi.notes.at(-1)!, /session:/);
+});
+
+test("captura registrada antes que el host: session.opened espera en el spool y se vacía al HOST_READY", async () => {
+  const pi = new FakePi(); (pi.ctx as Record<string, unknown>).sessionManager = { getSessionId: () => "s1" };
+  const sent: string[] = []; const spooled: FactDto[] = [];
+  const spool = { append: (f: FactDto) => { spooled.push(f); }, readAll: () => [...spooled], removeFirst: (n: number) => { spooled.splice(0, n); }, pending: () => spooled.length };
+  const gw = { ...gatewayFake({ v: false }), record: async (f: FactDto) => { sent.push(f.type); } };
+  const host = new HostExtension(async () => { await new Promise((r) => setTimeout(r, 5)); return gw; }, new SelectPhaseTools(PhaseToolSelection.standard()));
+  new EventCaptureExtension(() => ({ sink: new HostFactSink(() => host.gateway(), spool), project: "p1" }), new PiEventFactMapper("pi:1", "0.1.0", "0.87.1")).register(pi as never);
+  host.register(pi as never);
+  await pi.fire("session_start"); // Pi espera cada handler en orden de registro
+  assert.deepEqual([sent, spooled.length], [["session.opened"], 0]);
+  await pi.fire("session_shutdown");
+});
+
+test("cierre normal: session.closed se entrega antes de que el host cierre el gateway", async () => {
+  const pi = new FakePi(); (pi.ctx as Record<string, unknown>).sessionManager = { getSessionId: () => "s1" };
+  const sent: string[] = []; const spooled: FactDto[] = []; let closed = false;
+  const spool = { append: (f: FactDto) => { spooled.push(f); }, readAll: () => [...spooled], removeFirst: (n: number) => { spooled.splice(0, n); }, pending: () => spooled.length };
+  const gw = { ...gatewayFake({ v: false }),
+    record: async (f: FactDto) => { await new Promise((r) => setTimeout(r, 5)); if (closed) throw new HostCallError("transport", "host connection closed"); sent.push(f.type); },
+    close: () => { closed = true; } };
+  const host = new HostExtension(async () => gw, new SelectPhaseTools(PhaseToolSelection.standard()));
+  new EventCaptureExtension(() => ({ sink: new HostFactSink(() => host.gateway(), spool), project: "p1" }), new PiEventFactMapper("pi:1", "0.1.0", "0.87.1")).register(pi as never);
+  host.register(pi as never);
+  await pi.fire("session_start");
+  await pi.fire("session_shutdown");
+  assert.deepEqual([sent, spooled.length, closed], [["session.opened", "session.closed"], 0, true]);
 });

@@ -49,5 +49,16 @@ test("verbo desconocido devuelve 2 y muestra el uso", async () => {
   const out: string[] = [];
   const cli = new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s));
   assert.equal(await cli.run(["nope"]), 2);
-  assert.match(out.join("\n"), /usage: underpass setup \| doctor \| update/);
+  assert.match(out.join("\n"), /usage: underpass setup \| doctor \| update \| events/);
+});
+
+test("events delega en su CLI y devuelve su código; sin CLI de eventos muestra el uso", async () => {
+  const out: string[] = []; const seen: string[][] = [];
+  const events = { run: (a: string[]) => { seen.push(a); return 7; } };
+  const cli = new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s), events);
+  assert.equal(await cli.run(["events", "sessions"]), 7);
+  assert.deepEqual(seen, [["sessions"]]);
+  const bare = new UnderpassCli({ execute: async () => report(false) }, { execute: async () => report(false) }, (s) => out.push(s));
+  assert.equal(await bare.run(["events", "sessions"]), 2);
+  assert.match(out.join("\n"), /events/);
 });

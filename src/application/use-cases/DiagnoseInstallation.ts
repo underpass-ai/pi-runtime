@@ -24,14 +24,25 @@ export class DiagnoseInstallation {
   readonly #verify: VerifyPinnedBinaries; readonly #runtime: PiRuntimeInspector; readonly #pi: PiPackageManager; readonly #kmp: KmpLifecycle;
   readonly #fingerprints: FingerprintRepository; readonly #connect: (s: ServerName) => Promise<McpConnection>;
   readonly #profiles: VerifyServerProfiles; readonly #capabilities: DiscoverMadeCapabilities; readonly #piVersion: SemVer;
+  readonly #eventLog: { execute(): Check[] } | null;
 
   constructor(verify: VerifyPinnedBinaries, runtime: PiRuntimeInspector, pi: PiPackageManager, kmp: KmpLifecycle, fingerprints: FingerprintRepository,
-    connect: (s: ServerName) => Promise<McpConnection>, profiles: VerifyServerProfiles, capabilities: DiscoverMadeCapabilities, piVersion: SemVer) {
+    connect: (s: ServerName) => Promise<McpConnection>, profiles: VerifyServerProfiles, capabilities: DiscoverMadeCapabilities, piVersion: SemVer,
+    eventLog: { execute(): Check[] } | null = null) {
     this.#verify = verify; this.#runtime = runtime; this.#pi = pi; this.#kmp = kmp; this.#fingerprints = fingerprints;
     this.#connect = connect; this.#profiles = profiles; this.#capabilities = capabilities; this.#piVersion = piVersion;
+    this.#eventLog = eventLog;
   }
 
+  // Los checks del log de eventos van siempre al final, también cuando la instalación corta antes (binarios sin verificar).
   async execute(record: boolean): Promise<DiagnosisReport> {
+    const report = await this.#installation(record);
+    if (this.#eventLog === null) return report;
+    try { return report.add(...this.#eventLog.execute()); }
+    catch (e) { return report.add(Check.fail(CheckSection.EVENTS, CheckName.of("event log"), CheckDetail.of((e as Error).message))); }
+  }
+
+  async #installation(record: boolean): Promise<DiagnosisReport> {
     let report = DiagnosisReport.of(await this.#piChecks());
     let binaries: Awaited<ReturnType<VerifyPinnedBinaries["execute"]>>;
     try { binaries = await this.#verify.execute(); }

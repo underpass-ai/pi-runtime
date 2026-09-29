@@ -1,11 +1,13 @@
 import type { HostGateway } from "../../../application/ports/HostGateway.ts";
 import type { SelectPhaseTools } from "../../../application/use-cases/SelectPhaseTools.ts";
+import { SessionId } from "../../../domain/events/SessionId.ts";
 import { ServerName } from "../../../domain/mcp/ServerName.ts";
 import { ToolName } from "../../../domain/mcp/ToolName.ts";
 import { Phase } from "../../../domain/session/Phase.ts";
 import type { PiExtensionApi } from "./PiExtensionApi.ts";
 
 export const HOST_READY = "underpass:host-ready";
+export const PHASE_CHANGED = "underpass:phase-changed";
 const isOurs = (n: string) => n.startsWith("kmp_") || n.startsWith("made_");
 
 export class HostExtension {
@@ -37,6 +39,7 @@ export class HostExtension {
     const ours = pi.getAllTools().map((t) => t.name).filter(isOurs).map((n) => ToolName.of(n));
     const foreign = pi.getActiveTools().filter((n) => !isOurs(n));
     pi.setActiveTools(this.#select.execute(phase, ours, foreign));
+    pi.events.emit(PHASE_CHANGED, { phase: phase.value, activeTools: pi.getActiveTools() });
   }
 
   register(pi: PiExtensionApi): void {
@@ -64,6 +67,14 @@ export class HostExtension {
         for (const s of h.started) {
           const c = await g.catalog(ServerName.of(s));
           lines.push(`${s} ${c.identity.version}: ${c.names().length} tools, ${c.fingerprint().short()}`);
+        }
+        const sid = ctx.sessionManager?.getSessionId();
+        if (sid) {
+          try {
+            const status = await g.summary(SessionId.of(sid)); const s = status.summary;
+            if (s) lines.push(`session: ${s.turns} turns, ${s.tokens.input}+${s.tokens.output} tokens, $${s.cost.toFixed(4)}, ${Object.entries(s.calls).map(([k, v]) => `${k} ${Object.entries(v).map(([st, n]) => `${st}:${n}`).join("/")}`).join(", ") || "no calls"}, failures ${s.failures}`);
+            lines.push(`log: position ${status.logPosition}, session chain ${status.sessionChainIntact ? "intact" : "BROKEN"}`);
+          } catch { lines.push("session: summary unavailable"); }
         }
         ctx.ui.notify(lines.join("\n"), "info");
       },

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 
-const prefix = process.env.UNDERPASS_PI_PREFIX ?? join(process.env.HOME!, ".local/share/underpass-pi/pi-0.87.1");
+const prefix = process.env.PI_RUNTIME_PREFIX ?? join(process.env.HOME!, ".local/share/pi-runtime/pi-0.87.1");
 const pkgDir = join(prefix, "lib/node_modules/@earendil-works/pi-coding-agent");
 const main = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
 const entry = typeof main.exports === "string" ? main.exports : main.exports?.["."]?.import ?? main.exports?.["."]?.default ?? main.main;
@@ -32,5 +32,8 @@ while (Date.now() < deadline) {
 const active = session.getActiveToolNames();
 const checks = { kmpRegistered: names.includes("kmp_ask"), madeRegistered: names.includes("made_claim_ceremony_step"), kmpActive: active.includes("kmp_ask"), madeControlHidden: !active.includes("made_claim_ceremony_step") };
 console.log(JSON.stringify({ tools: names.length, active: active.length, checks }, null, 2));
+// Como AgentSessionRuntime.dispose(): session_shutdown antes de dispose(),
+// que por sí solo no lo emite (y la sesión quedaría sin session.closed).
+await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 session.dispose();
 process.exit(Object.values(checks).every(Boolean) ? 0 : 1);
