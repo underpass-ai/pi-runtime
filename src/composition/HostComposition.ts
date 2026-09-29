@@ -1,8 +1,10 @@
 import { join } from "node:path";
 import { FsOwnerLock } from "../adapters/outbound/fs/FsOwnerLock.ts";
 import { FsFingerprintRepository } from "../adapters/outbound/fs/FsFingerprintRepository.ts";
+import { FsTelemetryKeyRepository } from "../adapters/outbound/fs/FsTelemetryKeyRepository.ts";
 import { FsOrphanSpoolSource } from "../adapters/outbound/fs/FsOrphanSpoolSource.ts";
 import { FsMadeConfigurationRepository } from "../adapters/outbound/fs/FsMadeConfigurationRepository.ts";
+import { NodeEntropySource } from "../adapters/outbound/crypto/NodeEntropySource.ts";
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
 import { JsonPinSetSource } from "../adapters/outbound/fs/JsonPinSetSource.ts";
 import { UnixSocketHostServer } from "../adapters/inbound/ipc/UnixSocketHostServer.ts";
@@ -35,6 +37,7 @@ import { ProjectionRunner } from "../application/services/ProjectionRunner.ts";
 import { ServerPool } from "../application/services/ServerPool.ts";
 import { TelemetryEpochs } from "../application/services/TelemetryEpochs.ts";
 import { TelemetryExporter } from "../application/services/TelemetryExporter.ts";
+import { EnsureTelemetryKey } from "../application/use-cases/EnsureTelemetryKey.ts";
 import { AdoptOrphanSpools } from "../application/use-cases/AdoptOrphanSpools.ts";
 import { MetricsExport } from "../application/use-cases/MetricsExport.ts";
 import { QualityKpisReport } from "../application/use-cases/QualityKpisReport.ts";
@@ -49,6 +52,7 @@ import type { Fact } from "../domain/events/Fact.ts";
 import type { CatalogFingerprint } from "../domain/mcp/CatalogFingerprint.ts";
 import type { Project } from "../domain/project/Project.ts";
 import type { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts";
+import type { TelemetryKey } from "../domain/telemetry/TelemetryKey.ts";
 import { TraceId } from "../domain/telemetry/TraceId.ts";
 import { PackageInfo } from "./PackageInfo.ts";
 import { RepoFile } from "./RepoFile.ts";
@@ -85,7 +89,7 @@ export class HostComposition {
 
     const pool = new ServerPool(project, new StdioMcpConnector(60_000), commands ?? HostComposition.commands(env, paths), listener);
     const otlp = TelemetryEnvironment.configuration(env);
-    const telemetry = HostComposition.#exporter(otlp, env, project, events, projectionStore, db, clock, log);
+    const telemetry = HostComposition.#exporter(otlp, env, paths, project, events, projectionStore, db, clock, log);
     const status = new ReadSessionStatus(events, new ReadSessionSummary(projectionStore, () => runner.runOnce()), new QualityKpisReport(projectionStore),
       () => telemetry?.status() ?? { state: "disabled", lag: 0, since: null });
     const serve = new ServeHostRequest(project, pool, record, status);
@@ -149,11 +153,15 @@ export class HostComposition {
   }
 
   // Exportador OTLP: sólo con OTEL_EXPORTER_OTLP_ENDPOINT válida. Una configuración
-  // inválida lo desactiva y se avisa una vez (sin repetir endpoint ni cabeceras).
-  static #exporter(configuration: OtlpConfiguration, env: Record<string, string | undefined>, project: Project, events: EventStore, store: ProjectionStore, db: SqliteDatabase, clock: Clock, log: HostLog): TelemetryExporter | null {
+  // inválida lo desactiva y se avisa una vez (sin repetir endpoint ni cabeceras). La clave
+  // de telemetría se crea aquí la primera vez; sin ella tampoco se exporta (nunca se registra).
+  static #exporter(configuration: OtlpConfiguration, env: Record<string, string | undefined>, paths: StatePaths, project: Project, events: EventStore, store: ProjectionStore, db: SqliteDatabase, clock: Clock, log: HostLog): TelemetryExporter | null {
     if (configuration.state === "invalid") log.warn("otlp exporter disabled: invalid configuration", { reason: configuration.problem });
     if (configuration.settings === null) return null;
-    const resource = TelemetryEnvironment.resource(env, project);
+    let key: TelemetryKey;
+    try { key = new EnsureTelemetryKey(new FsTelemetryKeyRepository(paths.telemetryKeyFile()), new NodeEntropySource()).execute(); }
+    catch (e) { log.warn("otlp exporter disabled: telemetry key unavailable", { reason: message(e) }); return null; }
+    const resource = TelemetryEnvironment.resource(env, project, key);
     const sink = new OtlpHttpTelemetrySink(configuration.settings, new OtlpJsonMapper(PackageInfo.version()));
     const metrics = new MetricsExport(new ReadTelemetryMetrics(events, store), new TelemetryEpochs(new SqliteTelemetryEpochStore(db), clock), sink, resource, clock);
     return new TelemetryExporter(new TraceExport(events, store, sink, resource), metrics, new ExporterHealth(log), clock);

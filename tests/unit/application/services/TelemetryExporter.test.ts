@@ -16,14 +16,14 @@ import { SessionId } from "../../../../src/domain/events/SessionId.ts";
 import { StreamId } from "../../../../src/domain/events/StreamId.ts";
 import { StreamVersion } from "../../../../src/domain/events/StreamVersion.ts";
 import { Timestamp } from "../../../../src/domain/events/Timestamp.ts";
-import { ProjectId } from "../../../../src/domain/project/ProjectId.ts";
+import { TelemetryInstanceId } from "../../../../src/domain/telemetry/TelemetryInstanceId.ts";
 import { ExportResult } from "../../../../src/domain/telemetry/ExportResult.ts";
 import { TelemetryResource } from "../../../../src/domain/telemetry/TelemetryResource.ts";
 import { FakeTelemetrySink } from "../../../support/FakeTelemetrySink.ts";
 import { ManualClock } from "../../../support/ManualClock.ts";
 import { AT, SESSION, fact } from "../../../support/recordFixtures.ts";
 
-const RESOURCE = TelemetryResource.of("0.1.0", ProjectId.of("0123456789abcdef"));
+const RESOURCE = TelemetryResource.of("0.1.0", TelemetryInstanceId.of("0123456789abcdef"));
 const t = (ms: number) => Timestamp.fromEpochMs(ms);
 
 function world() {

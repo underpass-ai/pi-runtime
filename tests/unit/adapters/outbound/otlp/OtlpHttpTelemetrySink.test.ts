@@ -22,7 +22,7 @@ import { RebuildProjection } from "../../../../../src/application/use-cases/Rebu
 import { TraceExport } from "../../../../../src/application/use-cases/TraceExport.ts";
 import { StreamVersion } from "../../../../../src/domain/events/StreamVersion.ts";
 import { Timestamp } from "../../../../../src/domain/events/Timestamp.ts";
-import { ProjectId } from "../../../../../src/domain/project/ProjectId.ts";
+import { TelemetryInstanceId } from "../../../../../src/domain/telemetry/TelemetryInstanceId.ts";
 import { ExportResult } from "../../../../../src/domain/telemetry/ExportResult.ts";
 import { MetricsSnapshot } from "../../../../../src/domain/telemetry/MetricsSnapshot.ts";
 import { OtlpConfiguration } from "../../../../../src/domain/telemetry/OtlpConfiguration.ts";
@@ -33,7 +33,7 @@ import { AT, SESSION, fact } from "../../../../support/recordFixtures.ts";
 type J = any;
 type Hit = { path: string; status: number; headers: IncomingHttpHeaders; body: J };
 
-const RESOURCE = TelemetryResource.of("0.1.0", ProjectId.of("0123456789abcdef"));
+const RESOURCE = TelemetryResource.of("0.1.0", TelemetryInstanceId.of("0123456789abcdef"));
 const NOW = Timestamp.fromEpochMs(10_000);
 
 async function collector(respond: (path: string, n: number) => number | "hang" = () => 200) {

@@ -1,6 +1,8 @@
 import type { Project } from "../domain/project/Project.ts";
 import { OtelKeyValueList } from "../domain/telemetry/OtelKeyValueList.ts";
 import { OtlpConfiguration } from "../domain/telemetry/OtlpConfiguration.ts";
+import { TelemetryInstanceId } from "../domain/telemetry/TelemetryInstanceId.ts";
+import type { TelemetryKey } from "../domain/telemetry/TelemetryKey.ts";
 import { TelemetryResource } from "../domain/telemetry/TelemetryResource.ts";
 import { PackageInfo } from "./PackageInfo.ts";
 
@@ -15,9 +17,10 @@ export class TelemetryEnvironment {
   }
 
   // Una OTEL_RESOURCE_ATTRIBUTES mal formada se ignora entera: el recurso propio sigue saliendo.
-  static resource(env: Env, project: Project): TelemetryResource {
+  // El proyecto sale como id de instancia (HMAC con la clave de la instalación).
+  static resource(env: Env, project: Project, key: TelemetryKey): TelemetryResource {
     let extra = OtelKeyValueList.EMPTY;
     try { extra = OtelKeyValueList.parse(env.OTEL_RESOURCE_ATTRIBUTES ?? ""); } catch { extra = OtelKeyValueList.EMPTY; }
-    return TelemetryResource.of(PackageInfo.version(), project.id, extra);
+    return TelemetryResource.of(PackageInfo.version(), TelemetryInstanceId.derive(key, project.id), extra);
   }
 }

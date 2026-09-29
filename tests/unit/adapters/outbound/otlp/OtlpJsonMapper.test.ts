@@ -4,7 +4,7 @@ import { InMemoryEventStore } from "../../../../../src/adapters/outbound/memory/
 import { OtlpJsonMapper } from "../../../../../src/adapters/outbound/otlp/OtlpJsonMapper.ts";
 import { StreamVersion } from "../../../../../src/domain/events/StreamVersion.ts";
 import { Timestamp } from "../../../../../src/domain/events/Timestamp.ts";
-import { ProjectId } from "../../../../../src/domain/project/ProjectId.ts";
+import { TelemetryInstanceId } from "../../../../../src/domain/telemetry/TelemetryInstanceId.ts";
 import { HistogramValue } from "../../../../../src/domain/telemetry/HistogramValue.ts";
 import { LabelValue } from "../../../../../src/domain/telemetry/LabelValue.ts";
 import { MetricCatalog } from "../../../../../src/domain/telemetry/MetricCatalog.ts";
@@ -17,7 +17,7 @@ import { SpanAssembler } from "../../../../../src/domain/telemetry/SpanAssembler
 import { TelemetryResource } from "../../../../../src/domain/telemetry/TelemetryResource.ts";
 import { AT, SESSION, fact } from "../../../../support/recordFixtures.ts";
 
-const RESOURCE = TelemetryResource.of("0.1.0", ProjectId.of("0123456789abcdef"));
+const RESOURCE = TelemetryResource.of("0.1.0", TelemetryInstanceId.of("0123456789abcdef"));
 type J = any;
 
 test("trazas: ExportTraceServiceRequest con ids hex, tiempos en ns como texto, atributos tipados y status", () => {
@@ -36,6 +36,7 @@ test("trazas: ExportTraceServiceRequest con ids hex, tiempos en ns como texto, a
   const rs = body.resourceSpans[0];
   assert.deepEqual(rs.resource.attributes, [
     { key: "pi_runtime.project", value: { stringValue: "0123456789abcdef" } },
+    { key: "service.instance.id", value: { stringValue: "0123456789abcdef" } },
     { key: "service.name", value: { stringValue: "pi-runtime" } },
     { key: "service.version", value: { stringValue: "0.1.0" } },
   ]);

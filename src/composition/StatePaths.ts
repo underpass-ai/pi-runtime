@@ -22,6 +22,8 @@ export class StatePaths {
   spoolDirOf(p: Project): string { return join(this.projectDir(p), "spool"); }
   binDir(): string { return join(this.#xdg("XDG_DATA_HOME", ".local/share"), "pi-runtime", "bin"); }
   fingerprintsFile(): string { return join(this.root(), "fingerprints.json"); }
+  // Clave de telemetría de la instalación (sala el id de proyecto que sale por OTLP).
+  telemetryKeyFile(): string { return join(this.root(), "telemetry.key"); }
 
   // ${MADE_MCP_STORE_PATH:-${XDG_STATE_HOME:-~/.local/state}/underpass-made/ceremonies.sqlite3}
   madeStore(): StorePath {

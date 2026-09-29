@@ -14,6 +14,8 @@ import { SqliteDatabase } from "../../../src/adapters/outbound/sqlite/SqliteData
 import { SqliteEventStore } from "../../../src/adapters/outbound/sqlite/SqliteEventStore.ts";
 import { StreamId } from "../../../src/domain/events/StreamId.ts";
 import { SessionId } from "../../../src/domain/events/SessionId.ts";
+import { TelemetryInstanceId } from "../../../src/domain/telemetry/TelemetryInstanceId.ts";
+import { TelemetryKey } from "../../../src/domain/telemetry/TelemetryKey.ts";
 
 const hostEntry = new URL("../../fixtures/test-host.ts", import.meta.url).pathname;
 const fake = new URL("../../fixtures/fake-mcp-server.ts", import.meta.url).pathname;
@@ -88,7 +90,7 @@ test("el host adopta al arrancar el spool de un proceso de Pi muerto y lo borra 
 
 test("con OTEL_EXPORTER_OTLP_ENDPOINT el host exporta la traza de su arranque al apagarse y escribe host.log en JSON", async () => {
   const { createServer } = await import("node:http");
-  const { existsSync, readFileSync } = await import("node:fs");
+  const { existsSync, readFileSync, statSync } = await import("node:fs");
   const { hostname } = await import("node:os");
   const received: { path: string; body: { resourceSpans?: { scopeSpans: { spans: { name: string; spanId: string; traceId: string; parentSpanId?: string }[] }[] }[]; resourceMetrics?: { scopeMetrics: { metrics: { name: string }[] }[] }[] } }[] = [];
   const collector = createServer((req, res) => {
@@ -123,8 +125,19 @@ test("con OTEL_EXPORTER_OTLP_ENDPOINT el host exporta la traza de su arranque al
     assert.equal(server.traceId, host.traceId);
     const metrics = received.filter((r) => r.path === "/v1/metrics").flatMap((r) => r.body.resourceMetrics![0].scopeMetrics[0].metrics.map((m) => m.name));
     assert.ok(metrics.includes("pi_runtime_server_starts_total"));
+    // Recurso: el proyecto sale como HMAC con la clave de la instalación (0600), también como service.instance.id.
+    const keyFile = paths.telemetryKeyFile();
+    assert.equal(statSync(keyFile).mode & 0o777, 0o600);
+    const keyHex = readFileSync(keyFile, "utf8").trim();
+    const instance = TelemetryInstanceId.derive(TelemetryKey.of(keyHex), project.id).value;
+    assert.notEqual(instance, project.id.value);
+    for (const r of received) {
+      const resource = (r.body.resourceSpans ?? r.body.resourceMetrics)![0] as unknown as { resource: { attributes: { key: string; value: { stringValue: string } }[] } };
+      const attrs = Object.fromEntries(resource.resource.attributes.map((a) => [a.key, a.value.stringValue]));
+      assert.deepEqual([attrs["pi_runtime.project"], attrs["service.instance.id"]], [instance, instance], r.path);
+    }
     const wire = JSON.stringify(received);
-    for (const secret of [cwd, home, "t0p-s3cr3t", ...(hostname().length > 3 ? [hostname()] : [])]) assert.equal(wire.includes(secret), false, secret);
+    for (const secret of [cwd, home, "t0p-s3cr3t", keyHex, project.id.value, ...(hostname().length > 3 ? [hostname()] : [])]) assert.equal(wire.includes(secret), false, secret);
     assert.ok(existsSync(paths.hostStderrOf(project)), "stdout/stderr del proceso van a host.stderr.log");
     const logText = existsSync(paths.hostLogOf(project)) ? readFileSync(paths.hostLogOf(project), "utf8") : "";
     for (const line of logText.split("\n").filter(Boolean)) {
@@ -132,6 +145,7 @@ test("con OTEL_EXPORTER_OTLP_ENDPOINT el host exporta la traza de su arranque al
       assert.ok(typeof entry.ts === "string" && typeof entry.level === "string" && typeof entry.msg === "string", line);
     }
     assert.equal(logText.includes("t0p-s3cr3t"), false);
+    assert.equal(logText.includes(keyHex), false, "la clave nunca va al log");
     assert.deepEqual(hostStream(paths.eventLogOf(project)).map((e) => e.type).at(-1), "host.stopped");
   } finally { collector.closeAllConnections(); collector.close(); }
 });
@@ -157,6 +171,29 @@ test("con un endpoint OTLP inválido el host no exporta, lo avisa una vez sin re
   const text = JSON.stringify(lines);
   for (const secret of ["collector.internal.example", "t0p-s3cr3t", cwd, home]) assert.equal(text.includes(secret), false, secret);
   assert.deepEqual(hostStream(paths.eventLogOf(project)).map((e) => e.type).at(-1), "host.stopped");
+});
+
+test("una clave de telemetría insegura desactiva la exportación: se avisa una vez, sin ruta ni clave", async () => {
+  const { mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
+  const home = mkdtempSync(join(tmpdir(), "home-"));
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "proj-")));
+  const env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), UNDERPASS_HOST_IDLE_MS: "500", FAKE_SERVER_CMD: `${process.execPath} ${fake}`,
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:9" };
+  const paths = new StatePaths(env);
+  const keyHex = "ab".repeat(32);
+  mkdirSync(paths.root(), { recursive: true, mode: 0o700 });
+  writeFileSync(paths.telemetryKeyFile(), `${keyHex}\n`, { mode: 0o644 });
+  const uc = new ConnectToProjectHost(new GitProjectLocator(), (s, r) => UnixSocketHostGateway.connect(s, r), (p) => paths.socketOf(p), new DetachedHostLauncher(hostEntry, env, (p) => paths.hostStderrOf(p)));
+  const g = await uc.execute(cwd);
+  try { assert.deepEqual((await g.summary(SessionId.of("s1"))).exporter, { state: "disabled", lag: 0, since: null }); } finally { g.close(); }
+  const project = new GitProjectLocator().locate(cwd);
+  const pid = hostStream(paths.eventLogOf(project))[0].payload.pid as number;
+  await waitFor(() => !alive(pid));
+  const lines = readFileSync(paths.hostLogOf(project), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+  const warned = lines.filter((l) => l.msg === "otlp exporter disabled: telemetry key unavailable");
+  assert.deepEqual(warned.map((l) => [l.level, l.reason]), [["warn", "telemetry key has mode 644; expected 600 or 400"]]);
+  const text = JSON.stringify(lines);
+  for (const secret of [keyHex, home, cwd]) assert.equal(text.includes(secret), false, secret);
 });
 
 test("un colector que nunca responde no bloquea al host: /underpass-status dice failing y el apagado termina", async () => {
