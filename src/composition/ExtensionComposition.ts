@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { GitProjectLocator } from "../adapters/outbound/git/GitProjectLocator.ts";
 import { UnixSocketHostGateway } from "../adapters/outbound/ipc/UnixSocketHostGateway.ts";
 import { DetachedHostLauncher } from "../adapters/outbound/process/DetachedHostLauncher.ts";
@@ -10,6 +9,7 @@ import { ConnectToProjectHost } from "../application/use-cases/ConnectToProjectH
 import { SelectPhaseTools } from "../application/use-cases/SelectPhaseTools.ts";
 import { ServerName } from "../domain/mcp/ServerName.ts";
 import { PhaseToolSelection } from "../domain/session/PhaseToolSelection.ts";
+import { PackageInfo } from "./PackageInfo.ts";
 import { SharedInstance } from "./SharedInstance.ts";
 import { StatePaths } from "./StatePaths.ts";
 
@@ -19,13 +19,7 @@ import { StatePaths } from "./StatePaths.ts";
 // posterior no debe reutilizar el HostExtension de la versión anterior:
 // se versiona la clave con el `version` de package.json en el momento de
 // componer, así que versiones distintas nunca comparten instancia.
-function packageVersion(): string {
-  const url = new URL("../../package.json", import.meta.url);
-  const pkg = JSON.parse(readFileSync(url, "utf8")) as { version: string };
-  return pkg.version;
-}
-
-const HOST_EXTENSION_KEY = `pi-runtime.host-extension@${packageVersion()}`;
+const HOST_EXTENSION_KEY = `pi-runtime.host-extension@${PackageInfo.version()}`;
 
 export class ExtensionComposition {
   static #select = new SelectPhaseTools(PhaseToolSelection.standard());

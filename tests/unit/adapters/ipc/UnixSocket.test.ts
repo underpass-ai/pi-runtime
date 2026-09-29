@@ -9,6 +9,8 @@ import { UnixSocketHostGateway } from "../../../../src/adapters/outbound/ipc/Uni
 import { HostCallError } from "../../../../src/application/ports/HostCallError.ts";
 import { ServerName } from "../../../../src/domain/mcp/ServerName.ts";
 import { ToolName } from "../../../../src/domain/mcp/ToolName.ts";
+import { SessionId } from "../../../../src/domain/events/SessionId.ts";
+import type { FactDto } from "../../../../src/application/dto/FactDto.ts";
 
 const sock = () => join(mkdtempSync(join(tmpdir(), "ipc-")), "host.sock");
 
@@ -166,4 +168,37 @@ test("una ruta de socket demasiado larga falla con un error claro que nombra XDG
   const long = join(dir, "x".repeat(120 - dir.length), "host.sock");
   mkdirSync(dirname(long), { mode: 0o700 });
   await assert.rejects(UnixSocketHostServer.start(long, async (req) => ({ id: req.id, ok: true, result: null })), /too long.*XDG_STATE_HOME/);
+});
+
+test("record y summary llegan al handler y hacen ida y vuelta por el gateway", async () => {
+  const path = sock();
+  const seen: unknown[] = [];
+  const summary = { sessionId: "s1", openedAt: null, closedAt: null, phase: null, model: null, turns: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, calls: {}, failures: 0, lastEventAt: "1970-01-01T00:00:01.000Z" };
+  const server = await UnixSocketHostServer.start(path, async (req) => {
+    seen.push(req);
+    if (req.method === "record") return { id: req.id, ok: true, result: { recorded: 1, idempotent: false } };
+    if (req.method === "summary") return { id: req.id, ok: true, result: req.sessionId === "s1" ? summary : null };
+    return { id: req.id, ok: false, error: { kind: "invalid", message: "unexpected" } };
+  });
+  try {
+    const gw = await UnixSocketHostGateway.connect(path);
+    const dto: FactDto = { stream: "session", sessionId: "s1", type: "session.opened", typeVersion: 1, about: "open", occurredAtMs: 1000, actor: { kind: "agent", id: "pi:1" }, payload: { reason: "startup" } };
+    assert.equal(await gw.record(dto), undefined);
+    assert.deepEqual(await gw.summary(SessionId.of("s1")), summary);
+    assert.equal(await gw.summary(SessionId.of("s2")), null);
+    assert.deepEqual(seen.map((r) => (r as { method: string }).method), ["record", "summary", "summary"]);
+    assert.deepEqual((seen[0] as { fact: FactDto }).fact, dto);
+    gw.close();
+  } finally { await server.close(); }
+});
+
+test("record rechaza con el error tipado del host", async () => {
+  const path = sock();
+  const server = await UnixSocketHostServer.start(path, async (req) => ({ id: req.id, ok: false, error: { kind: "invalid", message: "event log not available" } }));
+  try {
+    const gw = await UnixSocketHostGateway.connect(path);
+    const dto = { stream: "host", type: "host.started", typeVersion: 1, about: "h", occurredAtMs: 1, actor: { kind: "host", id: "h" }, payload: {} } as FactDto;
+    await assert.rejects(gw.record(dto), (e) => e instanceof HostCallError && e.kind === "invalid" && e.message === "event log not available");
+    gw.close();
+  } finally { await server.close(); }
 });

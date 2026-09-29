@@ -1,21 +1,42 @@
+import { SessionId } from "../../domain/events/SessionId.ts";
 import { ServerName } from "../../domain/mcp/ServerName.ts";
 import { ToolName } from "../../domain/mcp/ToolName.ts";
 import { ToolRefusal } from "../../domain/mcp/ToolRefusal.ts";
 import type { Project } from "../../domain/project/Project.ts";
+import { DomainError } from "../../domain/shared/DomainError.ts";
 import type { HostRequestDto } from "../dto/HostRequestDto.ts";
 import type { HostResponseDto } from "../dto/HostResponseDto.ts";
 import { CatalogMapper } from "../mappers/CatalogMapper.ts";
+import { FactMapper } from "../mappers/FactMapper.ts";
 import { HostResponseMapper } from "../mappers/HostResponseMapper.ts";
 import { ToolOutcomeMapper } from "../mappers/ToolOutcomeMapper.ts";
 import type { ServerPool } from "../services/ServerPool.ts";
 import { CallServerTool } from "./CallServerTool.ts";
 import { ReadServerCatalog } from "./ReadServerCatalog.ts";
+import type { ReadSessionSummary } from "./ReadSessionSummary.ts";
+import type { RecordFact } from "./RecordFact.ts";
 
 export class ServeHostRequest {
   readonly #project: Project; readonly #pool: ServerPool; readonly #responses = new HostResponseMapper();
-  constructor(project: Project, pool: ServerPool) { this.#project = project; this.#pool = pool; }
+  readonly #record: RecordFact | null; readonly #summaries: ReadSessionSummary | null;
+  constructor(project: Project, pool: ServerPool, record: RecordFact | null = null, summaries: ReadSessionSummary | null = null) {
+    this.#project = project; this.#pool = pool; this.#record = record; this.#summaries = summaries;
+  }
 
   async execute(req: HostRequestDto): Promise<HostResponseDto> {
+    if (req.method === "record") {
+      const record = this.#record;
+      if (record === null) return this.#responses.invalid(req.id, "event log not available");
+      return this.#guarded(req.id, () => {
+        const r = record.execute(new FactMapper().toDomain(req.fact));
+        return { recorded: r.records.length, idempotent: r.idempotent };
+      });
+    }
+    if (req.method === "summary") {
+      const summaries = this.#summaries;
+      if (summaries === null) return this.#responses.invalid(req.id, "event log not available");
+      return this.#guarded(req.id, () => summaries.execute(SessionId.of(req.sessionId)));
+    }
     if (req.method === "health") return this.#responses.success(req.id, { project: this.#project.root.value, started: this.#pool.started().map(String) });
     let server: ServerName; let tool: ToolName | null = null;
     try {
@@ -32,5 +53,11 @@ export class ServeHostRequest {
     } catch (e) {
       return this.#responses.failure(req.id, e);
     }
+  }
+
+  // Una DomainError es culpa de la petición (invalid); cualquier otra cosa, del host.
+  #guarded(id: number, fn: () => unknown): HostResponseDto {
+    try { return this.#responses.success(id, fn()); }
+    catch (e) { return e instanceof DomainError ? this.#responses.invalid(id, e.message) : this.#responses.failure(id, e); }
   }
 }

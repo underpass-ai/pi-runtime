@@ -10,9 +10,23 @@ import { DetachedHostLauncher } from "../../../src/adapters/outbound/process/Det
 import { StatePaths } from "../../../src/composition/StatePaths.ts";
 import { ServerName } from "../../../src/domain/mcp/ServerName.ts";
 import { ToolName } from "../../../src/domain/mcp/ToolName.ts";
+import { SqliteDatabase } from "../../../src/adapters/outbound/sqlite/SqliteDatabase.ts";
+import { SqliteEventStore } from "../../../src/adapters/outbound/sqlite/SqliteEventStore.ts";
+import { StreamId } from "../../../src/domain/events/StreamId.ts";
 
 const hostEntry = new URL("../../fixtures/test-host.ts", import.meta.url).pathname;
 const fake = new URL("../../fixtures/fake-mcp-server.ts", import.meta.url).pathname;
+
+const hostStream = (file: string) => {
+  const db = SqliteDatabase.open(file);
+  try { return new SqliteEventStore(db).readStream(StreamId.HOST).map((r) => ({ type: r.type.value, payload: r.payload.toValue() as Record<string, unknown> })); }
+  finally { db.close(); }
+};
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const waitFor = async (cond: () => boolean, ms = 10_000) => {
+  const until = Date.now() + ms;
+  while (!cond()) { if (Date.now() > until) throw new Error("timeout"); await new Promise((r) => setTimeout(r, 50)); }
+};
 
 test("dos conexiones desde el mismo proyecto comparten un único host", async () => {
   const home = mkdtempSync(join(tmpdir(), "home-"));
@@ -29,4 +43,17 @@ test("dos conexiones desde el mismo proyecto comparten un único host", async ()
     assert.deepEqual(await a.call(ServerName.KMP, ToolName.of("kmp_echo"), { x: 1 }), { structured: { x: 1 }, text: "{\"x\":1}" });
     assert.deepEqual(await b.health(), { project: cwd, started: ["kmp"] });
   } finally { a.close(); b.close(); }
+
+  const project = new GitProjectLocator().locate(cwd);
+  const log = paths.eventLogOf(project);
+  const started = hostStream(log);
+  assert.deepEqual(started.map((e) => e.type).slice(0, 2), ["host.started", "server.started"]);
+  assert.deepEqual(started[1].payload, { server: "kmp", name: "fake-kmp", version: "0.0.1" });
+  const pid = started[0].payload.pid as number;
+  assert.equal(typeof pid, "number");
+
+  // Clientes cerrados: el host se apaga por inactividad y deja constancia.
+  await waitFor(() => !alive(pid));
+  assert.deepEqual(hostStream(log).map((e) => e.type), ["host.started", "server.started", "server.exited", "host.stopped"]);
+  assert.deepEqual(hostStream(log)[3].payload, { reason: "idle" });
 });

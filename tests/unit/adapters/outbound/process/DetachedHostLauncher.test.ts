@@ -15,7 +15,7 @@ const waitFor = async (cond: () => boolean, ms = 5000) => {
 test("lanza el host desacoplado con cwd / y su stdout/stderr en un log 0600 del estado del proyecto, en modo append", async () => {
   const dir = mkdtempSync(join(tmpdir(), "launcher-"));
   const entry = join(dir, "entry.mjs");
-  writeFileSync(entry, "console.log('cwd=' + process.cwd() + ' project=' + process.argv[2]); console.error('to stderr');\n");
+  writeFileSync(entry, "console.log('cwd=' + process.cwd() + ' project=' + process.argv[2] + ' execArgv=' + JSON.stringify(process.execArgv)); console.error('to stderr');\n");
   const log = join(dir, "state", "projects", "p", "host.log");
   const launcher = new DetachedHostLauncher(entry, { PATH: process.env.PATH }, () => log);
   const project = Project.of(ProjectRoot.of("/repo"));
@@ -25,6 +25,7 @@ test("lanza el host desacoplado con cwd / y su stdout/stderr en un log 0600 del 
   await waitFor(() => readFileSync(log, "utf8").split("to stderr").length === 3);
   const text = readFileSync(log, "utf8");
   assert.match(text, /cwd=\/ project=\/repo/);
+  assert.match(text, /execArgv=\["--disable-warning=ExperimentalWarning"\]/, "el host arranca silenciando el aviso experimental de node:sqlite");
   assert.equal(text.split("cwd=/ ").length, 3, "el segundo arranque añade, no trunca");
   assert.equal(statSync(log).mode & 0o777, 0o600);
   assert.equal(statSync(join(dir, "state", "projects", "p")).mode & 0o777, 0o700);

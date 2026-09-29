@@ -43,6 +43,8 @@ function gatewayFake(closed: { v: boolean }) {
     catalog: async (s: ServerName) => catalog(s, s.equals(ServerName.KMP) ? ["kmp_ask", "kmp_ingest"] : ["made_claim_ceremony_step", "made_design_ceremony"]),
     call: async (_s: ServerName, t: { value: string }) => { if (t.value === "kmp_ingest") throw new HostCallError("refused", "nope", "invalid_argument"); return { structured: { ok: 1 }, text: "x".repeat(20) }; },
     health: async () => ({ project: "/repo", started: ["kmp"] }),
+    record: async () => {},
+    summary: async () => null,
     close: () => { closed.v = true; },
     onClose: () => {},
   };
