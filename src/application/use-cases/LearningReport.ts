@@ -61,6 +61,6 @@ export class LearningReport {
   static #successes(stats: Map<string, unknown>, tool: string): number {
     let server: ServerName | null;
     try { server = ServerName.owning(ToolName.of(tool)); } catch { return 0; }
-    return server === null ? 0 : (stats.get(`tool:${server.value}:${tool}`) as ToolStatsDto | undefined)?.succeeded ?? 0;
+    return server === null ? 0 : (stats.get(ToolStatsProjection.key(server.value, tool)) as ToolStatsDto | undefined)?.succeeded ?? 0;
   }
 }

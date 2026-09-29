@@ -167,3 +167,35 @@ test("plazo de la extensión (spec §7): si el reloj del host ya lo pasó antes 
   assert.equal(h.decisions().length, 1);
   assert.equal(h.select.execute(S1, Phase.INTERACTIVE).mode, "shadow", "sin plazo, como antes");
 });
+
+// Prior de tool_stats (spec §2): la clave con la que tool_stats guarda cada tool es la misma con
+// la que SelectTools y el informe la buscan (ToolStatsProjection.key, única fuente).
+test("prior de tool_stats: 5 éxitos en otra sesión suben α a 6 y esas tools se llevan la mayoría de los huecos en active", async () => {
+  const { LearningReport } = await import("../../../../src/application/use-cases/LearningReport.ts");
+  const PRIOR = ["kmp_guide", "kmp_time", "made_get_help", "made_list_contracts"];
+  const run = (withStats: boolean) => {
+    const h = host();
+    const other = StreamId.session(SessionId.of("s0"));
+    h.record.execute(fact("session.opened", "o0", {}, other));
+    if (withStats) for (const tool of PRIOR) for (let i = 0; i < 5; i++) h.record.execute(used(`p${tool}${i}`, tool, "succeeded", other));
+    h.record.execute(fact("learning.mode_changed", "m", { from: "shadow", to: "active", k: 4 }, StreamId.HOST));
+    let slots = 0; let prior = 0;
+    for (let i = 0; i < 40; i++) {
+      const s = SessionId.of(`d${i}`);
+      h.record.execute(fact("session.opened", `o${i}`, {}, StreamId.session(s)));
+      const d = h.select.execute(s, Phase.DESIGN);
+      assert.equal(d.mode, "active");
+      slots += d.selected.length; prior += d.selected.filter((t) => PRIOR.includes(t)).length;
+    }
+    return { share: prior / slots, report: new LearningReport(h.store).execute(Phase.DESIGN) };
+  };
+  const baseline = run(false); const boosted = run(true);
+  // Sin prior, 4 de 16 candidatas: ~25 % de los huecos. Con Beta(6, 1) frente a 12 Beta(1, 1),
+  // la mayoría de los huecos (el máximo de 12 uniformes aún les gana a veces).
+  assert.ok(baseline.share < 0.4, `sin estadísticas las 4 no dominan: ${baseline.share}`);
+  assert.ok(boosted.share > 0.5 && boosted.share > 2 * baseline.share, `con 5 éxitos cada una se llevan la mayoría de los huecos: ${boosted.share} vs ${baseline.share}`);
+  const arms = new Map(boosted.report.contexts[0].tools.map((t) => [t.tool, t]));
+  for (const tool of PRIOR) assert.deepEqual([arms.get(tool)?.alpha, arms.get(tool)?.beta, arms.get(tool)?.n], [6, 1, 0], tool);
+  assert.equal(arms.get("kmp_trace")?.alpha, 1);
+  assert.equal(ToolStatsProjection.key("kmp", "kmp_time"), "tool:kmp:kmp_time");
+});

@@ -75,7 +75,7 @@ export class SelectTools {
     const posterior = (tool: ToolName) => {
       const arm = SelectTools.#arm(bandit.get(ToolBanditProjection.armKey(context.key, tool.value)));
       const server = ServerName.owning(tool);
-      const successes = server === null ? 0 : (stats.get(`tool:${server.value}:${tool.value}`) as ToolStatsDto | undefined)?.succeeded ?? 0;
+      const successes = server === null ? 0 : (stats.get(ToolStatsProjection.key(server.value, tool.value)) as ToolStatsDto | undefined)?.succeeded ?? 0;
       return { alpha: arm.alpha(successes), beta: arm.beta() };
     };
     const selected = ThompsonSelector.select(candidates, posterior, setting.size, SeededRandom.from(slot.id));
