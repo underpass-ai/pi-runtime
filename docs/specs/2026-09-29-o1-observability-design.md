@@ -99,7 +99,7 @@ Los KPIs de aceptación de recomendaciones del runtime se dejan para L1.
 **Recurso:**
 - `service.name=pi-runtime`, `service.version`, `pi_runtime.project` y `service.instance.id`.
 - `pi_runtime.project` y `service.instance.id` llevan el mismo valor: `HMAC-SHA256(clave, ProjectId)`, primeros 16 hex. Así las series de dos proyectos no chocan (Prometheus las distingue por `job` + `instance`) y el valor no se puede revertir adivinando rutas, como sí pasaría con el hash sin sal del `ProjectId`.
-- La clave es un secreto por instalación: 32 bytes aleatorios en `<state>/telemetry.key` (0600, creada de forma atómica la primera vez que el host exporta; nunca rota). Nunca aparece en logs, errores, `doctor` ni en la telemetría. Si no se puede leer o crear (permisos abiertos, symlink, contenido inválido), el host no exporta y lo avisa una vez, sin ruta ni valor.
+- La clave es un secreto por instalación: 32 bytes aleatorios en `<state>/telemetry.key` (0600, creada de forma atómica al arrancar el host, desde L1 aunque no exporte; antes de L1, la primera vez que exportaba; nunca rota). Nunca aparece en logs, errores, `doctor` ni en la telemetría. Si no se puede leer o crear (permisos abiertos, symlink, contenido inválido), el host no exporta y lo avisa una vez, sin ruta ni valor.
 - Se respeta `OTEL_RESOURCE_ATTRIBUTES`, salvo claves de máquina o usuario y valores con rutas; un `service.instance.id` del usuario se descarta porque lo fija el runtime.
 - Nunca se envían el hostname, el usuario ni rutas.
 

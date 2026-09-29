@@ -91,6 +91,16 @@ and MADE's status tools stay on, plus the `k` best candidates (12 by default,
 `doctor` warns if that group does better. `learning mode shadow` or
 `learning mode off` turns it back.
 
+The project in each learning context is the same HMAC id as the OTLP export,
+so the host makes sure the per-install `telemetry.key` exists on every start,
+even without OTLP.
+
+**Upgrading to tool learning is one-way.** The first decision writes new fact
+types (`tools.selected`, `learning.mode_changed`) that older versions cannot
+read: once a project's log has them, do not go back to a version without tool
+learning. After `underpass update`, restart Pi (and with it the host) before
+running `learning mode`, so that no older host is still writing that log.
+
 ### OTLP export (optional)
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` (`https://`, or plain `http://` only for
@@ -116,7 +126,7 @@ HMAC-SHA256 of the project id under a per-install secret, never by its path.
 |---|---|
 | `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/projects/<id>/` | Per-project host socket, lock and `host.log` |
 | `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/fingerprints.json` | Recorded tool-catalog fingerprints |
-| `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/telemetry.key` | Per-install telemetry secret (`0600`, created on the first OTLP export, never rotated or printed) |
+| `${XDG_STATE_HOME:-~/.local/state}/pi-runtime/telemetry.key` | Per-install telemetry secret (`0600`, created on the first host start, never rotated or printed) |
 | `${XDG_DATA_HOME:-~/.local/share}/pi-runtime/bin/` | Pinned `kmp-mcp` and `made-mcp` binaries |
 | `${XDG_DATA_HOME:-~/.local/share}/pi-runtime/pi-<version>/` | Pi install (override with `PI_RUNTIME_PREFIX`) |
 | `${XDG_STATE_HOME:-~/.local/state}/underpass-made/ceremonies.sqlite3` | MADE store (override with `MADE_MCP_STORE_PATH`) |
