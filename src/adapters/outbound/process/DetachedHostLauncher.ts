@@ -17,7 +17,7 @@ export class DetachedHostLauncher implements HostLauncher {
     const fd = openSync(log, "a", 0o600);
     try {
       fchmodSync(fd, 0o600);
-      spawn(process.execPath, [this.#entry, project.root.value], { cwd: "/", env: this.#env, detached: true, stdio: ["ignore", fd, fd] }).unref();
+      spawn(process.execPath, ["--disable-warning=ExperimentalWarning", this.#entry, project.root.value], { cwd: "/", env: this.#env, detached: true, stdio: ["ignore", fd, fd] }).unref();
     } finally {
       closeSync(fd);
     }

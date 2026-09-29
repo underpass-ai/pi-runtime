@@ -11,6 +11,7 @@ export interface McpConnection {
   readonly protocol: ProtocolVersion;
   catalog(): Promise<ToolCatalog>;
   call(tool: ToolName, args: Record<string, unknown>): Promise<ToolOutcome>;
-  onExit(listener: () => void): void;
+  // code: código de salida del proceso, null si no se conoce (señal, error al arrancar, stdin roto).
+  onExit(listener: (code: number | null) => void): void;
   close(): Promise<void>;
 }

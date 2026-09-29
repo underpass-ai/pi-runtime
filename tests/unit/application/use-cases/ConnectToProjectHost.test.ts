@@ -5,7 +5,7 @@ import { Project } from "../../../../src/domain/project/Project.ts";
 import { ProjectRoot } from "../../../../src/domain/project/ProjectRoot.ts";
 
 const project = Project.of(ProjectRoot.of("/repo"));
-const gateway = { catalog: async () => { throw new Error(); }, call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), close: () => {} };
+const gateway = { catalog: async () => { throw new Error(); }, call: async () => ({ structured: null, text: "" }), health: async () => ({ project: "/repo", started: [] }), record: async () => {}, summary: async () => ({ summary: null, logPosition: 0, sessionChainIntact: true }), close: () => {}, onClose: () => {} };
 
 test("conecta sin lanzar si el host ya escucha", async () => {
   let launches = 0;

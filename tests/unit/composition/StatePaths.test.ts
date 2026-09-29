@@ -44,3 +44,11 @@ test("una ruta resultante relativa es un error, nunca un directorio dentro del r
   assert.throws(() => new StatePaths({ HOME: "/h", MADE_SETUP_CONFIG_ROOT: "rel" }).madeConfigRoot(), /MADE_SETUP_CONFIG_ROOT/);
   assert.throws(() => new StatePaths({ HOME: "/h", MADE_MCP_STORE_PATH: "rel.sqlite3" }).madeStore(), /MADE_MCP_STORE_PATH/);
 });
+
+test("log de eventos y spool dentro del directorio del proyecto", () => {
+  const p = Project.of(ProjectRoot.of("/repo"));
+  const s = new StatePaths({ HOME: "/h", XDG_STATE_HOME: "/s" });
+  assert.equal(s.eventLogOf(p), `/s/pi-runtime/projects/${p.id}/events.sqlite3`);
+  assert.equal(s.spoolDirOf(p), `/s/pi-runtime/projects/${p.id}/spool`);
+  assert.throws(() => new StatePaths({}).eventLogOf(p), /absolute/);
+});

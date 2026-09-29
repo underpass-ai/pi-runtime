@@ -17,6 +17,8 @@ export class StatePaths {
   projectDir(p: Project): string { return join(this.root(), "projects", p.id.value); }
   socketOf(p: Project): string { return join(this.projectDir(p), "host.sock"); }
   hostLogOf(p: Project): string { return join(this.projectDir(p), "host.log"); }
+  eventLogOf(p: Project): string { return join(this.projectDir(p), "events.sqlite3"); }
+  spoolDirOf(p: Project): string { return join(this.projectDir(p), "spool"); }
   binDir(): string { return join(this.#xdg("XDG_DATA_HOME", ".local/share"), "pi-runtime", "bin"); }
   fingerprintsFile(): string { return join(this.root(), "fingerprints.json"); }
 

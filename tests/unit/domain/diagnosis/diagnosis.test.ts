@@ -20,6 +20,7 @@ test("report acumula, detecta FAIL y conserva orden de secciones", () => {
   assert.ok(Check.fail(CheckSection.PI, n, d).status.equals(CheckStatus.FAIL));
   assert.throws(() => CheckName.of(""), DomainError);
   assert.throws(() => CheckSection.of("db"), DomainError);
+  assert.equal(CheckSection.of("events"), CheckSection.EVENTS);
 });
 
 test("deriva de huellas: nueva, igual y cambiada", () => {
