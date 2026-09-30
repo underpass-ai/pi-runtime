@@ -9,17 +9,19 @@ import type { MadeScope } from "./MadeScope.ts";
 const AUTO = new Set([
   "get_status", "discover_capabilities", "get_help", "list_contracts", "list_ceremony_instances", "get_ceremony_instance", "get_ceremony_transcript",
   "read_ceremony_events", "get_artifact", "list_artifacts", "read_artifact_chunk", "get_budget_report", "get_metrics", "explain_ceremony_draft",
-  "validate_ceremony_draft", "diff_ceremony_definitions", "design_ceremony",
+  "validate_ceremony_draft", "diff_ceremony_definitions", "design_ceremony", "list_ceremony_definitions", "get_ceremony_definition",
 ]);
 const NEVER = new Set(["issue_authorization_grant", "revoke_authorization_grant", "approve_authorization_operation", "get_authorization_policy", "list_authorization_decisions"]);
-// S3a §0.4: las únicas acciones que MADE 0.8.0 sólo autoriza con alcance global y que el host
-// concede así. Cualquier otra decisión con alcance global se queda en la denegación original.
-const GLOBAL_EXCEPTION = new Set(["design_ceremony", "list_contracts", "diff_ceremony_definitions"]);
+// S3a §0.4: las únicas acciones que MADE (0.8.0 y 0.9.0) sólo autoriza con alcance global y que el
+// host concede así. list_ceremony_definitions (0.9.0) decide global también con el filtro
+// `ceremony`. get_ceremony_definition no está aquí: MADE la decide con alcance a la definición
+// {name, version}. Cualquier otra decisión con alcance global se queda en la denegación original.
+const GLOBAL_EXCEPTION = new Set(["design_ceremony", "list_contracts", "diff_ceremony_definitions", "list_ceremony_definitions"]);
 
 // F3: las escrituras de ejecución sobre una instancia. Siguen siendo confirm, salvo sobre una
 // instancia que arrancó la propia sesión con una confirmación: ahí el host las concede solas, con
 // un grant de alcance a esa instancia. Son las que la fase run expone (determinado contra
-// made-mcp 0.8.0: complete no pide grant propio, pero se incluye por si una versión lo exige).
+// made-mcp 0.8.0 y 0.9.0: complete no pide grant propio, pero se incluye por si una versión lo exige).
 const INSTANCE_EXECUTION = new Set(["claim_ceremony_step", "complete_ceremony_step", "apply_ceremony_transition"]);
 const START = "made_start_published_ceremony";
 

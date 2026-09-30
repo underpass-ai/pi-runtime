@@ -27,7 +27,7 @@ const NOW = Timestamp.fromEpochMs(1_000_000);
 
 test("clases: lecturas y borrador auto, escritura y lo desconocido confirm, administración never", () => {
   const p = MadeActionPolicy.standard();
-  for (const n of ["made_get_status", "made_design_ceremony", "made_validate_ceremony_draft", "made_list_contracts", "made_get_budget_report", "made_diff_ceremony_definitions"]) assert.equal(p.classify(tool(n)), MadeActionClass.AUTO, n);
+  for (const n of ["made_get_status", "made_design_ceremony", "made_validate_ceremony_draft", "made_list_contracts", "made_get_budget_report", "made_diff_ceremony_definitions", "made_list_ceremony_definitions", "made_get_ceremony_definition"]) assert.equal(p.classify(tool(n)), MadeActionClass.AUTO, n);
   for (const n of ["made_publish_ceremony_definition", "made_start_ceremony", "made_run_ceremony_step", "made_cancel_ceremony", "made_tombstone_artifact", "made_brand_new_verb"]) assert.equal(p.classify(tool(n)), MadeActionClass.CONFIRM, n);
   for (const n of ["made_issue_authorization_grant", "made_revoke_authorization_grant", "made_approve_authorization_operation", "made_get_authorization_policy", "made_list_authorization_decisions", "kmp_ask"]) assert.equal(p.classify(tool(n)), MadeActionClass.NEVER, n);
 });
@@ -129,7 +129,9 @@ test("motivos de revocación", () => {
 
 test("la excepción global sólo cubre las tres acciones de S3a §0.4; cualquier otra con alcance global no se concede", () => {
   const p = MadeActionPolicy.standard();
-  for (const a of ["design_ceremony", "list_contracts", "diff_ceremony_definitions"]) assert.equal(p.grantable(MadeAction.of(a), MadeScope.GLOBAL), true, a);
+  for (const a of ["design_ceremony", "list_contracts", "diff_ceremony_definitions", "list_ceremony_definitions"]) assert.equal(p.grantable(MadeAction.of(a), MadeScope.GLOBAL), true, a);
+  assert.equal(p.grantable(MadeAction.of("get_ceremony_definition"), MadeScope.GLOBAL), false, "leer una definición: sólo con alcance a ella");
+  assert.equal(p.grantable(MadeAction.of("get_ceremony_definition"), MadeScope.parse(DEF)), true);
   for (const a of ["list_ceremony_instances", "get_metrics", "publish_ceremony_definition", "start_ceremony", "validate_ceremony_draft"]) assert.equal(p.grantable(MadeAction.of(a), MadeScope.GLOBAL), false, a);
   assert.equal(p.grantable(MadeAction.of("validate_ceremony_draft"), MadeScope.parse(DEF)), true, "fuera de global manda la clase");
   assert.equal(p.grantable(MadeAction.of("start_ceremony"), MadeScope.parse({ kind: "ceremony", ceremony_id: "c-1" })), true);

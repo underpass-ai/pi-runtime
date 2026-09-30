@@ -7,7 +7,7 @@ import type { UnixSocketHostGateway } from "../../src/adapters/outbound/ipc/Unix
 import { SessionId } from "../../src/domain/events/SessionId.ts";
 import { ServerName } from "../../src/domain/mcp/ServerName.ts";
 
-// F3 contra made-mcp 0.8.0 real, por el host real: una ceremonia mínima de dos pasos host_callback
+// F3 contra made-mcp 0.9.0 real, por el host real: una ceremonia mínima de dos pasos host_callback
 // diseñada y publicada en la misma sesión, arrancada en la fase run con UNA confirmación y llevada
 // a su terminal sin más preguntas (reclamar, completar, transición, dos veces).
 const DESIGN = { name: "pi_runtime_run_smoke", objective: "Smoke-test running a published ceremony from Pi.", required_inputs: ["brief"], outputs: ["verdict"],
@@ -20,7 +20,7 @@ const confirmThen = async (gw: UnixSocketHostGateway, tool: string, args: Record
   return gw.call(ServerName.MADE, t(tool), args, { ...ctx, confirmation: token });
 };
 
-test("made-mcp 0.8.0: fase run, una sola confirmación al arrancar y la ceremonia llega a su terminal; grants de instancia revocados", { skip, timeout: 180_000 }, async () => {
+test("made-mcp 0.9.0: fase run, una sola confirmación al arrancar y la ceremonia llega a su terminal; grants de instancia revocados", { skip, timeout: 180_000 }, async () => {
   const i = install();
   const h = await start(i);
   try {
@@ -47,6 +47,13 @@ test("made-mcp 0.8.0: fase run, una sola confirmación al arrancar y la ceremoni
         return h.gw.call(ServerName.MADE, t(tool), args, { ...ctx, confirmation: e.confirmation!.token });
       }
     };
+    // 0.9.0: antes de arrancarla, el agente lista las publicadas y lee la definición (sus pasos e
+    // instrucciones), sin preguntar: listar con alcance global, leer con alcance a la definición.
+    const listed = (await call("made_list_ceremony_definitions", {}, run)).structured as { definitions: { ceremony: string; version: string; step_count: number }[] };
+    assert.deepEqual(listed.definitions.map((d) => [d.ceremony, d.version, d.step_count]), [["pi_runtime_run_smoke", "1.0", 2]]);
+    const definition = (await call("made_get_ceremony_definition", { ceremony: "pi_runtime_run_smoke", version: "1.0" }, run)).structured as { definition_yaml: string };
+    assert.match(definition.definition_yaml, /prompt: Draft a verdict\./);
+    assert.match(definition.definition_yaml, /prompt: Confirm the verdict\./);
     let instance = (await call("made_start_published_ceremony", startArgs, run)).structured as Instance;
     assert.equal(instance.lifecycle, "running");
 
@@ -86,6 +93,9 @@ test("made-mcp 0.8.0: fase run, una sola confirmación al arrancar y la ceremoni
     assert.deepEqual(s1.filter((f) => f.type === "made.ceremony_ended").map((f) => f.payload), [{ ceremonyId: "run-smoke-1", endReason: "completed" }]);
     const instanceGrants = s1.filter((f) => f.type === "made.grant_issued" && (f.payload.scope as { ceremony_id?: string }).ceremony_id === "run-smoke-1");
     assert.deepEqual(instanceGrants.map((f) => [f.payload.action, f.payload.class]).sort(), [["apply_ceremony_transition", "auto"], ["claim_ceremony_step", "auto"], ["get_ceremony_instance", "auto"], ["start_published_ceremony", "confirm"]]);
+    const reads = s1.filter((f) => f.type === "made.grant_issued" && ["list_ceremony_definitions", "get_ceremony_definition"].includes(f.payload.action as string));
+    assert.deepEqual(reads.map((f) => [f.payload.action, f.payload.class, f.payload.scope]), [["list_ceremony_definitions", "auto", { kind: "global" }],
+      ["get_ceremony_definition", "auto", { kind: "definition", name: "pi_runtime_run_smoke", version: "1.0" }]]);
     const revoked = new Map(facts.filter((f) => f.type === "made.grant_revoked").map((f) => [f.payload.grantId, f.payload.reason]));
     // La lectura tras el terminal se concede como cualquier lectura (auto hasta el cierre de la sesión).
     const readGrant = instanceGrants.find((g) => g.payload.action === "get_ceremony_instance")!;

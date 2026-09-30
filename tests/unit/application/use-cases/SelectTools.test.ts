@@ -57,7 +57,7 @@ test("shadow por defecto: registra la decisión y devuelve el mínimo y las cand
   const [first, second] = h.decisions();
   assert.deepEqual(first.p.context, { phase: "interactive", project: PROJECT });
   assert.equal(first.p.seed, first.id.value, "la semilla es el event_id del propio hecho");
-  assert.deepEqual([second.p.mode, second.p.control, second.p.k, (second.p.candidates as string[]).length], ["shadow", false, 12, 18]);
+  assert.deepEqual([second.p.mode, second.p.control, second.p.k, (second.p.candidates as string[]).length], ["shadow", false, 12, 20]);
 });
 
 test("aprende: tras decisiones con éxitos y fallos, active con k=4 elige las útiles", () => {
@@ -122,7 +122,7 @@ test("si el bandit no se puede leer, fallback sin hecho; si falla la decisión, 
   assert.equal(h.decisions().length, 0);
   failOn = ToolStatsProjection.NAME.value;
   const d = h.select.execute(S1, Phase.DESIGN);
-  assert.deepEqual([d.mode, d.selected.length], ["fallback", 18]);
+  assert.deepEqual([d.mode, d.selected.length], ["fallback", 20]);
   assert.deepEqual(h.decisions().map((x) => x.p.mode), ["fallback"]);
 });
 
@@ -135,7 +135,7 @@ test("el catálogo conocido quita las tools que ya no existen y da los bytes de 
   const d = h.select.execute(S1, Phase.DESIGN);
   assert.deepEqual(d.floor, ["kmp_ask"], "kmp_wake desapareció del catálogo de KMP");
   assert.ok(d.selected.includes("kmp_time") && !d.selected.includes("kmp_trace"));
-  assert.equal(d.selected.filter((t) => t.startsWith("made_")).length, 7, "sin catálogo de MADE conocido no se filtra");
+  assert.equal(d.selected.filter((t) => t.startsWith("made_")).length, 9, "sin catálogo de MADE conocido no se filtra");
   const bytes = h.decisions()[0].p.schemaBytes as { full: number; exposed: number };
   const size = (n: string) => catalogs.bytesOf(tool(n).name);
   assert.equal(size("kmp_time"), JSON.stringify({ name: "kmp_time", description: "kmp_time tool", inputSchema: { type: "object" } }).length);

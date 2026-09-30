@@ -48,7 +48,7 @@ test("el mínimo fijo sólo entra si la fase lo permite y nunca es candidata", (
   assert.equal(candidates.length, 11);
   assert.ok(!candidates.includes("kmp_ask") && !candidates.includes("kmp_wake"));
   const design = PhaseToolSelection.standard().allowed(Phase.DESIGN).map(String);
-  assert.equal(design.length, 20);
+  assert.equal(design.length, 22);
   assert.ok(!design.includes("made_claim_ceremony_step"), "los verbos de control de MADE nunca están en una fase");
   const custom = SelectionFloor.of(t(["made_get_status"]));
   assert.deepEqual(custom.within(t(["kmp_ask", "made_get_status"])).map(String), ["made_get_status"]);

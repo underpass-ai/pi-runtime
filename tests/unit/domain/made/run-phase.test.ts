@@ -37,6 +37,9 @@ test("clases en run: arrancar y las escrituras de ejecución son confirm; leer l
   const p = MadeActionPolicy.standard();
   for (const n of ["made_start_published_ceremony", "made_claim_ceremony_step", "made_complete_ceremony_step", "made_apply_ceremony_transition"]) assert.equal(p.admits(tool(n), Phase.RUN), MadeActionClass.CONFIRM, n);
   assert.equal(p.admits(tool("made_get_ceremony_instance"), Phase.RUN), MadeActionClass.AUTO);
+  // 0.9.0: leer la publicada antes de arrancarla (sus pasos e instrucciones), en design y en run.
+  for (const n of ["made_list_ceremony_definitions", "made_get_ceremony_definition"]) for (const ph of [Phase.DESIGN, Phase.RUN]) assert.equal(p.admits(tool(n), ph), MadeActionClass.AUTO, `${n} ${ph.value}`);
+  assert.equal(p.admits(tool("made_get_ceremony_definition"), Phase.INTERACTIVE), null);
   assert.equal(p.admits(tool("made_claim_ceremony_step"), Phase.DESIGN), null, "fuera de run no se concede");
   assert.ok(p.startsCeremony(tool("made_start_published_ceremony")));
   assert.ok(!p.startsCeremony(tool("made_start_ceremony")));
@@ -54,7 +57,7 @@ test("retenidas: las escrituras de ejecución fuera de una fase que las exponga,
   assert.ok(!p.withheld(tool("kmp_ask"), null));
 });
 
-test("alcance de instancia: la forma exacta de MADE 0.8.0 y su id", () => {
+test("alcance de instancia: la forma exacta de MADE 0.8.0 y 0.9.0 y su id", () => {
   const id = CeremonyId.of("smoke-1");
   const scope = MadeScope.ceremony(id);
   assert.deepEqual(scope.toJson(), { kind: "ceremony", ceremony_id: "smoke-1" });
