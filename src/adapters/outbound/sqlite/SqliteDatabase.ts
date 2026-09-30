@@ -22,9 +22,23 @@ export class SqliteDatabase {
   static open(path: string): SqliteDatabase {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const db = new DatabaseSync(path);
-    db.exec("PRAGMA busy_timeout=10000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
-    db.exec(SCHEMA);
+    db.exec("PRAGMA busy_timeout=10000;");
+    // Pasar a WAL (y el primer DDL) con otra conexión abriendo el mismo fichero nuevo puede
+    // devolver SQLITE_BUSY sin pasar por el busy handler: se reintenta dentro del mismo plazo.
+    SqliteDatabase.#whileBusy(() => db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"));
+    SqliteDatabase.#whileBusy(() => db.exec(SCHEMA));
     return new SqliteDatabase(db);
+  }
+
+  static #whileBusy(work: () => void, budgetMs = 10_000): void {
+    const deadline = Date.now() + budgetMs;
+    for (let pause = 5; ; pause = Math.min(pause * 2, 200)) {
+      try { work(); return; }
+      catch (e) {
+        if (!/database is locked|SQLITE_BUSY/.test((e as Error).message) || Date.now() >= deadline) throw e;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pause);
+      }
+    }
   }
 
   // Lectura sin efectos sobre el log: ni crea el fichero, ni ejecuta el DDL,

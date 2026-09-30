@@ -11,7 +11,7 @@ import { ToolSuccess } from "../../src/domain/mcp/ToolSuccess.ts";
 
 const skip = !MADE_BIN && "UNDERPASS_MADE_MCP_BIN not set";
 
-test("made-mcp 0.9.0: handshake, perfiles y capacidades", { skip }, async () => {
+test("made-mcp 0.9.1: handshake, perfiles y capacidades", { skip }, async () => {
   const c = await openMade();
   try {
     assert.equal(c.protocol.value, "2024-11-05");
@@ -20,7 +20,7 @@ test("made-mcp 0.9.0: handshake, perfiles y capacidades", { skip }, async () => 
     const r = await c.call(ToolName.of("made_discover_capabilities"), {});
     assert.ok(r instanceof ToolSuccess);
     const caps = new MadeCapabilitiesMapper().toDomain(r.structured as never);
-    assert.equal(caps.serverVersion.value, "0.9.0");
+    assert.equal(caps.serverVersion.value, "0.9.1");
     assert.ok(caps.declares(DeclaredLimitId.ROSTER_PROCESS_LOCAL));
     console.log(`P0 made tools=${cat.names().length} fingerprint=${cat.fingerprint()} groups=${caps.groups.join(",")} limits=${caps.limits.join(",")}`);
   } finally { await c.close(); }
