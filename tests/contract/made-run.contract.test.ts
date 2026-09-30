@@ -7,7 +7,7 @@ import type { UnixSocketHostGateway } from "../../src/adapters/outbound/ipc/Unix
 import { SessionId } from "../../src/domain/events/SessionId.ts";
 import { ServerName } from "../../src/domain/mcp/ServerName.ts";
 
-// F3 contra made-mcp 0.9.0 real, por el host real: una ceremonia mínima de dos pasos host_callback
+// F3 contra made-mcp 0.9.1 real, por el host real: una ceremonia mínima de dos pasos host_callback
 // diseñada y publicada en la misma sesión, arrancada en la fase run con UNA confirmación y llevada
 // a su terminal sin más preguntas (reclamar, completar, transición, dos veces).
 const DESIGN = { name: "pi_runtime_run_smoke", objective: "Smoke-test running a published ceremony from Pi.", required_inputs: ["brief"], outputs: ["verdict"],
@@ -20,7 +20,7 @@ const confirmThen = async (gw: UnixSocketHostGateway, tool: string, args: Record
   return gw.call(ServerName.MADE, t(tool), args, { ...ctx, confirmation: token });
 };
 
-test("made-mcp 0.9.0: fase run, una sola confirmación al arrancar y la ceremonia llega a su terminal; grants de instancia revocados", { skip, timeout: 180_000 }, async () => {
+test("made-mcp 0.9.1: fase run, una sola confirmación al arrancar y la ceremonia llega a su terminal; grants de instancia revocados", { skip, timeout: 180_000 }, async () => {
   const i = install();
   const h = await start(i);
   try {

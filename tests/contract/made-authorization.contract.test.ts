@@ -16,7 +16,7 @@ import { fact } from "../support/recordFixtures.ts";
 const DESIGN = { name: "s3a_contract", objective: "Review a change.", required_inputs: ["brief"], outputs: ["verdict"], participants: [{ role_id: "REVIEWER" }],
   stages: [{ id: "review", owner_role_id: "REVIEWER", instructions: "Review it." }] };
 
-test("made-mcp 0.9.0 por el host real: lecturas automáticas, publicar con confirmación, rechazo, revocación al cerrar", { skip, timeout: 120_000 }, async () => {
+test("made-mcp 0.9.1 por el host real: lecturas automáticas, publicar con confirmación, rechazo, revocación al cerrar", { skip, timeout: 120_000 }, async () => {
   const i = install();
   const h = await start(i);
   try {
@@ -101,7 +101,7 @@ test("made-mcp 0.9.0 por el host real: lecturas automáticas, publicar con confi
   } finally { await stop(h); i.cleanup(); }
 });
 
-test("made-mcp 0.9.0: al arrancar, el host revoca los grants que dejó vivos otro host de una sesión ya cerrada", { skip, timeout: 120_000 }, async () => {
+test("made-mcp 0.9.1: al arrancar, el host revoca los grants que dejó vivos otro host de una sesión ya cerrada", { skip, timeout: 120_000 }, async () => {
   const i = install();
   let h = await start(i);
   try {
