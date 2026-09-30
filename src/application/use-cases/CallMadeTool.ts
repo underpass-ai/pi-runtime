@@ -66,7 +66,7 @@ export class CallMadeTool {
     const d = this.#d;
     if (d.policy.classify(tool).equals(MadeActionClass.NEVER)) return ToolRefusal.of(RESERVED, `${tool.value} is reserved to the pi-runtime host and never runs for a session`, false);
     if (context !== null && d.policy.withheld(tool, context.phase)) return ToolRefusal.of(OUT_OF_PHASE, `${tool.value} runs only in the run phase (/underpass-phase run)`, false);
-    // MADE 0.8.0 sólo decide un arranque sin ceremony_id con alcance global, que nunca se concede:
+    // MADE (0.8.0 y 0.9.0) sólo decide un arranque sin ceremony_id con alcance global, que nunca se concede:
     // se dice qué falta en vez de devolver una denegación opaca.
     if (context !== null && d.policy.startsCeremony(tool) && d.policy.admits(tool, context.phase) !== null && CeremonyId.maybe(args.ceremony_id) === null) {
       return ToolRefusal.of(INVALID, `${tool.value} needs a ceremony_id: MADE authorizes starting a ceremony only for a named instance; choose an id and call again`, false);

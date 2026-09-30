@@ -5,9 +5,9 @@
       "aarch64-unknown-linux-gnu": "1eb1e9ee366c8fb1d20172c67786a70ea53108c415f8db8c9437243329f971af",
       "x86_64-unknown-linux-gnu": "3ae44e6b37b5c247a055dad416e1ccbc3cdbdf3ea2e5a0cc0caeaec809e69e1d",
       "aarch64-apple-darwin": "77ef7ee76761f41c1566b26c0ec192b23226f800f9472002adcb44421103079e" } },
-    { "name": "made-mcp", "version": "0.8.0", "repo": "underpass-ai/made", "sha256": {
-      "aarch64-unknown-linux-gnu": "a3f1cf2223fedafb5584ad56e4ca0870179c6abce3b315ac988b13d5d91dbafa",
-      "x86_64-unknown-linux-gnu": "c2bba7b3e75543b1cbea5a5bdde27acde5eb9182ed1aeabcfdccaf048bed8db2",
-      "aarch64-apple-darwin": "f497abd8bf2ea303cc5aabdf857131d172d40035010cbca09f982df40f293a44" } }
+    { "name": "made-mcp", "version": "0.9.0", "repo": "underpass-ai/made", "sha256": {
+      "aarch64-unknown-linux-gnu": "9111fc941e03d9340b52c84dc5804dea012619cd165b4ce5334886e6b9dd8844",
+      "x86_64-unknown-linux-gnu": "b6c9e0575e2159960318681ddcb9518092989253cf939a1ddd2e48cebb7bbec4",
+      "aarch64-apple-darwin": "641c1116c8dc5e9bf70b6e77860c7c2f96da27405e6eee7a0ee06bf8206ba330" } }
   ]
 }

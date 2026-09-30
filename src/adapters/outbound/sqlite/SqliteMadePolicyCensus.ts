@@ -6,7 +6,7 @@ import type { StorePath } from "../../../domain/made/StorePath.ts";
 
 const OURS = "pi-runtime-";
 
-// Lee el store de MADE en sólo lectura (tabla authorization_policy_state de made-mcp 0.8.0, cuyo
+// Lee el store de MADE en sólo lectura (tabla authorization_policy_state de made-mcp 0.8.0 y 0.9.0, cuyo
 // payload es el JSON con los eventos de cada política): nunca lo crea ni lo modifica; cualquier
 // fallo es "no se sabe". Un payload ilegible cuenta como política sin grants.
 export class SqliteMadePolicyCensus implements MadePolicyCensus {

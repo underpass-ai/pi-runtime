@@ -3,7 +3,7 @@ import { DomainError } from "../shared/DomainError.ts";
 import { ToolRefusal } from "../mcp/ToolRefusal.ts";
 
 const DENIAL = /^authorization decision ([0-9a-f]{64}) denied the operation$/;
-// El código con el que MADE 0.8.0 niega por autorización (ToolError::refused en made-mcp).
+// El código con el que MADE 0.8.0 y 0.9.0 niegan por autorización (ToolError::refused en made-mcp).
 const REFUSED = "refused";
 
 // Id de una decisión de autorización de MADE (sha256 en hex).
@@ -14,7 +14,7 @@ export class MadeDecisionId extends ValueObject<string> {
     return new MadeDecisionId(raw);
   }
 
-  // La denegación de MADE 0.8.0 en modo embebido: negativa con el código `refused` y este mensaje
+  // La denegación de MADE 0.8.0 y 0.9.0 en modo embebido: negativa con el código `refused` y este mensaje
   // exacto. El texto solo, con otro código, no es una denegación: pasa tal cual.
   static fromDenial(refusal: ToolRefusal): MadeDecisionId | null {
     if (!(refusal instanceof ToolRefusal) || refusal.code.value !== REFUSED) return null;

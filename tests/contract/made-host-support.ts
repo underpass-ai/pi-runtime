@@ -1,4 +1,4 @@
-// Host real de pi-runtime con made-mcp 0.8.0 sobre una instalación aislada (HOME, XDG y proyecto
+// Host real de pi-runtime con made-mcp 0.9.0 sobre una instalación aislada (HOME, XDG y proyecto
 // temporales), compartido por los contratos de S3a y F3.
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";

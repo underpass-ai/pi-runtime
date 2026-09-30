@@ -2,8 +2,11 @@ import { ToolName } from "../mcp/ToolName.ts";
 import { Phase } from "./Phase.ts";
 
 const KMP_INTERACTIVE = ["kmp_guide", "kmp_wake", "kmp_ask", "kmp_time", "kmp_trace", "kmp_inspect", "kmp_relate", "kmp_write_memory", "kmp_relabel", "kmp_condense", "kmp_view_open", "kmp_view_get_state", "kmp_view_apply_intent"];
-const MADE_DESIGN = ["made_design_ceremony", "made_validate_ceremony_draft", "made_explain_ceremony_draft", "made_diff_ceremony_definitions", "made_publish_ceremony_definition", "made_list_contracts", "made_get_help"];
-// F3, determinado contra made-mcp 0.8.0: arrancar una publicada (con ceremony_id: sin él, MADE
+// Con made-mcp 0.9.0, además, listar las publicadas y leer una (sus pasos e instrucciones): en design
+// para partir de una existente; en run, para saber qué pide cada paso antes de arrancarla.
+const MADE_DESIGN = ["made_design_ceremony", "made_validate_ceremony_draft", "made_explain_ceremony_draft", "made_diff_ceremony_definitions", "made_publish_ceremony_definition", "made_list_contracts", "made_get_help",
+  "made_list_ceremony_definitions", "made_get_ceremony_definition"];
+// F3, determinado contra made-mcp 0.8.0 y comprobado igual en 0.9.0: arrancar una publicada (con ceremony_id: sin él, MADE
 // sólo decide con alcance global y no lo admite), reclamar y completar cada paso host_callback y
 // aplicar la transición habilitada hasta el terminal. get_ceremony_instance, para releer el estado.
 const MADE_RUN = ["made_start_published_ceremony", "made_get_ceremony_instance", "made_claim_ceremony_step", "made_complete_ceremony_step", "made_apply_ceremony_transition"];

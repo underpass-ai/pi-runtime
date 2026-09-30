@@ -28,9 +28,9 @@ const store = StorePath.of("/s/ceremonies.sqlite3");
 const profiles = ToolProfiles.standard();
 const catalogFor = (s: ServerName) => ToolCatalog.of(s, ServerIdentity.of("x", SemVer.of("1.0.0")),
   [...new Set(profiles.forServer(s).flatMap((p) => p.required.map(String)))].map((n) => new McpToolMapper().toDomain({ name: n, inputSchema: {} })));
-const connection = (s: ServerName) => ({ server: s, identity: ServerIdentity.of("x", SemVer.of("0.8.0")), protocol: null as never, onExit() {}, close: async () => {},
+const connection = (s: ServerName) => ({ server: s, identity: ServerIdentity.of("x", SemVer.of("0.9.0")), protocol: null as never, onExit() {}, close: async () => {},
   catalog: async () => catalogFor(s),
-  call: async () => ToolSuccess.of({ schema_version: "1.0", server: { version: "0.8.0" }, declared_limits: [{ id: "agent_roster_is_process_local" }] }, "") });
+  call: async () => ToolSuccess.of({ schema_version: "1.0", server: { version: "0.9.0" }, declared_limits: [{ id: "agent_roster_is_process_local" }] }, "") });
 
 function deps(overrides: Record<string, unknown> = {}) {
   let saved: Map<string, unknown> | null = null;

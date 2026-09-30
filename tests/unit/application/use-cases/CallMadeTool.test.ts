@@ -128,7 +128,19 @@ test("never: la administración de la autorización nunca llega a MADE por el IP
   assert.deepEqual(h.made.calls, []);
 });
 
-test("alcance global: sólo design_ceremony, list_contracts y diff_ceremony_definitions; otra acción global se queda en la denegación", async () => {
+test("0.9.0: listar las publicadas se concede con alcance global y leer una, con alcance a esa definición; en design y en run", async () => {
+  const h = host();
+  const run = MadeCallContext.of(S1, Phase.RUN);
+  assert.ok(await h.uc.execute(t("made_list_ceremony_definitions"), { ceremony: "pr_review_two_reviewers" }, design()) instanceof ToolSuccess);
+  assert.ok(await h.uc.execute(t("made_get_ceremony_definition"), { ceremony: "pr_review_two_reviewers", version: "1.0" }, run) instanceof ToolSuccess);
+  assert.deepEqual([...h.made.grants.values()].map((g) => [g.actions[0], g.scope]), [
+    ["list_ceremony_definitions", { kind: "global" }], ["get_ceremony_definition", { kind: "definition", name: "pr_review_two_reviewers", version: "1.0" }]]);
+  assert.equal(madeTypes(h.events).filter((x) => x === "made.confirmation").length, 0, "lecturas: sin preguntar");
+  const denied = await h.uc.execute(t("made_get_ceremony_definition"), { ceremony: "otra", version: "1.0" }, MadeCallContext.of(S1, Phase.INTERACTIVE));
+  assert.ok(denied instanceof ToolRefusal && MadeDecisionId.fromDenial(denied) !== null, "fuera de design y run no se concede");
+});
+
+test("alcance global: sólo design_ceremony, list_contracts, diff_ceremony_definitions y list_ceremony_definitions; otra acción global se queda en la denegación", async () => {
   const h = host();
   const denied = (o: unknown) => o instanceof ToolRefusal && MadeDecisionId.fromDenial(o) !== null;
   assert.ok(denied(await h.uc.execute(t("made_validate_ceremony_draft"), {}, design())), "auto con alcance global: no");

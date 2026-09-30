@@ -16,7 +16,7 @@ Decisiones:
 1. **El host es el punto de control.** Cuando MADE deniega una llamada, el host lee la decisión, que le da la acción y el alcance exactos. Si la política de fase lo permite, se emite un grant exacto y reintenta una sola vez. Así Pi no duplica la lógica de alcances de MADE.
 2. **Las acciones de lectura y borrador son automáticas:** grant exacto hasta el cierre de la sesión.
 3. **Las acciones que escriben requieren confirmación humana en la TUI de Pi.** El host emite un grant exacto de 5 minutos, ejecuta la llamada confirmada y revoca el grant en cuanto vuelve (motivo `consumed`, ruling R5): el grant cubre sólo esa llamada, no otras con la misma acción y alcance (de otra sesión o del plugin de Claude, que en el mismo store actúan como el mismo principal). Sin UI, se deniega. No se usa `made_approve_authorization_operation`: en modo embebido quien aprueba no puede ser distinto de quien ejecuta, así que es estructuralmente imposible.
-4. **Excepción temporal para las acciones que MADE 0.8.0 solo autoriza con alcance `global`:** `design_ceremony`, `list_contracts` y `diff_ceremony_definitions`. Se conceden con alcance global, limitadas a esa acción y a la sesión, y se abren issues en MADE para poder acotarlas por definición. La lista es cerrada (`MadeActionPolicy`): cualquier otra acción cuya decisión tenga alcance `global` no se concede nunca y devuelve la denegación original.
+4. **Excepción temporal para las acciones que MADE 0.8.0 solo autoriza con alcance `global`:** `design_ceremony`, `list_contracts` y `diff_ceremony_definitions`; con `made-mcp` 0.9.0 (comprobado contra el binario: las tres siguen igual) se añade `list_ceremony_definitions`, que MADE decide con alcance global incluso con el filtro `ceremony`. `get_ceremony_definition` (0.9.0) no entra: MADE la decide con alcance `definition {name, version}`. Se conceden con alcance global, limitadas a esa acción y a la sesión, y se abren issues en MADE para poder acotarlas por definición. La lista es cerrada (`MadeActionPolicy`): cualquier otra acción cuya decisión tenga alcance `global` no se concede nunca y devuelve la denegación original.
 5. **Auditoría en el log de E1** con hechos nuevos. Antes de añadirlos, los lectores del log deben tolerar tipos desconocidos.
 
 ## 1. Clasificación de acciones
@@ -24,7 +24,7 @@ Decisiones:
 `MadeActionPolicy` (dominio) clasifica cada acción de MADE, con el nombre de la tool sin el prefijo `made_`, en una de tres clases:
 
 - **`auto`: lectura o borrador.** Se concede sola si la fase actual expone la tool.
-  - Lecturas: `get_status`, `discover_capabilities`, `get_help`, `list_contracts`, `list_ceremony_instances`, `get_ceremony_instance`, `get_ceremony_transcript`, `read_ceremony_events`, `get_artifact`, `list_artifacts`, `read_artifact_chunk`, `get_budget_report`, `get_metrics`, `explain_ceremony_draft`, `validate_ceremony_draft`, `diff_ceremony_definitions`.
+  - Lecturas: `get_status`, `discover_capabilities`, `get_help`, `list_contracts`, `list_ceremony_instances`, `get_ceremony_instance`, `get_ceremony_transcript`, `read_ceremony_events`, `get_artifact`, `list_artifacts`, `read_artifact_chunk`, `get_budget_report`, `get_metrics`, `explain_ceremony_draft`, `validate_ceremony_draft`, `diff_ceremony_definitions` y, desde `made-mcp` 0.9.0, `list_ceremony_definitions` y `get_ceremony_definition`.
   - Borrador: `design_ceremony`.
   - El resto de acciones de lectura que ya estén en la lista de fases de S1.
 - **`confirm`: escribe o ejecuta.** Se concede solo con confirmación humana.

@@ -7,7 +7,8 @@
 // temporales (store y configuración de MADE sembrados con made-config.ts):
 //  1. /underpass-phase design: el modelo faux diseña y publica pi_runtime_run_smoke (dos pasos
 //     host_callback); la TUI acepta la publicación (S3a);
-//  2. /underpass-phase run: el modelo arranca la publicada y, leyendo cada instancia que devuelve
+//  2. /underpass-phase run: el modelo lista las publicadas y lee la definición (made-mcp 0.9.0: sus
+//     pasos y el prompt de cada uno, sin preguntar); luego la arranca y, leyendo cada instancia que devuelve
 //     MADE, reclama y completa cada paso y aplica cada transición habilitada hasta el terminal;
 //     la TUI acepta, y se cuenta cuántas veces se pregunta en run (debe ser una: el arranque);
 //  3. /underpass-status por el comando registrado (línea made: y la instancia);
@@ -35,13 +36,21 @@ const DESIGN = {
   stages: [{ id: "draft", owner_role_id: "REVIEWER", instructions: "Draft a verdict on the brief." }, { id: "review", owner_role_id: "REVIEWER", instructions: "Confirm the verdict." }],
 };
 type Instance = { lifecycle?: string; end_reason?: string | null; claimable_step_ids?: string[]; claim_fence?: string; transitions?: { trigger: string; enabled: boolean }[] };
-type Result = { role: string; toolName?: string; isError?: boolean; details?: { definition_yaml?: string } & Instance; content?: { type: string; text?: string }[] };
+type Result = { role: string; toolName?: string; isError?: boolean; details?: { definition_yaml?: string; definitions?: { ceremony: string; version: string }[] } & Instance; content?: { type: string; text?: string }[] };
 const results = (context: { messages: Result[] }) => context.messages.filter((m) => m.role === "toolResult");
 const yaml = (context: { messages: Result[] }) => results(context).find((m) => m.toolName === "made_design_ceremony")?.details?.definition_yaml ?? "";
 const call = (tool: string, args: (c: { messages: Result[] }) => Record<string, unknown>, id: string) =>
   (c: { messages: Result[] }) => ai.fauxAssistantMessage(ai.fauxToolCall(tool, args(c), { id }), { stopReason: "toolUse" });
 let outcomes: { tool: string; error: boolean; head: string }[] = [];
-const snapshot = (c: { messages: Result[] }) => { outcomes = results(c).map((m) => ({ tool: m.toolName ?? "?", error: m.isError === true, head: (m.content ?? []).map((x) => x.text ?? "").join("").slice(0, 160) })); };
+// Leída en run antes de arrancar: la lista trae la publicada y la definición, el prompt de cada paso.
+let readDefinition = false;
+const snapshot = (c: { messages: Result[] }) => {
+  outcomes = results(c).map((m) => ({ tool: m.toolName ?? "?", error: m.isError === true, head: (m.content ?? []).map((x) => x.text ?? "").join("").slice(0, 160) }));
+  const byTool = (t: string) => results(c).find((m) => m.toolName === t && m.isError !== true)?.details;
+  const def = byTool("made_get_ceremony_definition")?.definition_yaml ?? "";
+  readDefinition = readDefinition || ((byTool("made_list_ceremony_definitions")?.definitions ?? []).some((d) => d.ceremony === name && d.version === "1.0")
+    && def.includes("prompt: Draft a verdict on the brief.") && def.includes("prompt: Confirm the verdict."));
+};
 let n = 0;
 // El agente de la fase run: decide el siguiente paso leyendo la última instancia que devolvió MADE.
 const runner = (c: { messages: Result[] }) => {
@@ -101,6 +110,8 @@ const askedInDesign = asked.length;
 await session.prompt("/underpass-phase run");
 const runTools = session.getActiveToolNames().filter((t: string) => t.startsWith("made_")).sort();
 faux.setResponses([
+  call("made_list_ceremony_definitions", () => ({ ceremony: name }), "f3l"),
+  call("made_get_ceremony_definition", () => ({ ceremony: name, version: "1.0" }), "f3g"),
   call("made_start_published_ceremony", () => ({ ceremony: name, version: "1.0", ceremony_id: ceremonyId, actor_id: "pi:f3-acceptance", actor_kind: "agent", context: { brief: "F3 acceptance" } }), "f3s"),
   ...Array.from({ length: 16 }, () => runner),
 ]);
@@ -118,8 +129,10 @@ const tools = outcomes.map((o) => `${o.tool}:${o.error ? `error ${o.head}` : "ok
 const checks = {
   published: designOutcomes.some((o) => o.tool === "made_publish_ceremony_definition" && !o.error),
   runPhaseTools: JSON.stringify(runTools) === JSON.stringify(["made_apply_ceremony_transition", "made_claim_ceremony_step", "made_complete_ceremony_step", "made_design_ceremony",
-    "made_diff_ceremony_definitions", "made_explain_ceremony_draft", "made_get_ceremony_instance", "made_get_help", "made_list_contracts", "made_publish_ceremony_definition",
+    "made_diff_ceremony_definitions", "made_explain_ceremony_draft", "made_get_ceremony_definition", "made_get_ceremony_instance", "made_get_help", "made_list_ceremony_definitions",
+    "made_list_contracts", "made_publish_ceremony_definition",
     "made_start_published_ceremony", "made_validate_ceremony_draft"]),
+  readDefinitionInRun: readDefinition,
   askedOnceInRun: askedInRun.length === 1 && askedInRun[0].startsWith(`MADE: start_published_ceremony | Ceremony "${ceremonyId}"`),
   reachedTerminal: outcomes.every((o) => !o.error) && outcomes.some((o) => o.tool === "made_apply_ceremony_transition") && /ended: completed/.test(String(lastText)),
   statusMadeLine: made !== null && ceremonyLine !== null,

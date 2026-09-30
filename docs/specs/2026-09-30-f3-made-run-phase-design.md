@@ -15,15 +15,23 @@ sesión: `Phase` sólo tiene `interactive` y `design`, `design` sólo expone las
 
 `/underpass-phase run` (con autocompletado) expone lo de `design` más el mínimo para arrancar una
 ceremonia publicada y llevarla a un terminal con pasos `host_callback` hechos por el propio agente
-de Pi. El mínimo se determinó contra `made-mcp` 0.8.0 real (store temporal), no se supuso:
+de Pi. El mínimo se determinó contra `made-mcp` 0.8.0 real (store temporal), no se supuso, y se
+comprobó igual contra 0.9.0:
 
 | Tool | Clase S3a | Por qué |
 |---|---|---|
 | `made_start_published_ceremony` | confirm | Arrancar la publicada. MADE decide su autorización con alcance `ceremony {ceremony_id}`; **sin `ceremony_id` la decide con alcance `global`**, que S3a nunca concede y que, concedido, MADE rechaza igual (`authorized operation scope does not admit this ceremony`). |
 | `made_claim_ceremony_step` | confirm → auto en instancia propia | Reclamar el paso `host_callback`; devuelve el `claim_fence`. Acepta `lease_ttl_ms`, así que la renovación no hace falta para llegar al terminal. |
-| `made_complete_ceremony_step` | confirm → auto en instancia propia | Registrar el resultado con el `claim_fence`. En 0.8.0 no pide grant propio (le basta la reclamación); se incluye en la tabla por si otra versión lo exige. |
+| `made_complete_ceremony_step` | confirm → auto en instancia propia | Registrar el resultado con el `claim_fence`. En 0.8.0 y 0.9.0 no pide grant propio (le basta la reclamación); se incluye en la tabla por si otra versión lo exige. |
 | `made_apply_ceremony_transition` | confirm → auto en instancia propia | Completar un paso no mueve la instancia: la transición habilitada se aplica aparte, hasta el estado terminal. |
 | `made_get_ceremony_instance` | auto | Releer el estado (pasos reclamables, transiciones habilitadas). Cada escritura ya devuelve la instancia; se incluye para retomar tras perder el hilo. |
+
+Con `made-mcp` 0.9.0, `design` (y por tanto `run`) expone además dos lecturas, clase `auto`:
+
+| Tool | Alcance de la decisión (medido contra 0.9.0) | Por qué |
+|---|---|---|
+| `made_list_ceremony_definitions` | `global`, también con el filtro `ceremony` | Ver qué publicadas hay (nombre, versión, número de pasos). Entra en la excepción global de S3a §0.4, como `diff_ceremony_definitions`. |
+| `made_get_ceremony_definition` | `definition {name, version}` (`ceremony` y `version` de la llamada) | Leer la definición publicada, con el `prompt` de cada paso, antes de arrancarla. |
 
 Fuera del mínimo (medidas y descartadas): `renew_ceremony_step_lease` (con `lease_ttl_ms` en la
 reclamación no hace falta; además, en 0.8.0 exige que la autorización de la reclamación siga viva),
@@ -101,17 +109,13 @@ que la sesión no arrancó y un segundo arranque o fin de la misma instancia (ma
   solas; al terminal, `ceremony_ended` y revocación; otra instancia u otra sesión siguen en
   `confirm`; fuera de `run`, `out_of_phase` sin llegar a MADE; arranque sin id; cierre de sesión;
   lector tolerante.
-- **Contrato con `made-mcp` 0.8.0 real** (`tests/contract/made-run.contract.test.ts`): diseñar y
-  publicar `pi_runtime_run_smoke` (dos pasos), arrancarla en `run` con una sola confirmación y
-  llevarla al terminal; grants de instancia revocados en el log y en MADE.
+- **Contrato con `made-mcp` real** (0.9.0 desde que se fija; `tests/contract/made-run.contract.test.ts`):
+  diseñar y publicar `pi_runtime_run_smoke` (dos pasos); en `run`, listar las publicadas y leer la
+  definición (con las instrucciones de los pasos) sin preguntar, con los alcances de §1;
+  arrancarla en `run` con una sola confirmación y llevarla al terminal; grants de instancia revocados en el log y en MADE.
 - **Aceptación en la instalación real:** `docs/acceptance/f3.md`.
 
 ## 7. Fuera de alcance
 
 - Renovar reclamaciones, sentar participantes, cancelar, pausar o reanudar desde Pi.
-- Leer el `prompt` de un paso de una publicada que no se diseñó en la sesión: ni la instancia, ni
-  la reclamación, ni el transcript de 0.8.0 lo devuelven. **Límite conocido:** con 0.8.0, `run`
-  sólo sirve de verdad para ceremonias diseñadas en la misma sesión (el agente conoce sus pasos).
-  MADE 0.9.0 traerá `made_get_ceremony_definition`; cuando pi-runtime fije `made-mcp` 0.9.0 se
-  añadirá a `run` como lectura (`auto`).
 - Guardas humanas (`approve_ceremony_guard`) y el bucle de integrador.

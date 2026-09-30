@@ -2,7 +2,7 @@ import { CanonicalJson } from "../shared/CanonicalJson.ts";
 import { DomainError } from "../shared/DomainError.ts";
 import { CeremonyId } from "./CeremonyId.ts";
 
-// Campos de identidad de cada tipo de alcance de MADE 0.8.0 (esquema de made_issue_authorization_grant).
+// Campos de identidad de cada tipo de alcance de MADE 0.8.0 y 0.9.0 (esquema de made_issue_authorization_grant).
 const FIELDS: Record<string, string[]> = {
   global: [], ceremony: ["ceremony_id"], ceremony_tree: ["root_id"], definition: ["name"], artifact: ["artifact_id"], council: ["council_id"], budget: ["account_id"],
 };
@@ -19,7 +19,7 @@ export class MadeScope {
 
   static readonly GLOBAL = new MadeScope("global", {});
 
-  // El alcance de una instancia de ceremonia (F3): la forma que MADE 0.8.0 pone en las decisiones
+  // El alcance de una instancia de ceremonia (F3): la forma que MADE 0.8.0 y 0.9.0 ponen en las decisiones
   // de start_published_ceremony, claim, transición, lecturas de la instancia…
   static ceremony(id: CeremonyId): MadeScope { return new MadeScope("ceremony", { ceremony_id: id.value }); }
 

@@ -27,7 +27,7 @@ installation ([`docs/acceptance/s1.md`](docs/acceptance/s1.md)):
   session opens in a project, it lazily starts one host for that project.
   Every Pi window on that project shares it (owner lock, `0600` socket in a
   `0700` directory, shutdown when idle).
-- The host runs pinned, sha256-verified `kmp-mcp` 0.24.0 and `made-mcp` 0.8.0
+- The host runs pinned, sha256-verified `kmp-mcp` 0.24.0 and `made-mcp` 0.9.0
   over persistent stdio MCP. It registers their tools in Pi by phase. MADE
   control verbs are never exposed to the model.
 - `underpass setup | doctor | update`. `doctor` only reads.
@@ -127,7 +127,8 @@ authorization policy. When MADE denies a call, the host reads the decision (the
 exact action and scope) and acts on its class:
 
 - **Reads and drafts** (`design_ceremony`, `validate_ceremony_draft`,
-  `explain_ceremony_draft`, `diff_ceremony_definitions`, `list_contracts`…) are
+  `explain_ceremony_draft`, `diff_ceremony_definitions`, `list_contracts`,
+  `list_ceremony_definitions`, `get_ceremony_definition`…) are
   granted on their own, for that exact action and scope, until the session closes
   (12 h at most), and the call is retried once.
 - **Writes** (`publish_ceremony_definition`, starting or advancing ceremonies…)
@@ -137,7 +138,14 @@ exact action and scope) and acts on its class:
 - **Authorization admin** tools are never granted to the model: they are left out of
   the MADE tools Pi sees, and the host refuses them without reaching MADE. Nothing is
   granted for a tool the current phase does not expose, and only `design_ceremony`,
-  `list_contracts` and `diff_ceremony_definitions` are ever granted a global scope.
+  `list_contracts`, `diff_ceremony_definitions` and `list_ceremony_definitions` are
+  ever granted a global scope (`get_ceremony_definition` is scoped to the definition
+  it reads).
+
+In the `design` and `run` phases the agent can list the published definitions
+(`made_list_ceremony_definitions`) and read one, steps and instructions included
+(`made_get_ceremony_definition`), without asking: in `run` it can learn what each
+step of a published ceremony asks for before starting it.
 
 In the `run` phase, starting a published ceremony
 (`made_start_published_ceremony`, with a `ceremony_id`) is the one call you confirm.

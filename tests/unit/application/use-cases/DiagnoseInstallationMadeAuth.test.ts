@@ -19,10 +19,10 @@ import { ToolCatalog } from "../../../../src/domain/mcp/ToolCatalog.ts";
 import { ToolSuccess } from "../../../../src/domain/mcp/ToolSuccess.ts";
 
 const profiles = ToolProfiles.standard();
-const connection = (s: ServerName) => ({ server: s, identity: ServerIdentity.of("x", SemVer.of("0.8.0")), protocol: null as never, onExit() {}, close: async () => {},
+const connection = (s: ServerName) => ({ server: s, identity: ServerIdentity.of("x", SemVer.of("0.9.0")), protocol: null as never, onExit() {}, close: async () => {},
   catalog: async () => ToolCatalog.of(s, ServerIdentity.of("x", SemVer.of("1.0.0")),
     [...new Set(profiles.forServer(s).flatMap((p) => p.required.map(String)))].map((n) => new McpToolMapper().toDomain({ name: n, inputSchema: {} }))),
-  call: async () => ToolSuccess.of({ schema_version: "1.0", server: { version: "0.8.0" }, declared_limits: [{ id: "agent_roster_is_process_local" }] }, "") });
+  call: async () => ToolSuccess.of({ schema_version: "1.0", server: { version: "0.9.0" }, declared_limits: [{ id: "agent_roster_is_process_local" }] }, "") });
 
 test("doctor añade [made-auth] con la misma conexión de MADE que usan los demás checks", async () => {
   const seen: (McpConnection | null)[] = []; const opened: McpConnection[] = [];

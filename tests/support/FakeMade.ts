@@ -16,14 +16,15 @@ type Grant = { grant_id: string; actions: string[]; scope: Record<string, unknow
 const canon = (o: unknown) => CanonicalJson.of(o).text;
 const refuse = (code: string, message: string) => ToolRefusal.of(RefusalCode.of(code), message, false);
 
-// MADE 0.8.0 en modo embebido, en memoria y sólo en lo que S3a toca: un único principal dueño
+// MADE 0.9.0 en modo embebido, en memoria y sólo en lo que S3a toca: un único principal dueño
 // de la política; cada tool de negocio exige un grant de su acción y su alcance (definition si
 // lleva `definition_yaml` con `name:`/`version:`, global si no) y, si no lo hay, deniega con la
 // decisión registrada, que se lee con made_list_authorization_decisions (ids ordenados, cursor exclusivo).
 // F3: con `ceremony_id`, el alcance es el de la instancia (`ceremony`), y las tools de ejecución
-// mantienen una instancia mínima (running → ended). Como en 0.8.0, complete no pide grant propio.
+// mantienen una instancia mínima (running → ended). Como en 0.8.0 y 0.9.0, complete no pide grant
+// propio. get_ceremony_definition (0.9.0) decide con alcance a la definición {ceremony, version}.
 export class FakeMade implements McpConnection {
-  readonly server = ServerName.MADE; readonly identity = ServerIdentity.of("made-mcp", SemVer.of("0.8.0")); readonly protocol = ProtocolVersion.MCP_2024_11_05;
+  readonly server = ServerName.MADE; readonly identity = ServerIdentity.of("made-mcp", SemVer.of("0.9.0")); readonly protocol = ProtocolVersion.MCP_2024_11_05;
   readonly owner = "made-local-host-test";
   readonly grants = new Map<string, Grant>(); readonly revoked = new Set<string>(); readonly calls: string[] = [];
   readonly #decisions = new Map<string, Record<string, unknown>>(); #n = 0;
@@ -79,8 +80,9 @@ export class FakeMade implements McpConnection {
     if (this.refuseBusiness) return refuse("invalid_argument", "invalid definition");
     const action = tool.replace(/^made_/, "");
     const yaml = typeof args.definition_yaml === "string" ? args.definition_yaml : null;
-    const name = yaml === null ? null : /^name: (.+)$/m.exec(yaml)?.[1] ?? null;
-    const version = yaml === null ? null : /^version: "?([^"\n]+)"?$/m.exec(yaml)?.[1] ?? null;
+    const read = action === "get_ceremony_definition" && typeof args.ceremony === "string";
+    const name = read ? args.ceremony as string : yaml === null ? null : /^name: (.+)$/m.exec(yaml)?.[1] ?? null;
+    const version = read ? (args.version as string | undefined) ?? null : yaml === null ? null : /^version: "?([^"\n]+)"?$/m.exec(yaml)?.[1] ?? null;
     const ceremony = typeof args.ceremony_id === "string" ? args.ceremony_id : null;
     const scope = ceremony !== null ? { kind: "ceremony", ceremony_id: ceremony } : name === null ? { kind: "global" } : { kind: "definition", name, version };
     if (action === "complete_ceremony_step" || this.live(action, scope).length > 0) return this.#perform(tool, action, ceremony, args);
