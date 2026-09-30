@@ -6,7 +6,7 @@ import { JsonPinSetSource } from "../../../../src/adapters/outbound/fs/JsonPinSe
 
 test("el pins.json del repo produce un PinSet válido", () => {
   const set = new JsonPinSetSource(new URL("../../../../pins.json", import.meta.url).pathname).load();
-  assert.equal(set.pinFor(BinaryName.MADE).version.value, "0.9.0");
+  assert.equal(set.pinFor(BinaryName.MADE).version.value, "0.9.1");
   assert.equal(set.pi.integrity.value.startsWith("sha512-"), true);
 });
 
